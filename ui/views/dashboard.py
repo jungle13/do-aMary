@@ -1,0 +1,597 @@
+import flet as ft
+import threading
+from config import Config
+from core.supabase_client import SupabaseClient
+import datetime
+
+class DashboardView(ft.Container):
+    def __init__(self):
+        super().__init__()
+        self.expand = True
+        self.db = SupabaseClient()
+        
+        header_row = ft.Row([
+            ft.Column([
+                ft.Text("Dashboard General", size=28, weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Text("Resumen ejecutivo del sistema", size=14, color="grey"),
+            ], spacing=2)
+        ], alignment=ft.MainAxisAlignment.START)
+        
+        # Tarjetas de KPIs (Valores Iniciales) - SECCIÓN COSTOS
+        self.val_inventario = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_compras = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_rotacion = ft.Text("N/D", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_compras_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        
+        self.kpi_costos_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("Costo Inventario Actual", self.val_inventario, ft.icons.INVENTORY_2), col={"xs": 12, "sm": 6, "md": 3}),
+            ft.Container(content=self._build_kpi_card("Total Compras (Mes)", self.val_compras, ft.icons.SHOPPING_BAG), col={"xs": 12, "sm": 6, "md": 3}),
+            ft.Container(content=self._build_kpi_card("Rotación Inventario", self.val_rotacion, ft.icons.SYNC), col={"xs": 12, "sm": 6, "md": 3}),
+            ft.Container(content=self._build_kpi_card("Costos de Compras (Hoy)", self.val_compras_hoy, ft.icons.MONEY_OFF), col={"xs": 12, "sm": 6, "md": 3}),
+        ], spacing=15, run_spacing=15)
+        
+        # SECCIÓN VENTAS
+        self.val_ingresos = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_ventas_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_rentabilidad = ft.Text("0.0%", size=24, weight="bold", color="#2ecca0")
+        self.val_proyeccion_ventas = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_proyeccion_rentabilidad = ft.Text("0.0%", size=24, weight="bold", color="#2ecca0")
+        
+        self.kpi_ventas_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("Total Ventas (Mes)", self.val_ingresos, ft.icons.TRENDING_UP), col={"xs": 12, "sm": 6, "md": 2.4}),
+            ft.Container(content=self._build_kpi_card("Total Ventas (Hoy)", self.val_ventas_hoy, ft.icons.ATTACH_MONEY), col={"xs": 12, "sm": 6, "md": 2.4}),
+            ft.Container(content=self._build_kpi_card("Rentabilidad Bruta", self.val_rentabilidad, ft.icons.PIE_CHART_OUTLINE), col={"xs": 12, "sm": 6, "md": 2.4}),
+            ft.Container(content=self._build_kpi_card("Proyección de Ventas", self.val_proyeccion_ventas, ft.icons.SHOW_CHART), col={"xs": 12, "sm": 6, "md": 2.4}),
+            ft.Container(content=self._build_kpi_card("Proy. de Rentabilidad", self.val_proyeccion_rentabilidad, ft.icons.STAR_BORDER), col={"xs": 12, "sm": 6, "md": 2.4}),
+        ], spacing=15, run_spacing=15)
+
+        # SECCIÓN AJUSTES
+        self.col_ajustes_salida = ft.Column(spacing=5)
+        self.col_ajustes_entrada = ft.Column(spacing=5)
+        
+        self.lbl_neto_ajustes_header = ft.Text("NETO: $0", weight="bold", size=16)
+        header_ajustes = ft.Row([
+            ft.Text("Impacto de Ajustes de Inventario (Mes Actual)", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+            self.lbl_neto_ajustes_header
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+
+        self.panel_ajustes = ft.Row([
+            # Panel Salida
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Ajustes de Salida (-)", size=16, weight="bold", color="red"),
+                    ft.Divider(height=1),
+                    self.col_ajustes_salida
+                ]),
+                bgcolor="#fff3f3",
+                padding=15,
+                border_radius=8,
+                expand=True
+            ),
+            # Panel Entrada
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Ajustes de Entrada (+)", size=16, weight="bold", color="green"),
+                    ft.Divider(height=1),
+                    self.col_ajustes_entrada
+                ]),
+                bgcolor="#f3fff4",
+                padding=15,
+                border_radius=8,
+                expand=True
+            )
+        ], spacing=15)
+
+        self.seccion_costos = ft.Column([
+            ft.Text("Costos y Valorización", size=20, weight="bold", color=Config.COLOR_PRIMARY),
+            self.kpi_costos_row
+        ], spacing=10)
+
+        self.seccion_ventas = ft.Column([
+            ft.Text("Ingresos y Proyecciones", size=20, weight="bold", color=Config.COLOR_PRIMARY),
+            self.kpi_ventas_row
+        ], spacing=10)
+
+        self.seccion_ajustes = ft.Column([
+            header_ajustes,
+            self.panel_ajustes
+        ], spacing=10)
+
+        # Gráficos y Tablas
+        # Series de datos (Grosor y puntas redondeadas)
+        self.chart_ventas = ft.LineChartData(
+            data_points=[], 
+            color=ft.colors.BLUE_400,
+            stroke_width=4, 
+            curved=False,
+            stroke_cap_round=True,
+            below_line_bgcolor=ft.colors.with_opacity(0.1, ft.colors.BLUE_400)
+        )
+        self.chart_compras = ft.LineChartData(
+            data_points=[], 
+            color="#2ecca0", 
+            stroke_width=4, 
+            curved=False,
+            stroke_cap_round=True,
+            below_line_bgcolor=ft.colors.with_opacity(0.1, "#2ecca0")
+        )
+        
+        # Contenedor de Categorías (Grilla Responsiva)
+        self.categorias_row = ft.ResponsiveRow(columns=12, spacing=15, run_spacing=15)
+        self.categorias_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Rendimiento Detallado por Categoría", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                self.categorias_row
+            ]),
+            margin=ft.padding.only(top=10, bottom=10)
+        )
+
+        # Gráfico habilitando los ejes visuales
+        self.line_chart = ft.LineChart(
+            data_series=[self.chart_ventas, self.chart_compras],
+            border=ft.border.all(1, "#f0f0f0"),
+            min_y=0,
+            min_x=0,
+            expand=True,
+            tooltip_bgcolor="white",
+            left_axis=ft.ChartAxis(labels_size=50), 
+            bottom_axis=ft.ChartAxis(labels_size=40), 
+        )
+        
+        # Leyenda adaptada a fondo claro
+        leyenda = ft.Row([
+            ft.Row([ft.Container(width=12, height=12, bgcolor=ft.colors.BLUE_400, border_radius=6), ft.Text("Ingresos", size=12, weight="bold", color="black87")]),
+            ft.Row([ft.Container(width=12, height=12, bgcolor="#2ecca0", border_radius=6), ft.Text("Costos", size=12, weight="bold", color="black87")]),
+        ], spacing=30, alignment=ft.MainAxisAlignment.CENTER)
+        
+        self.chart_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Tendencia Diaria: Ingresos vs Costo de Ventas", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                leyenda,
+                ft.Container(content=self.line_chart, height=320, margin=ft.padding.only(top=10))
+            ]),
+            bgcolor="white",
+            padding=20,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+        )
+        
+        # Tables
+        self.dt_ventas = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Código", size=12)),
+                ft.DataColumn(ft.Text("Producto", size=12)),
+                ft.DataColumn(ft.Text("Unidades", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Ingreso Total", size=12), numeric=True)
+            ],
+            rows=[],
+            data_row_min_height=30,
+            data_row_max_height=30,
+            heading_row_height=40,
+            column_spacing=15,
+        )
+        
+        self.dt_costos = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Código", size=12)),
+                ft.DataColumn(ft.Text("Producto", size=12)),
+                ft.DataColumn(ft.Text("Valor Inv.", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Rotación", size=12))
+            ],
+            rows=[],
+            data_row_min_height=30,
+            data_row_max_height=30,
+            heading_row_height=40,
+            column_spacing=15,
+        )
+        
+        table_ventas_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Top 10 Productos con Mayor Ingreso", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                self.dt_ventas
+            ], scroll=ft.ScrollMode.AUTO),
+            bgcolor="white",
+            padding=15,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
+            col={"xs": 12, "md": 6}
+        )
+        
+        table_costos_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Top 10 Productos con Mayor Costo", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                self.dt_costos
+            ], scroll=ft.ScrollMode.AUTO),
+            bgcolor="white",
+            padding=15,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
+            col={"xs": 12, "md": 6}
+        )
+        
+        self.tables_row = ft.ResponsiveRow([
+            table_ventas_container,
+            table_costos_container
+        ], spacing=15, run_spacing=15)
+        
+        # Indicador de carga superior
+        self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
+
+        # 2. Main content Column
+        self.content = ft.Column([
+            self.progress_bar, 
+            header_row,
+            ft.Divider(height=10, color="transparent"),
+            self.seccion_costos,
+            ft.Divider(height=10, color="transparent"),
+            self.seccion_ventas,
+            ft.Divider(height=10, color="transparent"),
+            self.seccion_ajustes,
+            ft.Divider(height=10, color="transparent"),
+            self.categorias_container,
+            ft.Divider(height=10, color="transparent"),
+            self.chart_container,
+            ft.Divider(height=10, color="transparent"),
+            self.tables_row,
+            ft.Container(height=30) # Bottom padding
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
+
+    def did_mount(self):
+        self.load_data()
+
+    def safe_update(self):
+        """Actualiza la UI solo si el control sigue montado en la página."""
+        try:
+            if self.page and self.uid:
+                self.page.update()
+        except Exception:
+            pass
+
+    def load_data(self):
+        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
+        self.progress_bar.visible = True
+        self.safe_update()
+            
+        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
+
+    def _fetch_data_worker(self):
+        """Ejecuta todas las llamadas HTTP síncronas sin congelar la ventana."""
+        # 1. Load KPIs
+        res_cat = self.db.get_catalogo_summary()
+        res_ven = self.db.get_ventas_summary()
+        res_com = self.db.get_compras_summary()
+        
+        val_inv = float(res_cat.get('total_compras') or 0) - float(res_cat.get('total_ventas') or 0)
+        self.val_inventario.value = f"$ {val_inv:,.0f}"
+        
+        ingresos = float(res_ven.get('total_mes') or 0)
+        compras = float(res_com.get('total_mes') or 0)
+        
+        ventas_hoy = float(res_ven.get('total_hoy') or 0)
+        compras_hoy = float(res_com.get('total_hoy') or 0)
+        
+        self.val_ingresos.value = f"$ {ingresos:,.0f}"
+        self.val_ventas_hoy.value = f"$ {ventas_hoy:,.0f}"
+        self.val_compras.value = f"$ {compras:,.0f}"
+        self.val_compras_hoy.value = f"$ {compras_hoy:,.0f}"
+        
+        rentabilidad = 0
+        if ingresos > 0:
+            rentabilidad = ((ingresos - compras) / ingresos) * 100
+            
+        self.val_rentabilidad.value = f"{rentabilidad:.1f}%"
+        self.val_rentabilidad.color = "#2ecca0" if rentabilidad >= 0 else "#f26c61"
+        
+        # Basic rotacion (Ventas / Inventario)
+        if val_inv > 0:
+            rotacion_global = ingresos / val_inv
+            self.val_rotacion.value = f"{rotacion_global:.2f}x"
+        else:
+            self.val_rotacion.value = "N/D"
+
+        # Nuevos KPIs y Ajustes
+        proyeccion_ventas = self.db.get_proyeccion_ventas()
+        self.val_proyeccion_ventas.value = f"$ {proyeccion_ventas:,.0f}"
+        
+        proy_rent = 0
+        if proyeccion_ventas > 0:
+            proy_rent = ((proyeccion_ventas - val_inv) / proyeccion_ventas) * 100
+        
+        self.val_proyeccion_rentabilidad.value = f"{proy_rent:.1f}%"
+        self.val_proyeccion_rentabilidad.color = "#2ecca0" if proy_rent >= 0 else "#f26c61"
+
+        mes_actual = datetime.date.today().strftime("%Y-%m")
+        ajustes_bd = self.db.get_ajustes_mes(mes_actual)
+        
+        tipos_salida = {
+            "Daño / Merma": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Vencimiento": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Pérdida": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Consumo Familiar": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Consumo Cliente (Cortesía)": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Donación Saliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Otro (Salida)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
+        }
+
+        tipos_entrada = {
+            "Sobrante de Inventario": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Donación Entrante": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Devolución Cliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Otro (Entrada)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
+        }
+        
+        for fila in ajustes_bd:
+            tipo_bd = fila.get("tipo_ajuste", "")
+            motivo_bd = fila.get("motivo_observacion", "")
+            cant = float(fila.get("cantidad_total") or 0)
+            costo = float(fila.get("costo_total") or 0)
+            conteo = int(fila.get("conteo") or 0)
+            
+            asignado = False
+            if tipo_bd in ("AJUSTE_ENTRADA", "ENTRADA_POR_SOBRANTE"):
+                for key in tipos_entrada.keys():
+                    if key.lower() in motivo_bd.lower():
+                        tipos_entrada[key]["conteo"] += conteo
+                        tipos_entrada[key]["cantidad"] += cant
+                        tipos_entrada[key]["costo"] += costo
+                        asignado = True
+                        break
+                if not asignado:
+                    tipos_entrada["Otro (Entrada)"]["conteo"] += conteo
+                    tipos_entrada["Otro (Entrada)"]["cantidad"] += cant
+                    tipos_entrada["Otro (Entrada)"]["costo"] += costo
+            else:
+                for key in tipos_salida.keys():
+                    if key.lower() in motivo_bd.lower():
+                        tipos_salida[key]["conteo"] += conteo
+                        tipos_salida[key]["cantidad"] += cant
+                        tipos_salida[key]["costo"] += costo
+                        asignado = True
+                        break
+                if not asignado:
+                    # Fallback por tipo
+                    if tipo_bd == "BAJA_VENCIMIENTO": k = "Vencimiento"
+                    elif tipo_bd == "SALIDA_POR_FALTANTE": k = "Pérdida"
+                    else: k = "Otro (Salida)"
+                    tipos_salida[k]["conteo"] += conteo
+                    tipos_salida[k]["cantidad"] += cant
+                    tipos_salida[k]["costo"] += costo
+
+        total_costo_entradas = sum([d["costo"] for d in tipos_entrada.values()])
+        total_costo_salidas = sum([d["costo"] for d in tipos_salida.values()])
+        
+        total_cant_entradas = sum([d["cantidad"] for d in tipos_entrada.values()])
+        total_cant_salidas = sum([d["cantidad"] for d in tipos_salida.values()])
+        
+        neto = total_costo_entradas - total_costo_salidas
+        if neto > 0:
+            self.lbl_neto_ajustes_header.value = f"NETO (POSITIVO): +${neto:,.0f}"
+            self.lbl_neto_ajustes_header.color = "#2ecca0"
+        elif neto < 0:
+            self.lbl_neto_ajustes_header.value = f"NETO (NEGATIVO): -${abs(neto):,.0f}"
+            self.lbl_neto_ajustes_header.color = "#f26c61"
+        else:
+            self.lbl_neto_ajustes_header.value = f"NETO: $0"
+            self.lbl_neto_ajustes_header.color = "grey"
+
+        # Limpiar columnas
+        self.col_ajustes_entrada.controls.clear()
+        self.col_ajustes_salida.controls.clear()
+
+        # Render Entrada
+        for key, datos in tipos_entrada.items():
+            self.col_ajustes_entrada.controls.append(
+                ft.Row([
+                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
+                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
+                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#2ecca0")
+                ])
+            )
+        self.col_ajustes_entrada.controls.append(ft.Divider(color="black12", height=10))
+        self.col_ajustes_entrada.controls.append(
+            ft.Row([
+                ft.Text("TOTAL ENTRADAS", size=12, weight="bold"),
+                ft.Text(f"{total_cant_entradas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
+                ft.Text(f"${total_costo_entradas:,.0f}", size=12, weight="bold", color="#2ecca0")
+            ])
+        )
+        
+        # Render Salida
+        for key, datos in tipos_salida.items():
+            self.col_ajustes_salida.controls.append(
+                ft.Row([
+                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
+                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
+                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#f26c61")
+                ])
+            )
+        self.col_ajustes_salida.controls.append(ft.Divider(color="black12", height=10))
+        self.col_ajustes_salida.controls.append(
+            ft.Row([
+                ft.Text("TOTAL SALIDAS", size=12, weight="bold"),
+                ft.Text(f"{total_cant_salidas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
+                ft.Text(f"${total_costo_salidas:,.0f}", size=12, weight="bold", color="#f26c61")
+            ])
+        )
+
+        # 2. Load Chart Data (Nativo Flet)
+        try:
+            tendencia = self.db.get_tendencia_diaria()
+            dias_ordenados = sorted(tendencia.keys())
+            max_val_y = 0
+            
+            pts_ventas = []
+            pts_compras = []
+            etiquetas_x = []
+            
+            for i, dia in enumerate(dias_ordenados):
+                v = float(tendencia[dia]["ventas"])
+                c = float(tendencia[dia]["compras"])
+                if v > max_val_y: max_val_y = v
+                if c > max_val_y: max_val_y = c
+                # Poner la fecha SOLO en el tooltip de arriba (compras) para que Flet no la duplique al apilar
+                tt_compras = f"{dia}\nCostos: ${c:,.0f}"
+                tt_ventas = f"Ingresos: ${v:,.0f}"
+                estilo_tt = ft.TextStyle(size=12, weight="bold", color="black87")
+                
+                pts_ventas.append(ft.LineChartDataPoint(i, v, tooltip=tt_ventas, tooltip_style=estilo_tt))
+                pts_compras.append(ft.LineChartDataPoint(i, c, tooltip=tt_compras, tooltip_style=estilo_tt))
+                
+                # Densidad en Eje X: Mostrar todos los días con la fecha completa rotada
+                etiquetas_x.append(
+                    ft.ChartAxisLabel(
+                        value=i, 
+                        label=ft.Container(
+                            content=ft.Text(dia, size=9, color="grey"),
+                            padding=ft.padding.only(top=10),
+                            rotate=-0.5
+                        )
+                    )
+                )
+                
+            if not pts_ventas:
+                pts_ventas = [ft.LineChartDataPoint(0, 0)]
+                pts_compras = [ft.LineChartDataPoint(0, 0)]
+                
+            self.chart_ventas.data_points = pts_ventas
+            self.chart_compras.data_points = pts_compras
+            
+            self.line_chart.max_x = len(dias_ordenados) - 1 if dias_ordenados else 0
+            max_y_calc = max_val_y * 1.15 if max_val_y > 0 else 1000
+            self.line_chart.max_y = max_y_calc
+            
+            def formato_moneda_corta(valor):
+                if valor >= 1000000: return f"${valor/1000000:.1f}M"
+                if valor >= 1000: return f"${valor/1000:.0f}k"
+                return f"${valor:.0f}"
+                
+            # Mayor densidad en Y: 8 divisiones en lugar de 5
+            intervalo_y = max_y_calc / 8 if max_y_calc > 0 else 100
+            etiquetas_y = [
+                ft.ChartAxisLabel(value=step * intervalo_y, label=ft.Text(formato_moneda_corta(step * intervalo_y), size=11, color="grey"))
+                for step in range(9)
+            ]
+            
+            self.line_chart.left_axis.labels = etiquetas_y
+            self.line_chart.left_axis.labels_interval = intervalo_y
+            self.line_chart.bottom_axis.labels = etiquetas_x
+            self.line_chart.bottom_axis.labels_interval = 1
+            
+            # Cuadrícula visible completa con efecto punteado
+            self.line_chart.horizontal_grid_lines = ft.ChartGridLines(
+                interval=intervalo_y,
+                color=ft.colors.with_opacity(0.05, "black"),
+                width=1,
+                dash_pattern=[4, 4]
+            )
+            self.line_chart.vertical_grid_lines = ft.ChartGridLines(
+                interval=2, # Línea vertical sincronizada con el eje X
+                color=ft.colors.with_opacity(0.05, "black"),
+                width=1,
+                dash_pattern=[4, 4]
+            )
+            
+        except Exception as e:
+            print(f"Error crítico construyendo Chart Flet: {e}")
+        
+        # 3. Load Tables Data (A prueba de fallos)
+        try:
+            top_ventas = self.db.get_top_ventas_mes(limit=10)
+            self.dt_ventas.rows.clear()
+            for item in top_ventas:
+                self.dt_ventas.rows.append(
+                    ft.DataRow(cells=[
+                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
+                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
+                        ft.DataCell(ft.Text(str(item.get('unidades_vendidas') or 0), size=11)),
+                        ft.DataCell(ft.Text(f"${float(item.get('ingreso_total') or 0):,.2f}", size=11))
+                    ])
+                )
+        except Exception as e:
+            print(f"Error crítico en tabla ventas: {e}")
+            
+        try:
+            top_costos = self.db.get_top_costo_inventario(limit=10)
+            self.dt_costos.rows.clear()
+            for item in top_costos:
+                self.dt_costos.rows.append(
+                    ft.DataRow(cells=[
+                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
+                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
+                        ft.DataCell(ft.Text(f"${float(item.get('valor_inventario') or 0):,.2f}", size=11)),
+                        ft.DataCell(ft.Text(str(item.get('rotacion') or ''), size=11))
+                    ])
+                )
+        except Exception as e:
+            print(f"Error crítico en tabla costos: {e}")
+            
+        try:
+            kpis_cat = self.db.get_kpis_por_categoria()
+            self.categorias_row.controls.clear()
+            for cat in kpis_cat:
+                self.categorias_row.controls.append(self._build_categoria_card(cat))
+        except Exception as e:
+            print(f"Error cargando KPIs por categoría: {e}")
+            
+        # Apagar indicador de carga al finalizar todo el trabajo
+        self.progress_bar.visible = False
+        
+        self.safe_update()
+
+    def _build_kpi_card(self, title, value_control, icon, subtext_control=None):
+        column_controls = [
+            ft.Row([
+                ft.Text(title, size=12, color="grey", weight="w500", expand=True),
+                ft.Icon(ft.icons.HELP_OUTLINE, size=12, color="grey")
+            ], spacing=5),
+            value_control,
+        ]
+        if subtext_control:
+            column_controls.append(subtext_control)
+            
+        value_control.size = 20
+            
+        return ft.Container(
+            content=ft.Row([
+                ft.Container(
+                    content=ft.Icon(icon, color=Config.COLOR_SECONDARY, size=24),
+                    bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_SECONDARY),
+                    padding=10,
+                    border_radius=8
+                ),
+                ft.Column(column_controls, spacing=2, expand=True)
+            ], alignment=ft.MainAxisAlignment.START),
+            bgcolor="white",
+            padding=15,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+        )
+
+    def _build_categoria_card(self, data):
+        rentabilidad = float(data.get('rentabilidad') or 0)
+        costo_inv = float(data.get('costo_inventario') or 0)
+        vtas_tot = float(data.get('ventas_totales') or 0)
+        rot = float(data.get('rotacion') or 0)
+        return ft.Container(
+            col={"sm": 12, "md": 6, "lg": 4},
+            bgcolor="white",
+            padding=15,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
+            content=ft.Column([
+                ft.Row([
+                    ft.Icon(ft.icons.CATEGORY, color=Config.COLOR_SECONDARY, size=20),
+                    ft.Text(str(data.get("categoria") or "N/A").upper(), weight="bold", size=13, color=Config.COLOR_PRIMARY, expand=True)
+                ]),
+                ft.Divider(height=1, color="#f0f0f0"),
+                ft.Row([ft.Text("Inventario:", size=11, color="grey"), ft.Text(f"${costo_inv:,.0f}", size=12, weight="bold")], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Row([ft.Text("Ventas:", size=11, color="grey"), ft.Text(f"${vtas_tot:,.0f}", size=12, weight="bold", color="green")], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Row([ft.Text("Rotación:", size=11, color="grey"), ft.Text(f"{rot:.2f}x", size=12, weight="bold")], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Row([ft.Text("Rendimiento:", size=11, color="grey"), ft.Text(f"{rentabilidad:.1f}%", size=12, weight="bold", color="#2ecca0" if rentabilidad >= 0 else "red")], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ], spacing=6)
+        )

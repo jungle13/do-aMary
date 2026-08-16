@@ -1,0 +1,29 @@
+# Entornos virtuales
+venv/
+env/
+.env
+
+# Archivos de caché y logs
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.log
+
+# Archivos pesados o temporales
+*.pdf
+*.xlsx
+*.csv
+~$*.xlsx
+
+# Configuración del IDE/Sistema
+.vscode/
+.idea/
+.DS_Store
+.kiro/
+
+# Carpetas de dependencias y compilación
+build/
+dist/
+node_modules/

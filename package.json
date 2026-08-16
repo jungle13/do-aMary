@@ -1,0 +1,8 @@
+{
+  "devDependencies": {
+    "supabase": "^2.113.0"
+  },
+  "dependencies": {
+    "pg": "^8.23.0"
+  }
+}
