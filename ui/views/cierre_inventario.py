@@ -3,6 +3,7 @@ import threading
 from config import Config
 from core.supabase_client import SupabaseClient
 import datetime
+import math
 from dateutil.relativedelta import relativedelta
 
 class CierreInventarioView(ft.Container):
@@ -18,27 +19,22 @@ class CierreInventarioView(ft.Container):
         self.total_pages = 1
         self.insumos_lista = []
         
-        # Opciones de Meses
-        hoy = datetime.date.today()
-        opciones_meses = []
-        for i in range(12):
-            m = hoy - relativedelta(months=i)
-            val = m.strftime('%Y-%m')
-            nombre_mes = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][m.month - 1]
-            opciones_meses.append(ft.dropdown.Option(key=val, text=f'{nombre_mes} {m.year}'))
-            
-        self.mes_seleccionado = hoy.strftime('%Y-%m')
+        self.selected_items = set()
+        self.filtro_busqueda = ""
+        self.filtro_categoria = "Todas"
+        self.filtro_estado = "Todos"
         
-        # Controles Superiores
-        self.month_dropdown = ft.Dropdown(
-            options=opciones_meses,
-            value=self.mes_seleccionado,
-            label='Mes a iniciar',
-            width=200,
-            border_radius=8,
-            height=40,
-            on_change=self.on_month_change
-        )
+        # Filtros Visuales
+        self.input_search = ft.TextField(hint_text="Buscar código o nombre...", prefix_icon=ft.icons.SEARCH, height=40, expand=True, on_change=self.on_filter_change)
+        self.drop_categoria = ft.Dropdown(label="Categoría", options=[ft.dropdown.Option("Todas")], height=40, width=150, on_change=self.on_filter_change)
+        self.drop_estado = ft.Dropdown(label="Estado", options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("PENDIENTE"), ft.dropdown.Option("AUDITADO"), ft.dropdown.Option("AJUSTADO")], value="Todos", height=40, width=150, on_change=self.on_filter_change)
+        
+        self.btn_masivo = ft.ElevatedButton("Aceptar Stock Seleccionado", icon=ft.icons.CHECK_BOX, bgcolor="green", color="white", on_click=self.abrir_modal_masivo)
+        self.action_bar_masiva = ft.Row([self.btn_masivo], visible=False)
+        
+        # Mes Seleccionado por defecto (se actualiza al ver detalle)
+        hoy = datetime.date.today()
+        self.mes_seleccionado = hoy.strftime('%Y-%m')
         
         self.btn_iniciar_snapshot = ft.ElevatedButton(
             text='Generar Preliminar',
@@ -70,7 +66,7 @@ class CierreInventarioView(ft.Container):
             border=ft.border.all(1, ft.colors.with_opacity(0.1, 'black')),
             border_radius=8,
             columns=[
-                ft.DataColumn(ft.Container(width=25)), # Checkbox (vacio)
+                ft.DataColumn(ft.Checkbox(on_change=self.on_select_all_change)),
                 ft.DataColumn(ft.Text('Código', weight='bold')),
                 ft.DataColumn(ft.Text('Insumo', weight='bold')),
                 ft.DataColumn(ft.Text('Inicial', weight='bold'), numeric=True),
@@ -161,7 +157,6 @@ class CierreInventarioView(ft.Container):
         )
         self.vista_lista = ft.Column([
             ft.Text('Historial de Periodos', size=24, weight='bold', color=Config.COLOR_PRIMARY),
-            ft.Row([self.month_dropdown, self.btn_iniciar_snapshot]),
             ft.Container(
                 content=ft.Column([self.dt_periodos], scroll=ft.ScrollMode.ALWAYS, expand=True),
                 expand=True
@@ -175,8 +170,11 @@ class CierreInventarioView(ft.Container):
         self.vista_detalle = ft.Column([
             ft.Row([self.btn_volver, self.lbl_titulo_detalle]),
             self.summary_container,
+            ft.Row([self.input_search, self.drop_categoria, self.drop_estado]),
+            self.action_bar_masiva,
             ft.Container(
                 content=ft.Row([
+                    self.btn_iniciar_snapshot,
                     ft.Container(expand=True),
                     ft.Column([self.txt_estado_periodo, self.txt_progreso], spacing=2, alignment=ft.MainAxisAlignment.CENTER),
                     self.btn_aprobar_cierre
@@ -224,6 +222,119 @@ class CierreInventarioView(ft.Container):
         if self.modal_ajuste not in self.page.overlay:
             self.page.overlay.append(self.modal_ajuste)
         self.load_lista_periodos()
+
+
+    # --- Nuevos Métodos de Filtro y Selección ---
+    def on_filter_change(self, e):
+        self.filtro_busqueda = self.input_search.value or ""
+        self.filtro_categoria = self.drop_categoria.value or "Todas"
+        self.filtro_estado = self.drop_estado.value or "Todos"
+        self.current_page = 1
+        self.render_view()
+        self.safe_update()
+
+    def on_select_all_change(self, e):
+        is_checked = e.control.value
+        estado_periodo = self.datos_cierre.get('estado', '')
+        if is_checked:
+            for item in self.insumos_lista:
+                if estado_periodo != 'CERRADO' and item.get('estado') != 'APROBADO':
+                    self.selected_items.add(item.get('id_auditoria'))
+        else:
+            self.selected_items.clear()
+        self.render_view()
+        self.safe_update()
+
+    def on_item_select(self, e, id_auditoria):
+        if e.control.value:
+            self.selected_items.add(id_auditoria)
+        else:
+            self.selected_items.discard(id_auditoria)
+        self.action_bar_masiva.visible = len(self.selected_items) > 0
+        self.safe_update()
+
+    def abrir_modal_masivo(self, e):
+        if not self.selected_items:
+            self.mostrar_alerta("No hay ítems seleccionados", "red")
+            return
+            
+        # Calcular totales para el modal
+        cant_insumos = len(self.selected_items)
+        valor_sistema = 0.0
+        
+        for item in self.insumos_lista:
+            if item.get('id_auditoria') in self.selected_items:
+                cant_sistema = float(item.get('cantidad_sistema') or 0)
+                costo_u = float(item.get('costo_unitario_snapshot') or 0)
+                valor_sistema += cant_sistema * costo_u
+                
+        def confirm_masivo(e):
+            dialog.open = False
+            self.safe_update()
+            
+            if hasattr(self, 'progress_bar'): self.progress_bar.visible = True
+            self.safe_update()
+            
+            res = self.db.aceptar_stock_sistema_masivo(list(self.selected_items))
+            if res.get("exito"):
+                self.mostrar_alerta("Aceptación masiva completada con éxito.", "green")
+                self.selected_items.clear()
+                self.action_bar_masiva.visible = False
+                self.mostrar_detalle(self.mes_seleccionado) # Reload
+            else:
+                self.mostrar_alerta(f"Error masivo: {res.get('error')}", "red")
+                if hasattr(self, 'progress_bar'): self.progress_bar.visible = False
+                self.safe_update()
+
+        dialog = ft.AlertDialog(
+            title=ft.Text("Confirmación Masiva"),
+            content=ft.Container(
+                width=400,
+                content=ft.Column([
+                    ft.Text(f"¿Aceptar el stock del sistema para {cant_insumos} insumos?"),
+                    ft.Divider(),
+                    ft.Text(f"Valor del Sistema: ${valor_sistema:,.0f}", weight="bold"),
+                    ft.Text("Impacto Neto Ajuste: $0", color="blue"),
+                    ft.Text(f"Nuevo Valor Proyectado: ${valor_sistema:,.0f}", weight="bold", color="green"),
+                ], tight=True)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: setattr(dialog, 'open', False) or self.safe_update()),
+                ft.ElevatedButton("Confirmar y Aceptar", bgcolor="green", color="white", on_click=confirm_masivo)
+            ]
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.safe_update()
+
+    def procesar_eliminar_ajuste(self, id_auditoria):
+        def confirm_eliminar(e):
+            dialog.open = False
+            self.safe_update()
+            
+            if hasattr(self, 'progress_bar'): self.progress_bar.visible = True
+            self.safe_update()
+            
+            res = self.db.eliminar_ajuste_cierre(id_auditoria)
+            if res.get("exito"):
+                self.mostrar_alerta("Ajuste eliminado correctamente.", "green")
+                self.mostrar_detalle(self.mes_seleccionado) # Reload
+            else:
+                self.mostrar_alerta(f"Error al eliminar: {res.get('error')}", "red")
+                if hasattr(self, 'progress_bar'): self.progress_bar.visible = False
+                self.safe_update()
+
+        dialog = ft.AlertDialog(
+            title=ft.Text("Eliminar Ajuste"),
+            content=ft.Text("¿Estás seguro de eliminar este ajuste? El insumo volverá a PENDIENTE."),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: setattr(dialog, 'open', False) or self.safe_update()),
+                ft.ElevatedButton("Eliminar", bgcolor="red", color="white", on_click=confirm_eliminar)
+            ]
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.safe_update()
 
     def load_lista_periodos(self):
         periodos = self.db.get_periodos_inventario()
@@ -425,7 +536,24 @@ class CierreInventarioView(ft.Container):
 
         self.btn_aprobar_cierre.disabled = estado_periodo == 'CERRADO' or pendientes > 0
 
-        # KPIs Financieros
+        # Update category options
+        categorias = set([item.get('categoria', 'Sin Categoría') for item in self.insumos_lista])
+        opciones_cat = [ft.dropdown.Option("Todas")] + [ft.dropdown.Option(cat) for cat in sorted(list(categorias))]
+        self.drop_categoria.options = opciones_cat
+
+        # Apply filters
+        filtered_data = []
+        q = self.filtro_busqueda.lower()
+        for item in self.insumos_lista:
+            if q and q not in str(item.get('codigo_insumo','')).lower() and q not in str(item.get('nombre','')).lower():
+                continue
+            if self.filtro_categoria != "Todas" and item.get('categoria') != self.filtro_categoria:
+                continue
+            if self.filtro_estado != "Todos" and item.get('estado') != self.filtro_estado:
+                continue
+            filtered_data.append(item)
+
+        # KPIs Financieros sobre datos filtrados o sobre todos? Sobre TODOS (insumos_lista)
         valor_sistema = 0.0
         valor_entrada = 0.0
         cant_entrada = 0.0
@@ -460,9 +588,16 @@ class CierreInventarioView(ft.Container):
         self.lbl_neto_ajustes.color = 'green' if valor_neto >= 0 else 'red'
         self.lbl_valor_fisico.value = f'${valor_fisico:,.2f}'
 
+        # Paginacion sobre filtered_data
+        total_filtered = len(filtered_data)
+        self.total_pages = math.ceil(total_filtered / self.page_size) if total_filtered > 0 else 1
+        
+        if self.current_page > self.total_pages and self.total_pages > 0:
+            self.current_page = self.total_pages
+
         start_idx = (self.current_page - 1) * self.page_size
         end_idx = start_idx + self.page_size
-        page_data = self.insumos_lista[start_idx:end_idx]
+        page_data = filtered_data[start_idx:end_idx]
 
         for insumo in page_data:
             self.data_table.rows.append(self.crear_fila_auditoria(insumo, estado_periodo))
@@ -470,6 +605,8 @@ class CierreInventarioView(ft.Container):
         self.lbl_page_info.value = f'Página {self.current_page} de {self.total_pages}'
         self.btn_prev.disabled = (self.current_page <= 1)
         self.btn_next.disabled = (self.current_page >= self.total_pages)
+        
+        self.action_bar_masiva.visible = len(self.selected_items) > 0
 
         if self.page:
             self.page.update()
@@ -503,36 +640,81 @@ class CierreInventarioView(ft.Container):
                 str_costo_ajuste = f'${(abs(dif_flt) * costo_unit):,.2f}'
         
         habilitar_txt_ajuste = estado_periodo == "PRELIMINAR" and estado_insumo != "APROBADO"
-        habilitar_aceptar = estado_periodo == "PRELIMINAR" and estado_insumo == "PENDIENTE"
         
+        def on_txt_conteo_change(e):
+            try:
+                if e.control.value.strip() == "":
+                    btn_ajuste.disabled = True
+                else:
+                    val = float(e.control.value.replace(',', '.'))
+                    btn_ajuste.disabled = (val == cant_sistema)
+            except ValueError:
+                btn_ajuste.disabled = True
+            self.safe_update()
+
         txt_conteo = ft.TextField(
             value=str(cant_fisica) if cant_fisica is not None else '',
             dense=True, width=80, text_size=13, content_padding=10,
-            disabled=not habilitar_txt_ajuste
-        )
-
-        btn_ajuste = ft.ElevatedButton(
-            'Ingresar Ajuste', 
-            icon=ft.icons.TUNE, 
             disabled=not habilitar_txt_ajuste,
-            on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value)
+            on_change=on_txt_conteo_change
         )
 
-        btn_aceptar_sistema = ft.TextButton(
-            text="Aceptar",
-            icon=ft.icons.CHECK,
-            icon_color="green",
-            tooltip="Aceptar Stock del Sistema",
-            style=ft.ButtonStyle(padding=ft.padding.all(5)),
-            disabled=not habilitar_aceptar,
-            on_click=lambda e, i_id=id_auditoria: self.procesar_aceptar_sistema(i_id)
+        check_row = ft.Checkbox(
+            value=id_auditoria in self.selected_items,
+            disabled=(estado_periodo == 'CERRADO' or estado_insumo == 'APROBADO'),
+            on_change=lambda e: self.on_item_select(e, id_auditoria)
         )
 
-        acciones = ft.Row([btn_aceptar_sistema, btn_ajuste], spacing=5)
+        if estado_insumo == "AJUSTADO":
+            btn_ajuste = ft.ElevatedButton(
+                'Editar Ajuste',
+                icon=ft.icons.EDIT,
+                on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value),
+                scale=0.85,
+                disabled=(estado_periodo == 'CERRADO')
+            )
+            btn_eliminar = ft.IconButton(
+                icon=ft.icons.DELETE,
+                icon_color="red",
+                on_click=lambda e, i_id=id_auditoria: self.procesar_eliminar_ajuste(i_id),
+                scale=0.85,
+                disabled=(estado_periodo == 'CERRADO')
+            )
+            acciones = ft.Row([btn_ajuste, btn_eliminar], spacing=2)
+            
+            # Initial validation hack
+            btn_ajuste.disabled = False if txt_conteo.value else True
+            
+        else:
+            btn_aceptar_sistema = ft.ElevatedButton(
+                text="Aceptar",
+                icon=ft.icons.CHECK,
+                bgcolor="green50",
+                color="green900",
+                on_click=lambda e, i_id=id_auditoria: self.procesar_aceptar_sistema(i_id),
+                scale=0.85,
+                disabled=(estado_periodo == 'CERRADO' or estado_insumo == 'APROBADO')
+            )
+            btn_ajuste = ft.ElevatedButton(
+                'Ingresar Ajuste',
+                icon=ft.icons.TUNE,
+                on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value),
+                scale=0.85,
+                disabled=True
+            )
+            acciones = ft.Row([btn_aceptar_sistema, btn_ajuste], spacing=2)
+            
+            # Trigger validation manually on start if value is pre-filled
+            if txt_conteo.value:
+                try:
+                    if float(txt_conteo.value.replace(',', '.')) != cant_sistema:
+                        btn_ajuste.disabled = False
+                except ValueError:
+                    pass
 
         return ft.DataRow(
             cells=[
-                ft.DataCell(ft.Container(width=25)), # Checkbox (vacio)
+                ft.DataCell(check_row),
                 ft.DataCell(ft.Text(insumo.get('codigo_insumo', ''))),
                 ft.DataCell(ft.Text(insumo.get('nombre', ''), width=150, no_wrap=True, tooltip=insumo.get('nombre'))),
                 ft.DataCell(ft.Text(str(stock_inicial))),

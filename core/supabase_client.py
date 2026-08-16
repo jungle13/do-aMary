@@ -833,3 +833,19 @@ class SupabaseClient:
             return []
         except Exception:
             return []
+
+    def aceptar_stock_sistema_masivo(self, ids_auditoria: list) -> dict:
+        url = f"{self.url}/rpc/fn_aceptar_stock_sistema_masivo"
+        try:
+            res = self.session.post(url, json={"p_ids": ids_auditoria}, headers=self.headers, timeout=15)
+            if res.status_code == 200: return res.json()
+            return {"exito": False, "error": res.text}
+        except Exception as e: return {"exito": False, "error": str(e)}
+
+    def eliminar_ajuste_cierre(self, id_auditoria: str) -> dict:
+        url = f"{self.url}/rpc/fn_eliminar_ajuste_cierre"
+        try:
+            res = self.session.post(url, json={"p_id_auditoria": id_auditoria}, headers=self.headers, timeout=10)
+            if res.status_code == 200: return res.json()
+            return {"exito": False, "error": res.text}
+        except Exception as e: return {"exito": False, "error": str(e)}
