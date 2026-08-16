@@ -37,7 +37,7 @@ class CierreInventarioView(ft.Container):
         self.mes_seleccionado = hoy.strftime('%Y-%m')
         
         self.btn_iniciar_snapshot = ft.ElevatedButton(
-            text='Generar Preliminar',
+            text='1. Generar Preliminar',
             icon=ft.icons.CAMERA_ALT,
             bgcolor=Config.COLOR_SECONDARY,
             color='white',
@@ -45,7 +45,7 @@ class CierreInventarioView(ft.Container):
         )
         
         self.btn_aprobar_cierre = ft.ElevatedButton(
-            text='Aprobar Cierre Definitivo',
+            text='3. Aprobar Cierre',
             icon=ft.icons.CHECK_CIRCLE,
             bgcolor='green',
             color='white',
@@ -167,23 +167,19 @@ class CierreInventarioView(ft.Container):
         self.btn_volver = ft.IconButton(icon=ft.icons.ARROW_BACK, on_click=self.on_volver_lista)
         self.lbl_titulo_detalle = ft.Text('Auditoría: ...', size=24, weight='bold', color=Config.COLOR_PRIMARY)
         
+        self.row_pasos_cierre = ft.Row([
+            self._crear_tarjeta_paso(1, "Generar Preliminar", "Congela el inventario y calcula el stock actual del sistema para compararlo con el físico.", self.btn_iniciar_snapshot),
+            self._crear_tarjeta_paso(2, "Auditoría Física", "Revisa la tabla inferior. Ingresa ajustes (faltantes/sobrantes) o acepta el stock del sistema masivamente.", ft.Text("Se realiza en la tabla ↓", size=11, color="blue", weight="bold")),
+            self._crear_tarjeta_paso(3, "Cierre Definitivo", "Consolida los ajustes y finaliza el mes. Requiere que todos los insumos estén auditados.", self.btn_aprobar_cierre)
+        ], spacing=15)
+        
         self.vista_detalle = ft.Column([
             ft.Row([self.btn_volver, self.lbl_titulo_detalle]),
             self.summary_container,
             ft.Row([self.input_search, self.drop_categoria, self.drop_estado]),
             self.action_bar_masiva,
-            ft.Container(
-                content=ft.Row([
-                    self.btn_iniciar_snapshot,
-                    ft.Container(expand=True),
-                    ft.Column([self.txt_estado_periodo, self.txt_progreso], spacing=2, alignment=ft.MainAxisAlignment.CENTER),
-                    self.btn_aprobar_cierre
-                ]),
-                padding=15,
-                bgcolor='white',
-                border_radius=8,
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, 'black'))
-            ),
+            self.row_pasos_cierre,
+            ft.Row([self.txt_estado_periodo, self.txt_progreso], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Container(
                 content=ft.Column([self.data_table], scroll=ft.ScrollMode.ALWAYS, expand=True),
                 bgcolor='white',
@@ -205,6 +201,22 @@ class CierreInventarioView(ft.Container):
 
         self.content = ft.Column([self.vista_lista, self.vista_detalle], expand=True)
 
+
+    def _crear_tarjeta_paso(self, numero, titulo, descripcion, control_accion):
+        return ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Container(content=ft.Text(str(numero), color="white", weight="bold"), bgcolor=Config.COLOR_PRIMARY, width=24, height=24, border_radius=12, alignment=ft.alignment.center),
+                    ft.Text(titulo, weight="bold", size=14, color=Config.COLOR_PRIMARY)
+                ]),
+                ft.Text(descripcion, size=11, color="grey"),
+                ft.Container(content=control_accion, alignment=ft.alignment.center_right)
+            ], spacing=8),
+            bgcolor="white", padding=15, border_radius=8, expand=True,
+            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))
+        )
+
     def _crear_kpi_card(self, title, lbl_val, icon, lbl_sub=None):
         col_controls = [ft.Text(title, size=11, color='grey', weight='bold'), lbl_val]
         if lbl_sub: col_controls.append(lbl_sub)
@@ -217,6 +229,14 @@ class CierreInventarioView(ft.Container):
             border=ft.border.all(1, ft.colors.with_opacity(0.1, 'black')),
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, 'black'))
         )
+
+    def safe_update(self):
+        """Actualiza la UI solo si el control sigue montado en la página."""
+        try:
+            if self.page and self.uid:
+                self.page.update()
+        except Exception:
+            pass
 
     def did_mount(self):
         if self.modal_ajuste not in self.page.overlay:
@@ -258,15 +278,14 @@ class CierreInventarioView(ft.Container):
             self.mostrar_alerta("No hay ítems seleccionados", "red")
             return
             
-        # Calcular totales para el modal
-        cant_insumos = len(self.selected_items)
-        valor_sistema = 0.0
-        
-        for item in self.insumos_lista:
-            if item.get('id_auditoria') in self.selected_items:
-                cant_sistema = float(item.get('cantidad_sistema') or 0)
-                costo_u = float(item.get('costo_unitario_snapshot') or 0)
-                valor_sistema += cant_sistema * costo_u
+        try:
+            val_sist = self.lbl_valor_sistema.value
+            val_ent = self.lbl_ajustes_entrada.value
+            val_sal = self.lbl_ajustes_salida.value
+            val_neto = self.lbl_neto_ajustes.value
+            val_proy = self.lbl_valor_fisico.value
+        except:
+            val_sist, val_ent, val_sal, val_neto, val_proy = "$0", "$0", "$0", "$0", "$0"
                 
         def confirm_masivo(e):
             dialog.open = False
@@ -286,18 +305,21 @@ class CierreInventarioView(ft.Container):
                 if hasattr(self, 'progress_bar'): self.progress_bar.visible = False
                 self.safe_update()
 
+        resumen_ui = ft.Column([
+            ft.Text(f"¿Deseas aceptar el stock del sistema para {len(self.selected_items)} insumos seleccionados?", weight="bold"),
+            ft.Text("Esto significa que declaras que la cantidad física de estos insumos coincide exactamente con la del sistema (Ajuste de $0).", size=11, color="grey"),
+            ft.Divider(height=10),
+            ft.Text("Estado Global de la Auditoría:", size=12, weight="bold", color=Config.COLOR_PRIMARY),
+            ft.Row([ft.Text("Valor del Sistema:", size=12), ft.Text(val_sist, size=12, weight="bold")]),
+            ft.Row([ft.Text("Sobrantes Registrados:", size=12), ft.Text(val_ent, size=12, weight="bold", color="green")]),
+            ft.Row([ft.Text("Faltantes Registrados:", size=12), ft.Text(val_sal, size=12, weight="bold", color="red")]),
+            ft.Row([ft.Text("Impacto Neto Acumulado:", size=12), ft.Text(val_neto, size=12, weight="bold")]),
+            ft.Row([ft.Text("Valor Físico Proyectado Final:", size=12), ft.Text(val_proy, size=13, weight="bold", color="blue")], spacing=5)
+        ], spacing=5, tight=True)
+
         dialog = ft.AlertDialog(
             title=ft.Text("Confirmación Masiva"),
-            content=ft.Container(
-                width=400,
-                content=ft.Column([
-                    ft.Text(f"¿Aceptar el stock del sistema para {cant_insumos} insumos?"),
-                    ft.Divider(),
-                    ft.Text(f"Valor del Sistema: ${valor_sistema:,.0f}", weight="bold"),
-                    ft.Text("Impacto Neto Ajuste: $0", color="blue"),
-                    ft.Text(f"Nuevo Valor Proyectado: ${valor_sistema:,.0f}", weight="bold", color="green"),
-                ], tight=True)
-            ),
+            content=ft.Container(width=450, content=resumen_ui),
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda e: setattr(dialog, 'open', False) or self.safe_update()),
                 ft.ElevatedButton("Confirmar y Aceptar", bgcolor="green", color="white", on_click=confirm_masivo)
@@ -306,6 +328,7 @@ class CierreInventarioView(ft.Container):
         self.page.overlay.append(dialog)
         dialog.open = True
         self.safe_update()
+
 
     def procesar_eliminar_ajuste(self, id_auditoria):
         def confirm_eliminar(e):
