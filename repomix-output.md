@@ -56,6 +56,7 @@ ui/
     compras.py
     conteo_inicial.py
     dashboard.py
+    informes.py
     inventario.py
     ventas.py
   app.py
@@ -70,6 +71,266 @@ supabase_schema.sql
 ````
 
 # Files
+
+## File: ui/views/informes.py
+````python
+import flet as ft
+from config import Config
+from core.supabase_client import SupabaseClient
+import datetime
+from calendar import monthrange
+import threading
+
+class InformesView(ft.Container):
+    def __init__(self):
+        super().__init__()
+        self.expand = True
+        self.db = SupabaseClient()
+        
+        # --- PANEL IZQUIERDO: CONSTRUCTOR DE INFORMES ---
+        self.drop_tipo_informe = ft.Dropdown(
+            label="Tipo de Informe",
+            options=[ft.dropdown.Option("Valorización de Inventario")],
+            value="Valorización de Inventario",
+            dense=True, border_radius=8
+        )
+        
+        self.drop_filtro_fecha = ft.Dropdown(
+            label="Periodo",
+            options=[
+                ft.dropdown.Option("Día de Hoy"),
+                ft.dropdown.Option("Mes Actual"),
+                ft.dropdown.Option("Histórico Completo")
+            ],
+            value="Histórico Completo",
+            dense=True, border_radius=8
+        )
+        
+        self.drop_categoria = ft.Dropdown(
+            label="Categoría Específica",
+            options=[ft.dropdown.Option("Todas")],
+            value="Todas",
+            dense=True, border_radius=8
+        )
+        
+        self.btn_generar = ft.ElevatedButton(
+            "Generar Previsualización", 
+            icon=ft.icons.PLAY_ARROW, 
+            bgcolor=Config.COLOR_PRIMARY, 
+            color="white",
+            on_click=self.generar_informe,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+        
+        self.btn_pdf = ft.OutlinedButton("Exportar a PDF", icon=ft.icons.PICTURE_AS_PDF, icon_color="red", on_click=self.exportar_pdf)
+        self.btn_excel = ft.OutlinedButton("Exportar a Excel", icon=ft.icons.TABLE_VIEW, icon_color="green", on_click=self.exportar_excel)
+        
+        panel_controles = ft.Container(
+            content=ft.Column([
+                ft.Text("Parámetros del Informe", weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Divider(height=1, color="#eeeeee"),
+                self.drop_tipo_informe,
+                self.drop_filtro_fecha,
+                self.drop_categoria,
+                ft.Container(height=10),
+                self.btn_generar,
+                ft.Divider(height=20, color="transparent"),
+                ft.Text("Exportación", weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Divider(height=1, color="#eeeeee"),
+                self.btn_pdf,
+                self.btn_excel
+            ], spacing=15),
+            bgcolor="white", padding=20, border_radius=8, width=300,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))
+        )
+        
+        # --- PANEL DERECHO: LIENZO DEL DOCUMENTO (A4) ---
+        self.doc_header_empresa = ft.Text("TIENDA Y ABARROTES LOS DESECHABLES DE DOÑA MARY SAS", weight="bold", size=16, text_align=ft.TextAlign.CENTER)
+        self.doc_header_titulo = ft.Text("INFORME DE VALORIZACIÓN DE INVENTARIO", weight="bold", size=14, text_align=ft.TextAlign.CENTER)
+        self.doc_header_periodo = ft.Text("Periodo: Histórico Completo", size=11, color="grey", text_align=ft.TextAlign.CENTER)
+        self.doc_header_fecha = ft.Text(f"Fecha de Generación: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", size=11, color="grey", text_align=ft.TextAlign.CENTER)
+        
+        self.doc_cuerpo = ft.Column(spacing=5)
+        
+        self.lienzo_documento = ft.Container(
+            content=ft.Column([
+                ft.Container(
+                    content=ft.Column([
+                        self.doc_header_empresa,
+                        self.doc_header_titulo,
+                        self.doc_header_periodo,
+                        self.doc_header_fecha
+                    ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    alignment=ft.alignment.center,
+                    padding=ft.padding.only(bottom=20)
+                ),
+                ft.Divider(height=2, color="black"),
+                self.doc_cuerpo
+            ]),
+            bgcolor="white",
+            padding=40,
+            border_radius=5,
+            shadow=ft.BoxShadow(spread_radius=2, blur_radius=10, color=ft.colors.with_opacity(0.1, "black"))
+        )
+        
+        scroll_lienzo = ft.Column([self.lienzo_documento], scroll=ft.ScrollMode.ALWAYS, expand=True)
+        
+        # --- ENSAMBLAJE FINAL ---
+        self.content = ft.Row([
+            panel_controles,
+            scroll_lienzo
+        ], expand=True, spacing=20, vertical_alignment=ft.CrossAxisAlignment.START)
+
+    def did_mount(self):
+        self.cargar_categorias()
+        
+    def cargar_categorias(self):
+        cats = self.db.get_categorias()
+        opciones = [ft.dropdown.Option("Todas")]
+        for c in cats:
+            if c: opciones.append(ft.dropdown.Option(c))
+        self.drop_categoria.options = opciones
+        if self.page:
+            self.page.update()
+
+    def generar_informe(self, e):
+        self.doc_cuerpo.controls.clear()
+        self.doc_cuerpo.controls.append(ft.Container(content=ft.ProgressRing(), alignment=ft.alignment.center, padding=50))
+        if self.page: self.page.update()
+        threading.Thread(target=self._worker_generar_informe, daemon=True).start()
+
+    def _worker_generar_informe(self):
+        tipo_informe = self.drop_tipo_informe.value
+        cat_filtro = self.drop_categoria.value
+        periodo_filtro = self.drop_filtro_fecha.value
+
+        # 1. Cálculo del Rango de Fechas
+        hoy = datetime.date.today()
+        if periodo_filtro == "Día de Hoy":
+            fecha_inicio = hoy.strftime("%Y-%m-%d")
+            fecha_fin = hoy.strftime("%Y-%m-%d")
+        elif periodo_filtro == "Mes Actual":
+            fecha_inicio = hoy.replace(day=1).strftime("%Y-%m-%d")
+            ultimo_dia = monthrange(hoy.year, hoy.month)[1]
+            fecha_fin = hoy.replace(day=ultimo_dia).strftime("%Y-%m-%d")
+        else:
+            # Histórico Completo
+            fecha_inicio = "2000-01-01"
+            fecha_fin = "2100-12-31"
+
+        # 2. Actualizar Cabecera del Documento
+        self.doc_header_titulo.value = f"INFORME DE {tipo_informe.upper()}"
+        self.doc_header_periodo.value = f"Periodo: {fecha_inicio} al {fecha_fin} | Filtro: {cat_filtro}"
+        self.doc_header_fecha.value = f"Fecha de Generación: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')}"
+
+        self.doc_cuerpo.controls.clear()
+
+        # 3. Enrutador según el tipo de informe
+        if tipo_informe == "Valorización de Inventario":
+            self._generar_valorizacion(cat_filtro)
+        else:
+            # Espacio para futuros reportes (Ej. Entradas, Salidas, Rentabilidad)
+            self.doc_cuerpo.controls.append(ft.Text("Tipo de informe en construcción.", color="orange"))
+
+        if self.page:
+            self.page.update()
+
+    def _generar_valorizacion(self, cat_filtro):
+        # Obtener Datos
+        cat_param = "" if cat_filtro == "Todas" else cat_filtro
+        data, _ = self.db.get_insumos(page=1, page_size=10000, categoria=cat_param)
+
+        if not data:
+            self.doc_cuerpo.controls.append(
+                ft.Container(content=ft.Text("No hay datos para los filtros seleccionados.", size=14, color="grey"), padding=30, alignment=ft.alignment.center)
+            )
+            self.current_data = {}
+            self.current_total = 0
+            return
+
+        # Agrupar Datos
+        agrupacion = {}
+        gran_total_costo = 0.0
+
+        for item in data:
+            cat = item.get("categoria") or "SIN CATEGORIA"
+            stock = float(item.get("stock_actual") or item.get("stock_real") or 0)
+            costo = float(item.get("costo_unitario") or 0)
+
+            if stock > 0:
+                costo_total = stock * costo
+                if cat not in agrupacion:
+                    agrupacion[cat] = {"items": [], "subtotal": 0.0}
+
+                agrupacion[cat]["items"].append({
+                    "codigo": item.get("codigo_insumo"),
+                    "nombre": item.get("nombre"),
+                    "stock": stock,
+                    "costo_u": costo,
+                    "total": costo_total
+                })
+                agrupacion[cat]["subtotal"] += costo_total
+                gran_total_costo += costo_total
+
+        # Guardar en memoria para exportación
+        self.current_data = agrupacion
+        self.current_total = gran_total_costo
+        self.current_periodo = self.doc_header_periodo.value
+
+        # Construcción Visual en el Lienzo
+        self.doc_cuerpo.controls.append(
+            ft.Row([
+                ft.Text("CÓDIGO", weight="bold", size=11, width=60),
+                ft.Text("INSUMO", weight="bold", size=11, expand=True),
+                ft.Text("CANT.", weight="bold", size=11, width=60, text_align=ft.TextAlign.RIGHT),
+                ft.Text("COSTO U.", weight="bold", size=11, width=80, text_align=ft.TextAlign.RIGHT),
+                ft.Text("TOTAL", weight="bold", size=11, width=100, text_align=ft.TextAlign.RIGHT),
+            ])
+        )
+        self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
+
+        for cat, datos_cat in sorted(agrupacion.items()):
+            self.doc_cuerpo.controls.append(
+                ft.Container(content=ft.Text(f"GRUPO: {cat.upper()}", weight="bold", size=12, color=Config.COLOR_PRIMARY), padding=ft.padding.only(top=10, bottom=5))
+            )
+            for i in sorted(datos_cat["items"], key=lambda x: x["nombre"]):
+                self.doc_cuerpo.controls.append(
+                    ft.Row([
+                        ft.Text(i['codigo'], size=11, width=60),
+                        ft.Text(i['nombre'], size=11, expand=True, no_wrap=True),
+                        ft.Text(f"{i['stock']:g}", size=11, width=60, text_align=ft.TextAlign.RIGHT),
+                        ft.Text(f"${i['costo_u']:,.2f}", size=11, width=80, text_align=ft.TextAlign.RIGHT),
+                        ft.Text(f"${i['total']:,.2f}", size=11, width=100, text_align=ft.TextAlign.RIGHT),
+                    ])
+                )
+            self.doc_cuerpo.controls.append(
+                ft.Row([
+                    ft.Text(f"Total {cat}:", weight="bold", size=11, expand=True, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"${datos_cat['subtotal']:,.2f}", weight="bold", size=12, width=100, text_align=ft.TextAlign.RIGHT),
+                ])
+            )
+            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="#eeeeee"))
+
+        self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
+        self.doc_cuerpo.controls.append(
+            ft.Row([
+                ft.Text("GRAN TOTAL VALORIZACIÓN:", weight="bold", size=14, expand=True, text_align=ft.TextAlign.RIGHT),
+                ft.Text(f"${gran_total_costo:,.2f}", weight="bold", size=14, width=150, text_align=ft.TextAlign.RIGHT),
+            ])
+        )
+        self.doc_cuerpo.controls.append(ft.Divider(height=4, color="black"))
+
+    def exportar_pdf(self, e):
+        self.page.snack_bar = ft.SnackBar(ft.Text("Generando PDF... (Módulo de exportación pendiente)"), bgcolor="orange")
+        self.page.snack_bar.open = True
+        self.page.update()
+
+    def exportar_excel(self, e):
+        self.page.snack_bar = ft.SnackBar(ft.Text("Generando Excel... (Módulo de exportación pendiente)"), bgcolor="green")
+        self.page.snack_bar.open = True
+        self.page.update()
+````
 
 ## File: core/excel_manager.py
 ````python
@@ -831,6 +1092,7 @@ class Sidebar(ft.Container):
                 self._create_menu_item("Ventas", ft.icons.POINT_OF_SALE, "ventas"),
                 self._create_menu_item("Ajustes de Inventario", ft.icons.TUNE, "ajustes_inventario"),
                 self._create_menu_item("Cierre de Mes", ft.icons.FACT_CHECK, "cierre_mes"),
+                self._create_menu_item("Informes", ft.icons.PIE_CHART, "informes"),
                 
                 ft.Container(expand=True), # Spacer
                 
@@ -909,6 +1171,8 @@ from ui.views.compras import ComprasView
 from ui.views.ventas import VentasView
 from ui.views.cierre_inventario import CierreInventarioView
 from ui.views.ajustes_inventario import AjustesInventarioView
+from ui.views.informes import InformesView
+
 class AppLayout(ft.Row):
     def __init__(self, page: ft.Page):
         super().__init__()
@@ -924,6 +1188,7 @@ class AppLayout(ft.Row):
             "ventas": VentasView(),
             "ajustes_inventario": AjustesInventarioView(),
             "cierre_mes": CierreInventarioView(),
+            "informes": InformesView(),
         }
         
         # Contenedor principal de la vista activa
@@ -1179,552 +1444,6 @@ CREATE TABLE IF NOT EXISTS public.Registro_Ventas (
 ALTER TABLE public.Catalogo_Insumos DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.Registro_Compras DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.Registro_Ventas DISABLE ROW LEVEL SECURITY;
-````
-
-## File: core/gemini_parser.py
-````python
-import google.generativeai as genai
-from config import Config
-import json
-import time
-import re
-from typing import TypedDict
-
-class GeminiParser:
-    def __init__(self):
-        self.api_key = Config.GEMINI_API_KEY
-        if self.api_key:
-            genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-3.6-flash')
-
-            
-    def parse_invoice_pdf(self, pdf_path):
-        """
-        Envía un PDF a Gemini para extraer productos y cantidades.
-        Retorna un diccionario con los datos extraídos o None si hay un error.
-        """
-        if not self.api_key:
-            print("Error: No hay API key de Gemini configurada.")
-            return None
-            
-        try:
-            print(f"Subiendo archivo a Gemini: {pdf_path}")
-            # 1. Subir archivo a la API de File de Gemini
-            uploaded_file = genai.upload_file(path=pdf_path)
-            
-            # 2. Esperar a que el archivo se procese (opcional, recomendado para PDFs)
-            while uploaded_file.state.name == "PROCESSING":
-                print(".", end="", flush=True)
-                time.sleep(1)
-                uploaded_file = genai.get_file(uploaded_file.name)
-            
-            print("\nArchivo listo. Extrayendo datos...")
-            
-            # 3. Armar el prompt estricto
-            prompt = """
-            Extrae TODOS los datos de TODAS las páginas del reporte de entradas y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
-            NO extraigas el nombre del proveedor ni la descripción del producto. Limítate a los datos numéricos y códigos.
-            
-            REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
-            1. BLOQUES: Cada compra inicia en el extremo izquierdo con un código "EA-" (ej. EA-9273). Procesa TODOS los que encuentres.
-            2. FECHA Y FACTURA: La "fecha" suele estar bajo el código EA (conviértela a YYYY-MM-DD). El "numero_factura" está junto a la palabra "Factura No.". Si no hay, pon null.
-            3. PRODUCTOS: Extrae cada línea de insumo hasta llegar a la frase "Totales de Entrada:".
-            4. CAMPOS POR PRODUCTO:
-               - "codigo_insumo": Código de 4 dígitos al extremo izquierdo.
-               - "cantidad": Dato bajo la columna 'Cant.'
-               - "costo_unitario": Dato bajo la columna 'Costo'.
-               - "iva": Dato bajo la columna 'IVA' (Si está vacía, pon 0.0).
-            5. FORMATO NUMÉRICO ESTRICTO: Convierte puntos a miles y comas a decimales (ej. "13.100" -> 13100.0 y "16,50" -> 16.5).
-            
-            ESTRUCTURA EXACTA REQUERIDA (Sigue este patrón para todos los bloques e insumos):
-            [
-              {
-                "numero_entrada": "EA-9276",
-                "fecha": "2026-08-03",
-                "numero_factura": "19284",
-                "productos": [
-                  {
-                    "codigo_insumo": "0471",
-                    "cantidad": 10.0,
-                    "costo_unitario": 7353.0,
-                    "iva": 13971.0
-                  },
-                  {
-                    "codigo_insumo": "4182",
-                    "cantidad": 50.0,
-                    "costo_unitario": 2815.0,
-                    "iva": 26744.0
-                  }
-                ]
-              }
-            ]
-            """
-            
-            # 4. Enviar a Gemini forzando el motor JSON y maximizando los tokens
-            response = self.model.generate_content(
-                [uploaded_file, prompt],
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    temperature=0.0, # Temperatura cero para formato robótico y determinista
-                    max_output_tokens=8192 # Darle el máximo espacio posible para PDFs grandes
-                )
-            )
-            
-            # Como forzamos el mime_type, la respuesta ya es un string JSON limpio
-            text_response = response.text.strip()
-            
-            # Limpiar comas huérfanas (trailing commas) que la IA suele dejar por error antes de cerrar llaves o corchetes
-            text_response = re.sub(r',\s*([\]}])', r'\1', text_response)
-            
-            # Parsear el JSON de forma segura
-            data = json.loads(text_response)
-            
-            # --- Escudo de formato (Ahora esperamos una lista) ---
-            if isinstance(data, dict):
-                # Si Gemini se equivoca y devuelve un solo objeto, lo envolvemos en una lista
-                data = [data]
-            elif not isinstance(data, list):
-                data = []
-            # -------------------------------
-            
-            # Eliminar archivo subido
-            genai.delete_file(uploaded_file.name)
-            
-            print("¡Extracción completada! Conexión con Gemini cerrada.")
-            return data
-            
-        except Exception as e:
-            print(f"Error procesando PDF con Gemini: {e}")
-            return None
-
-    def parse_compras_pdf_page(self, pdf_path, page_index):
-        """
-        Extrae datos de compras de una única página del PDF.
-        """
-        if not self.api_key:
-            return None
-            
-        try:
-            
-            from pypdf import PdfReader, PdfWriter
-            import os
-            from typing import TypedDict
-        except ImportError:
-            return None
-            
-        try:
-            reader = PdfReader(pdf_path)
-            if page_index < 0 or page_index >= len(reader.pages):
-                return None
-                
-            class ProductoCompra(TypedDict):
-                codigo_insumo: str
-                cantidad: float
-                costo_unitario: float
-                iva: float
-
-            class FacturaCompra(TypedDict):
-                numero_entrada: str
-                fecha: str
-                numero_factura: str
-                proveedor: str
-                productos: list[ProductoCompra]
-                
-            prompt = """
-            Extrae TODOS los datos de TODAS las facturas en esta página del reporte de entradas y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
-            NO extraigas la descripción del producto. Limítate a los datos solicitados.
-            
-            REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
-            1. BLOQUES: Cada compra inicia en el extremo izquierdo con un código "EA-" (ej. EA-9273). Procesa TODOS los que encuentres.
-            2. CABECERA DEL BLOQUE (Fecha, Factura y Proveedor): 
-               En la misma línea que el "EA-" (o en la línea inmediatamente inferior):
-               - La "fecha" suele estar a continuación del EA (conviértela a YYYY-MM-DD).
-               - El "numero_factura" está precedido por la palabra "Factura No." o "Factura". Si no hay número, pon null.
-               - El "proveedor" se encuentra AL LADO DERECHO de la palabra "Factura" o del número de factura. Extrae SOLO el nombre comercial (ej. "DISTRIBUCIONES PUNTO CHEVERE SAS", "AJOVER SAS"). 
-               - REGLA ESTRICTA PARA PROVEEDOR: ESTÁ TOTALMENTE PROHIBIDO incluir explicaciones, razonamientos internos, notas de OCR o caracteres asiáticos en este campo. El valor debe ser ÚNICAMENTE el nombre de la empresa.
-            3. PRODUCTOS: Extrae cada línea de insumo hasta llegar a la frase "Totales de Entrada:".
-            4. CAMPOS POR PRODUCTO:
-               - "codigo_insumo": Código de 4 dígitos al extremo izquierdo.
-               - "cantidad": Dato bajo la columna 'Cant.'
-               - "costo_unitario": Dato bajo la columna 'Costo'.
-               - "iva": Dato bajo la columna 'IVA' (Si está vacía, pon 0.0).
-            5. FORMATO NUMÉRICO ESTRICTO: Convierte puntos a miles y comas a decimales (ej. "13.100" -> 13100.0 y "16,50" -> 16.5).
-            
-            ESTRUCTURA EXACTA REQUERIDA (Sigue este patrón para todos los bloques e insumos):
-            [
-              {
-                "numero_entrada": "EA-9276",
-                "fecha": "2026-08-03",
-                "numero_factura": "19284",
-                "proveedor": "NOMBRE DEL PROVEEDOR SAS",
-                "productos": [
-                  {
-                    "codigo_insumo": "0471",
-                    "cantidad": 10.0,
-                    "costo_unitario": 7353.0,
-                    "iva": 13971.0
-                  }
-                ]
-              }
-            ]
-            """
-            
-            writer = PdfWriter()
-            writer.add_page(reader.pages[page_index])
-            
-            temp_pdf_path = f"temp_compras_page_{page_index}.pdf"
-            with open(temp_pdf_path, "wb") as f:
-                writer.write(f)
-            
-            uploaded_file = genai.upload_file(path=temp_pdf_path)
-            time.sleep(2)
-            
-            while uploaded_file.state.name == "PROCESSING":
-                time.sleep(5)
-                uploaded_file = genai.get_file(uploaded_file.name)
-            
-            intentos = 0
-            max_intentos = 3
-            response = None
-            
-            while intentos < max_intentos:
-                try:
-                    response = self.model.generate_content(
-                        [uploaded_file, prompt],
-                        generation_config=genai.GenerationConfig(
-                            response_mime_type="application/json",
-                            response_schema=list[FacturaCompra],
-                            temperature=0.0,
-                            max_output_tokens=8192
-                        )
-                    )
-                    break
-                except Exception as api_e:
-                    error_str = str(api_e)
-                    if "429" in error_str or "quota" in error_str.lower():
-                        print(f"⚠️ Límite de Google alcanzado (429). Esperando 60s de forma invisible... (Intento {intentos+1}/{max_intentos})")
-                        time.sleep(60)
-                        intentos += 1
-                    elif "500" in error_str or "internal error" in error_str.lower():
-                        print(f"⚠️ Error interno en Google (500). Reintentando en 15s... (Intento {intentos+1}/{max_intentos})")
-                        time.sleep(15)
-                        intentos += 1
-                    else:
-                        raise api_e
-                        
-            if response is None:
-                print("Error: Se superaron los intentos máximos o respuesta nula.")
-                genai.delete_file(uploaded_file.name)
-                os.remove(temp_pdf_path)
-                return []
-            
-            text_response = response.text.strip()
-            
-            if text_response.startswith("```json"):
-                text_response = text_response[7:]
-            if text_response.startswith("```"):
-                text_response = text_response[3:]
-            if text_response.endswith("```"):
-                text_response = text_response[:-3]
-                
-            text_response = text_response.strip()
-            text_response = re.sub(r',\s*([\]}])', r'\1', text_response)
-            
-            genai.delete_file(uploaded_file.name)
-            os.remove(temp_pdf_path)
-            
-            try:
-                data = json.loads(text_response)
-                if isinstance(data, dict):
-                    return [data]
-                elif isinstance(data, list):
-                    return data
-                return []
-            except json.JSONDecodeError as je:
-                print(f"Error parseando JSON en página {page_index + 1}. Error: {je}")
-                print(f"Texto problemático:\n{text_response[:500]}...")
-                return []
-                
-        except Exception as e:
-            print(f"Error procesando página {page_index + 1} de compras con Gemini: {e}")
-            return None
-
-    def parse_ventas_pdf(self, pdf_path, progress_callback=None):
-        """
-        Envía un PDF de ventas a Gemini (en bloques) para evitar el límite de memoria.
-        Retorna un arreglo con los datos extraídos o None si hay un error.
-        """
-        if not self.api_key:
-            print("Error: No hay API key de Gemini configurada.")
-            return None
-            
-        try:
-            from pypdf import PdfReader, PdfWriter
-            import os
-        except ImportError:
-            msg = "Error: Falta la librería pypdf. Ejecuta 'pip install pypdf' en la terminal."
-            print(msg)
-            if progress_callback: progress_callback(msg)
-            return None
-            
-        try:
-            msg = f"Preparando división automática para el PDF..."
-            print(msg)
-            if progress_callback: progress_callback(msg)
-            
-            reader = PdfReader(pdf_path)
-            total_paginas = len(reader.pages)
-            tamano_bloque = 1 # Procesar de a 1 página para máxima precisión y evitar errores de JSON
-            todas_las_facturas = []
-            
-            # --- EL MOLDE ESTRICTO PARA VENTAS ---
-            class ProductoVenta(TypedDict):
-                codigo_item: str
-                cantidad: float
-                subtotal: float
-                iva: float
-                costo_total: float
-
-            class FacturaVenta(TypedDict):
-                fecha: str
-                numero_factura: str
-                productos: list[ProductoVenta]
-            # --------------------------------------------
-            
-            prompt = """
-            Extrae TODOS los datos de TODAS las páginas de este fragmento del reporte de facturas y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
-            NO extraigas el nombre del cliente ni la descripción del producto. Limítate a los datos numéricos y códigos.
-            
-            REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
-            1. BLOQUES: Cada bloque de venta inicia con "Fact.No." seguido del número de factura. Procesa TODOS los que encuentres en el documento.
-            2. FECHA Y FACTURA: La "fecha" suele estar en la misma línea que el "Fact.No." (conviértela a YYYY-MM-DD). Extrae el número de factura.
-            3. PRODUCTOS: Extrae cada línea de insumo hasta llegar a la frase "Total Factura:".
-            4. CAMPOS POR PRODUCTO:
-               - "codigo_item": Código al extremo izquierdo (ej. 0847, 0571-1).
-               - "cantidad": Dato bajo la columna 'Cantidad'.
-               - "subtotal": Dato bajo la columna 'Subtotal'. NO HAGAS NINGÚN CÁLCULO.
-               - "iva": Dato bajo la columna 'IVA' (Si está vacía, pon 0.0).
-               - "costo_total": Dato bajo la columna 'Total'.
-            5. FORMATO NUMÉRICO ESTRICTO: Todo valor monetario o cantidad debe ser número (float). Usa puntos (.) solo para decimales. NO uses comas (,) para separar los miles dentro de los números (ej. "93,277" debe ser 93277.0).
-            """
-            
-            # Ciclo para iterar el documento por pedazos
-            for i in range(0, total_paginas, tamano_bloque):
-                rango_inicio = i + 1
-                rango_fin = min(i + tamano_bloque, total_paginas)
-                msg = f"Extrayendo datos: Página {rango_inicio} de {total_paginas}..." if tamano_bloque == 1 else f"Extrayendo datos: Páginas {rango_inicio} a {rango_fin} de {total_paginas}..."
-                print(msg)
-                if progress_callback: progress_callback(msg)
-                
-                # 1. Crear PDF temporal con solo un bloque de páginas
-                writer = PdfWriter()
-                for j in range(i, rango_fin):
-                    writer.add_page(reader.pages[j])
-                    
-                temp_pdf_path = f"temp_ventas_chunk_{i}.pdf"
-                with open(temp_pdf_path, "wb") as f:
-                    writer.write(f)
-                
-                # 2. Subir el fragmento a Gemini
-                uploaded_file = genai.upload_file(path=temp_pdf_path)
-                while uploaded_file.state.name == "PROCESSING":
-                    time.sleep(1)
-                    uploaded_file = genai.get_file(uploaded_file.name)
-                
-                # 3. Extraer los datos forzando el motor JSON y el esquema
-                response = self.model.generate_content(
-                    [uploaded_file, prompt],
-                    generation_config=genai.GenerationConfig(
-                        response_mime_type="application/json",
-                        response_schema=list[FacturaVenta],
-                        temperature=0.0,
-                        max_output_tokens=8192
-                    )
-                )
-                
-                text_response = response.text.strip()
-                
-                # Limpiar la basura residual y comas huérfanas
-                if text_response.startswith("```json"):
-                    text_response = text_response[7:]
-                if text_response.startswith("```"):
-                    text_response = text_response[3:]
-                if text_response.endswith("```"):
-                    text_response = text_response[:-3]
-                
-                text_response = text_response.strip()
-                text_response = re.sub(r',\s*([\]}])', r'\1', text_response)
-                
-                try:
-                    data = json.loads(text_response)
-                    # Agrupar los resultados
-                    if isinstance(data, dict):
-                        todas_las_facturas.append(data)
-                    elif isinstance(data, list):
-                        todas_las_facturas.extend(data)
-                except json.JSONDecodeError as je:
-                    print(f"Error parseando el JSON en página {rango_inicio}. Saltando bloque. Error: {je}")
-                    print(f"JSON Problemático:\n{text_response[:500]}...")
-                
-                # 4. Limpiar los archivos temporales para no llenar el disco ni la nube
-                genai.delete_file(uploaded_file.name)
-                os.remove(temp_pdf_path)
-
-            msg = "¡Extracción de todas las páginas completada!"
-            print(msg)
-            if progress_callback: progress_callback(msg)
-            
-            return todas_las_facturas
-            
-        except Exception as e:
-            print(f"Error procesando PDF de ventas con Gemini: {e}")
-            return None
-
-    def parse_ventas_pdf_page(self, pdf_path, page_index, tipo_documento="Remisión"):
-        """
-        Extrae datos de una única página del PDF.
-        """
-        if not self.api_key:
-            return None
-            
-        try:
-            from pypdf import PdfReader, PdfWriter
-            import os
-        except ImportError:
-            return None
-            
-        try:
-            reader = PdfReader(pdf_path)
-            if page_index < 0 or page_index >= len(reader.pages):
-                return None
-                
-            # --- EL MOLDE ESTRICTO PARA VENTAS ---
-            class ProductoVenta(TypedDict):
-                codigo_item: str
-                cantidad: float
-                subtotal: float
-                iva: float
-                costo_total: float
-
-            class FacturaVenta(TypedDict):
-                fecha: str
-                numero_factura: str
-                productos: list[ProductoVenta]
-            
-            if tipo_documento == "Factura POS":
-                prompt = """
-                Extrae los datos de ventas formato POS de este documento y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
-                Solo se requiere el numero de factura, codigo insumo, cantidad y precio unitario.
-                NO extraigas fechas (el sistema las asignará), ni nombres de clientes.
-                
-                REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
-                1. BLOQUES DE FACTURA: Cada factura inicia debajo de la palabra "TIPO NUMERO" con el prefijo "PP" seguido del número (ej. "PP 26396"). Extrae SOLO los números.
-                2. PRODUCTOS: Debajo de "Clientes Varios", cada línea de producto tiene 3 valores separados por espacios. 
-                   - "codigo_item": El primer número de la línea (ej. 2151).
-                   - "cantidad": El segundo número (ej. 50.00).
-                   - "precio_unitario": El tercer número (ej. 1900.00).
-                3. CÁLCULOS OBLIGATORIOS PARA EL JSON:
-                   - "subtotal": DEBES multiplicar la "cantidad" por el "precio_unitario".
-                   - "iva": Siempre será 0.0 para este formato.
-                   - "costo_total": Será exactamente igual al "subtotal".
-                4. FORMATO NUMÉRICO: Todo valor monetario o cantidad debe ser número (float). Usa puntos (.) solo para decimales. NO uses comas.
-                """
-            else:
-                prompt = """
-                Extrae TODOS los datos de TODAS las páginas de este fragmento del reporte de facturas y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
-                NO extraigas el nombre del cliente ni la descripción del producto. Limítate a los datos numéricos y códigos.
-                
-                REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
-                1. BLOQUES: Cada bloque de venta inicia con "Fact.No." seguido del número de factura. Procesa TODOS los que encuentres.
-                2. FECHA Y FACTURA: La "fecha" suele estar en la misma línea que el "Fact.No.". Extrae el número de factura.
-                3. PRODUCTOS: Extrae cada línea de insumo hasta llegar a "Total Factura:".
-                4. CAMPOS POR PRODUCTO:
-                   - "codigo_item": Código al extremo izquierdo.
-                   - "cantidad": Dato bajo la columna 'Cantidad'.
-                   - "subtotal": Dato bajo la columna 'Subtotal'. NO HAGAS NINGÚN CÁLCULO.
-                   - "iva": Dato bajo la columna 'IVA' (Si está vacía, pon 0.0).
-                   - "costo_total": Dato bajo la columna 'Total'.
-                5. FORMATO NUMÉRICO: Usa puntos (.) solo para decimales. NO uses comas (,).
-                """
-            
-            writer = PdfWriter()
-            writer.add_page(reader.pages[page_index])
-            
-            temp_pdf_path = f"temp_ventas_page_{page_index}.pdf"
-            with open(temp_pdf_path, "wb") as f:
-                writer.write(f)
-            
-            uploaded_file = genai.upload_file(path=temp_pdf_path)
-            time.sleep(2) # Pausa inicial para dar respiro a la API
-            
-            while uploaded_file.state.name == "PROCESSING":
-                time.sleep(5) # Preguntar solo cada 5 segundos
-                uploaded_file = genai.get_file(uploaded_file.name)
-            
-            intentos = 0
-            max_intentos = 3
-            response = None
-            
-            while intentos < max_intentos:
-                try:
-                    response = self.model.generate_content(
-                        [uploaded_file, prompt],
-                        generation_config=genai.GenerationConfig(
-                            response_mime_type="application/json",
-                            response_schema=list[FacturaVenta],
-                            temperature=0.0,
-                            max_output_tokens=8192
-                        )
-                    )
-                    break
-                except Exception as api_e:
-                    error_str = str(api_e)
-                    if "429" in error_str or "quota" in error_str.lower():
-                        print(f"⚠️ Límite de Google alcanzado (429). Esperando 60s de forma invisible... (Intento {intentos+1}/{max_intentos})")
-                        time.sleep(60)
-                        intentos += 1
-                    elif "500" in error_str or "internal error" in error_str.lower():
-                        print(f"⚠️ Error interno en los servidores de Google (500). Reintentando en 15s... (Intento {intentos+1}/{max_intentos})")
-                        time.sleep(15)
-                        intentos += 1
-                    else:
-                        raise api_e
-                        
-            if response is None:
-                print("Error: Se superaron los intentos máximos o la respuesta es nula.")
-                genai.delete_file(uploaded_file.name)
-                os.remove(temp_pdf_path)
-                return []
-            
-            text_response = response.text.strip()
-            
-            if text_response.startswith("```json"):
-                text_response = text_response[7:]
-            if text_response.startswith("```"):
-                text_response = text_response[3:]
-            if text_response.endswith("```"):
-                text_response = text_response[:-3]
-            
-            text_response = text_response.strip()
-            text_response = re.sub(r',\s*([\]}])', r'\1', text_response)
-            
-            genai.delete_file(uploaded_file.name)
-            os.remove(temp_pdf_path)
-            
-            try:
-                data = json.loads(text_response)
-                if isinstance(data, dict):
-                    return [data]
-                elif isinstance(data, list):
-                    return data
-                return []
-            except json.JSONDecodeError as je:
-                print(f"Error parseando el JSON de página {page_index + 1}. Error: {je}")
-                return []
-                
-        except Exception as e:
-            print(f"Error procesando página {page_index + 1} de ventas con Gemini: {e}")
-            return None
 ````
 
 ## File: ui/views/ajustes_inventario.py
@@ -2269,1058 +1988,6 @@ class AjustesInventarioView(ft.Container):
 
         if self.page:
             self.page.update()
-````
-
-## File: ui/views/compras.py
-````python
-import flet as ft
-import threading
-import time
-import json
-import os
-import datetime
-from pypdf import PdfReader, PdfWriter
-from config import Config
-from core.supabase_client import SupabaseClient
-from core.gemini_parser import GeminiParser
-import math
-
-class ComprasView(ft.Container):
-    def __init__(self):
-        super().__init__()
-        self.is_fullscreen = False
-        self.btn_fullscreen = ft.IconButton(
-            icon=ft.icons.FULLSCREEN,
-            tooltip="Expandir Tabla (Modo Enfoque)",
-            on_click=self.toggle_fullscreen
-        )
-        self.expand = True
-        
-        self.db = SupabaseClient()
-        self.ai_parser = GeminiParser()
-        self.page_size = 15
-        self.current_page = 1
-        self.total_pages = 1
-        self.total_records = 0
-        
-        self.parsed_data = None # Para guardar temporalmente los datos extraídos
-        
-        # Controles de Búsqueda
-        self.search_input = ft.TextField(
-            hint_text="Buscar por código, proveedor o factura...", 
-            prefix_icon=ft.icons.SEARCH,
-            border_radius=8,
-            expand=True,
-            bgcolor="white",
-            height=40,
-            on_submit=self.on_search
-        )
-        
-        # Filtro de fecha
-        self.fecha_corte = None
-        self.date_picker = ft.DatePicker(
-            on_change=self.on_date_change,
-            on_dismiss=self.on_date_dismiss,
-        )
-        self.btn_date = ft.OutlinedButton(
-            text="Filtrar por Fecha",
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=self.open_date_picker,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=40
-        )
-        self.btn_clear_date = ft.IconButton(
-            icon=ft.icons.CLEAR,
-            tooltip="Limpiar Fecha",
-            on_click=self.clear_date,
-            visible=False,
-            icon_color="red"
-        )
-        
-        # Dashboard Resumen
-        self.lbl_compras_mes = ft.Text("$0", size=20, weight="bold", color=Config.COLOR_PRIMARY)
-        self.lbl_compras_hoy = ft.Text("$0", size=20, weight="bold", color="green")
-        self.lbl_cantidad = ft.Text("0", size=20, weight="bold")
-        
-        self.summary_container = ft.Container(
-            content=ft.Row([
-                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Total Compras en el Mes"), self.lbl_compras_mes]), padding=5), expand=True),
-                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Total Compras Hoy"), self.lbl_compras_hoy]), padding=5), expand=True),
-                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Cantidad Productos Comprados"), self.lbl_cantidad]), padding=5), expand=True),
-            ])
-        )
-        
-        self.btn_agregar = ft.ElevatedButton(
-            text="Agregar Compra",
-            icon=ft.icons.ADD,
-            bgcolor=Config.COLOR_SECONDARY,
-            color="white",
-            height=40,
-            on_click=self.on_agregar_click,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-        )
-        
-        # File Picker
-        self.file_picker = ft.FilePicker(on_result=self.on_file_picked)
-        
-        # Diálogo de Carga
-        self.lbl_loading_text = ft.Text("Preparando archivo...", text_align=ft.TextAlign.CENTER)
-        self.dlg_loading = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("Procesando con Inteligencia Artificial"),
-            content=ft.Column([
-                ft.ProgressRing(),
-                self.lbl_loading_text
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True)
-        )
-        
-        # Diálogo de Confirmación (se construirá dinámicamente)
-        self.dlg_confirm = ft.AlertDialog(modal=True)
-        
-        # Tabla de Datos
-        self.data_table = ft.DataTable(
-            data_row_min_height=30,
-            data_row_max_height=30,
-            heading_row_height=40,
-            columns=[
-                ft.DataColumn(ft.Text("Fecha", weight="bold")),
-                ft.DataColumn(ft.Text("No. Factura", weight="bold")),
-                ft.DataColumn(ft.Text("Proveedor", weight="bold")),
-                ft.DataColumn(ft.Text("Código Item", weight="bold")),
-                ft.DataColumn(ft.Container(content=ft.Text("Nombre", weight="bold"), width=300)),
-                ft.DataColumn(ft.Text("Cantidad", weight="bold"), numeric=True),
-                ft.DataColumn(ft.Text("Costo Unit.", weight="bold"), numeric=True),
-                ft.DataColumn(ft.Text("Costo Total", weight="bold"), numeric=True),
-            ],
-            rows=[],
-            heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
-            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
-            border_radius=8,
-            vertical_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
-        )
-        
-        # Controles Paginación
-        self.lbl_page_info = ft.Text("Página 1 de 1")
-        self.lbl_total = ft.Text("0 registros en total", color="grey")
-        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, on_click=self.on_prev_page, disabled=True)
-        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, on_click=self.on_next_page, disabled=True)
-        self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
-        
-        # --- TAB 2: GESTIÓN DE CARGAS ---
-        self.cargas_file = "cargas_compras_locales.json"
-        self.cargas_data = {}
-        self._load_cargas()
-        
-        self.fecha_filtro_cargas = None
-        self.date_picker_filtro_cargas = ft.DatePicker(on_change=self.on_date_filtro_cargas_change)
-        
-        self.btn_filtro_fecha_cargas = ft.OutlinedButton(
-            text="Filtrar por Fecha",
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=lambda e: self.date_picker_filtro_cargas.pick_date(),
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=45
-        )
-        self.btn_clear_filtro_cargas = ft.IconButton(
-            icon=ft.icons.CLEAR, tooltip="Limpiar Fecha",
-            on_click=self.clear_filtro_fecha_cargas, visible=False, icon_color="red"
-        )
-        
-        self.drop_filtro_estado_cargas = ft.Dropdown(
-            options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("Nuevo"), ft.dropdown.Option("Procesado con éxito"), ft.dropdown.Option("Falló"), ft.dropdown.Option("Guardado"), ft.dropdown.Option("Sobreescrito")],
-            value="Todos", label="Estado", dense=True, width=170, border_radius=8, content_padding=10, height=45,
-            on_change=lambda e: self._render_tabla_cargas()
-        )
-        
-        self.table_cargas = ft.DataTable(
-            data_row_min_height=40,
-            data_row_max_height=40,
-            heading_row_height=40,
-            columns=[
-                ft.DataColumn(ft.Text("ID", weight="bold"), numeric=True),
-                ft.DataColumn(ft.Text("Página", weight="bold")),
-                ft.DataColumn(ft.Text("Archivo Original", weight="bold")),
-                ft.DataColumn(ft.Text("Estado", weight="bold")),
-                ft.DataColumn(ft.Text("Acciones", weight="bold")),
-            ],
-            rows=[],
-            heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
-            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
-            border_radius=8,
-            vertical_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
-        )
-        
-        # --- NUEVO MODAL DE METADATOS ---
-        self.fecha_carga_actual = datetime.date.today().strftime("%Y-%m-%d")
-        self.date_picker_cargas = ft.DatePicker(on_change=self.on_date_cargas_change)
-        self.fecha_carga_btn = ft.OutlinedButton(
-            text=self.fecha_carga_actual, icon=ft.icons.CALENDAR_MONTH,
-            on_click=lambda e: self.date_picker_cargas.pick_date(),
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)), height=40, width=250
-        )
-        self.dlg_metadatos_pdf = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("Selecciona la Fecha de la Carga"),
-            content=ft.Column([
-                ft.Text("Fecha asignada a las compras del PDF:", size=12, color="grey", weight="bold"),
-                self.fecha_carga_btn
-            ], tight=True),
-            actions=[
-                ft.TextButton("Cancelar", on_click=self._cerrar_modal_metadatos),
-                ft.ElevatedButton("Seleccionar Archivo PDF", on_click=self._abrir_file_picker_desde_modal)
-            ]
-        )
-        
-        # --- PREPARACIÓN DE LAS PESTAÑAS (TABS) ---
-        
-        # 1. Contenido Tab 1: Registro Compras
-        row_filtros_compras = ft.Row([
-            self.search_input,
-            self.btn_date,
-            self.btn_clear_date,
-            ft.ElevatedButton(
-                text="Buscar", icon=ft.icons.SEARCH, bgcolor=Config.COLOR_PRIMARY, color="white", height=40,
-                on_click=self.on_search, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-            ),
-        ])
-        
-        contenedor_tabla_compras = ft.Container(
-            content=ft.Row([ft.Column([self.data_table], scroll=ft.ScrollMode.ALWAYS)], scroll=ft.ScrollMode.ALWAYS, expand=True, vertical_alignment=ft.CrossAxisAlignment.START),
-            bgcolor="white", padding=5, border_radius=10, expand=True, shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=ft.colors.with_opacity(0.05, "black"))
-        )
-        
-        footer_paginacion = ft.Container(
-            content=ft.Row([self.lbl_total, ft.Container(expand=True), self.btn_prev, self.lbl_page_info, self.btn_next], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            padding=ft.padding.only(top=10)
-        )
-        
-        layout_tab_compras = ft.Container(
-            content=ft.Column([row_filtros_compras, contenedor_tabla_compras, footer_paginacion], expand=True, spacing=10),
-            padding=10
-        )
-        
-        # 2. Contenido Tab 2: Gestión de Cargas
-        row_filtros_tab_cargas = ft.Row([
-            self.btn_filtro_fecha_cargas,
-            self.btn_clear_filtro_cargas,
-            self.drop_filtro_estado_cargas,
-            ft.Container(expand=True),
-            ft.ElevatedButton(
-                text="Subir PDF de Compras", icon=ft.icons.CLOUD_UPLOAD, bgcolor=Config.COLOR_SECONDARY, color="white", height=40,
-                on_click=self.on_agregar_click, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-            )
-        ])
-        
-        contenedor_tabla_cargas = ft.Container(
-            content=ft.Row([ft.Column([self.table_cargas], scroll=ft.ScrollMode.ALWAYS)], scroll=ft.ScrollMode.ALWAYS, expand=True, vertical_alignment=ft.CrossAxisAlignment.START),
-            bgcolor="white", padding=5, border_radius=10, expand=True, shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=ft.colors.with_opacity(0.05, "black"))
-        )
-        
-        layout_tab_cargas = ft.Container(
-            content=ft.Column([row_filtros_tab_cargas, contenedor_tabla_cargas], expand=True, spacing=10),
-            padding=10
-        )
-        
-        # Integrar las Pestañas
-        self.tabs = ft.Tabs(
-            selected_index=0,
-            animation_duration=300,
-            tabs=[
-                ft.Tab(text="Registro de Compras", content=layout_tab_compras, icon=ft.icons.SHOPPING_CART),
-                ft.Tab(text="Gestión de Cargas", content=layout_tab_cargas, icon=ft.icons.FILE_UPLOAD),
-            ],
-            expand=True
-        )
-
-        self.lbl_titulo = ft.Text("Módulo de Compras", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.content = ft.Column([
-            self.progress_bar,
-            self.lbl_titulo,
-            self.summary_container,
-            self.tabs
-        ], expand=True, spacing=10)
-        
-        self.load_data()
-        self._render_tabla_cargas()
-
-    def _load_cargas(self):
-        if os.path.exists(self.cargas_file):
-            try:
-                with open(self.cargas_file, "r", encoding="utf-8") as f:
-                    self.cargas_data = json.load(f)
-            except Exception:
-                self.cargas_data = {}
-        else:
-            self.cargas_data = {}
-
-    def _save_cargas(self):
-        try:
-            with open(self.cargas_file, "w", encoding="utf-8") as f:
-                json.dump(self.cargas_data, f, ensure_ascii=False, indent=4)
-        except Exception as e:
-            print(f"Error guardando cargas: {e}")
-
-    def on_date_cargas_change(self, e):
-        if self.date_picker_cargas.value:
-            self.fecha_carga_actual = self.date_picker_cargas.value.strftime("%Y-%m-%d")
-            self.fecha_carga_btn.text = self.fecha_carga_actual
-            if self.page:
-                self.page.update()
-
-    def on_date_filtro_cargas_change(self, e):
-        if self.date_picker_filtro_cargas.value:
-            self.fecha_filtro_cargas = self.date_picker_filtro_cargas.value.strftime("%Y-%m-%d")
-            self.btn_filtro_fecha_cargas.text = self.fecha_filtro_cargas
-            self.btn_clear_filtro_cargas.visible = True
-            if self.page:
-                self.page.update()
-            self._render_tabla_cargas()
-
-    def clear_filtro_fecha_cargas(self, e):
-        self.fecha_filtro_cargas = None
-        self.btn_filtro_fecha_cargas.text = "Filtrar por Fecha"
-        self.btn_clear_filtro_cargas.visible = False
-        self.date_picker_filtro_cargas.value = None
-        if self.page:
-            self.page.update()
-        self._render_tabla_cargas()
-
-    def _render_tabla_cargas(self):
-        self.table_cargas.rows.clear()
-        
-        lista_cargas = []
-        for grupo_key, paginas in self.cargas_data.items():
-            for num_pag, data in paginas.items():
-                lista_cargas.append(data)
-                
-        # Ordenar por ID descendente (más nuevos arriba)
-        lista_cargas.sort(key=lambda x: x["id"], reverse=True)
-        
-        for data in lista_cargas:
-            # --- Filtrado Visual ---
-            if self.fecha_filtro_cargas and data.get("fecha") != self.fecha_filtro_cargas:
-                continue
-                    
-            if self.drop_filtro_estado_cargas.value != "Todos" and data.get("estado") != self.drop_filtro_estado_cargas.value:
-                continue
-            # -----------------------
-            
-            id_carga = data["id"]
-            nombre = f"Página No. {data['pagina']} ({data['fecha']})"
-            archivo_orig = os.path.basename(data.get("archivo_original", "Desconocido"))
-            estado = data["estado"]
-            
-            txt_crono = ft.Text("⏱️ 20s", color="red", weight="bold", visible=False)
-            
-            texto_btn = "Extraer Datos" if estado in ["Nuevo", "Falló", "Sobreescrito"] else "Ver"
-            color_btn = Config.COLOR_PRIMARY if texto_btn == "Extraer Datos" else "grey"
-            icon_btn = ft.icons.DOCUMENT_SCANNER if texto_btn == "Extraer Datos" else ft.icons.VISIBILITY
-            
-            btn_accion = ft.ElevatedButton(
-                text=texto_btn,
-                icon=icon_btn,
-                bgcolor=color_btn,
-                color="white",
-                height=30,
-                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5)),
-                on_click=lambda e, d=data, txt=txt_crono: self.on_accion_carga(e, d, txt)
-            )
-            
-            acciones_row = ft.Row([btn_accion, txt_crono], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-            
-            color_estado = "black"
-            if estado == "Procesado con éxito": color_estado = "green"
-            elif estado == "Falló": color_estado = "red"
-            elif estado == "Guardado": color_estado = "blue"
-            elif estado == "Sobreescrito": color_estado = "orange"
-            
-            self.table_cargas.rows.append(
-                ft.DataRow(
-                    cells=[
-                        ft.DataCell(ft.Text(str(id_carga))),
-                        ft.DataCell(ft.Text(nombre, weight="bold")),
-                        ft.DataCell(ft.Text(archivo_orig[:20] + "..." if len(archivo_orig) > 20 else archivo_orig, tooltip=archivo_orig)),
-                        ft.DataCell(ft.Text(estado, color=color_estado, weight="bold")),
-                        ft.DataCell(acciones_row),
-                    ]
-                )
-            )
-            
-        if self.page:
-            self.page.update()
-
-    def on_accion_carga(self, e, data, txt_crono):
-        btn = e.control
-        if btn.text == "Ver":
-            self.carga_activa = data
-            self.parsed_data = data.get("datos_extraidos", [])
-            
-            codigos_extraidos = set()
-            for invoice in self.parsed_data:
-                for p in invoice.get("productos", []):
-                    codigos_extraidos.add(str(p.get("codigo_insumo", "")))
-            if codigos_extraidos:
-                self.nombres_insumos = self.db.get_nombres_insumos(list(codigos_extraidos))
-            else:
-                self.nombres_insumos = {}
-                
-            self.show_confirm_ui()
-            return
-            
-        if getattr(self, "is_extraccion_activa", False):
-            self.page.snack_bar = ft.SnackBar(ft.Text("Hay una extracción en proceso. Espere que termine el cronómetro."), bgcolor="orange")
-            self.page.snack_bar.open = True
-            self.page.update()
-            return
-
-        self.is_extraccion_activa = True
-        btn.text = "Extrayendo..."
-        btn.icon = ft.icons.HOURGLASS_TOP
-        
-        for row in self.table_cargas.rows:
-            accion_row = row.cells[-1].content
-            b = accion_row.controls[0]
-            if b.text == "Extraer Datos":
-                b.disabled = True
-                
-        self.page.snack_bar = ft.SnackBar(ft.Text(f"Analizando documento con Inteligencia Artificial..."), bgcolor="blue")
-        self.page.snack_bar.open = True
-        self.page.update()
-        
-        threading.Thread(target=self._worker_extraccion, args=(data, btn, txt_crono), daemon=True).start()
-
-    def _worker_extraccion(self, data, btn, txt_crono):
-        try:
-            extracted = self.ai_parser.parse_compras_pdf_page(data["archivo"], 0)
-            
-            if extracted and isinstance(extracted, list) and len(extracted) > 0:
-                data["estado"] = "Procesado con éxito"
-                data["datos_extraidos"] = extracted
-                if self.page:
-                    self.page.snack_bar = ft.SnackBar(ft.Text("¡Extracción exitosa!"), bgcolor="green")
-            else:
-                data["estado"] = "Falló"
-                data["datos_extraidos"] = []
-                if self.page:
-                    self.page.snack_bar = ft.SnackBar(ft.Text("Fallo en la extracción. Revise el PDF o intente de nuevo."), bgcolor="red")
-                    
-            if self.page:
-                self.page.snack_bar.open = True
-            self._save_cargas()
-            
-            txt_crono.visible = True
-            btn.text = "Enfriando..."
-            btn.icon = ft.icons.TIMER
-            for i in range(20, 0, -1):
-                txt_crono.value = f"⏱️ {i}s"
-                if self.page:
-                    self.page.update()
-                time.sleep(1)
-                
-        except Exception as ex:
-            data["estado"] = "Falló"
-            self._save_cargas()
-            if self.page:
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error en extracción: {ex}"), bgcolor="red")
-                self.page.snack_bar.open = True
-        finally:
-            self.is_extraccion_activa = False
-            self._render_tabla_cargas()
-    def toggle_fullscreen(self, e):
-        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
-        visibilidad = not self.is_fullscreen
-
-        # Ocultar o mostrar elementos superiores si existen en la vista
-        if hasattr(self, "lbl_titulo"): self.lbl_titulo.visible = visibilidad
-        if hasattr(self, "summary_container"): self.summary_container.visible = visibilidad
-        if hasattr(self, "kpi_bar"): self.kpi_bar.visible = visibilidad
-
-        # Cambiar icono y tooltip
-        self.btn_fullscreen.icon = ft.icons.FULLSCREEN_EXIT if self.is_fullscreen else ft.icons.FULLSCREEN
-        self.btn_fullscreen.tooltip = "Contraer Vista" if self.is_fullscreen else "Expandir Tabla (Modo Enfoque)"
-
-        if hasattr(self, "safe_update"):
-            self.safe_update()
-        elif self.page:
-            self.page.update()
-
-    def did_mount(self):
-        # Agregar los overlays a la página principal
-        if self.file_picker not in self.page.overlay:
-            self.page.overlay.append(self.file_picker)
-        if self.dlg_loading not in self.page.overlay:
-            self.page.overlay.append(self.dlg_loading)
-        if self.dlg_confirm not in self.page.overlay:
-            self.page.overlay.append(self.dlg_confirm)
-        if hasattr(self, "date_picker") and self.date_picker not in self.page.overlay:
-            self.page.overlay.append(self.date_picker)
-            
-        # Nuevos overlays para Cargas
-        if hasattr(self, "dlg_metadatos_pdf") and self.dlg_metadatos_pdf not in self.page.overlay:
-            self.page.overlay.append(self.dlg_metadatos_pdf)
-        if hasattr(self, "date_picker_cargas") and self.date_picker_cargas not in self.page.overlay:
-            self.page.overlay.append(self.date_picker_cargas)
-        if hasattr(self, "date_picker_filtro_cargas") and self.date_picker_filtro_cargas not in self.page.overlay:
-            self.page.overlay.append(self.date_picker_filtro_cargas)
-            
-        self.page.update()
-        self.load_summary()
-        self.load_data()
-        
-    def load_summary(self):
-        res = self.db.get_compras_summary()
-        self.lbl_compras_mes.value = f"${res.get('total_mes', 0):,.2f}"
-        self.lbl_compras_hoy.value = f"${res.get('total_hoy', 0):,.2f}"
-        self.lbl_cantidad.value = f"{res.get('cantidad_total', 0):,.2f}"
-        if self.page:
-            self.update()
-            
-    def open_date_picker(self, e):
-        self.date_picker.pick_date()
-        
-    def on_date_change(self, e):
-        if self.date_picker.value:
-            self.fecha_corte = self.date_picker.value.strftime("%Y-%m-%d")
-            self.btn_date.text = self.fecha_corte
-            self.btn_clear_date.visible = True
-            if self.page:
-                self.page.update()
-            self.current_page = 1
-            self.load_data()
-            
-    def on_date_dismiss(self, e):
-        pass
-        
-    def clear_date(self, e):
-        self.fecha_corte = None
-        self.btn_date.text = "Filtrar por Fecha"
-        self.btn_clear_date.visible = False
-        self.date_picker.value = None
-        if self.page:
-            self.page.update()
-        self.current_page = 1
-        self.load_data()
-        
-    def on_agregar_click(self, e):
-        # En lugar de abrir file_picker, abrimos el modal de metadatos
-        self.dlg_metadatos_pdf.open = True
-        if self.page:
-            self.page.update()
-
-    def _cerrar_modal_metadatos(self, e=None):
-        self.dlg_metadatos_pdf.open = False
-        if self.page:
-            self.page.update()
-
-    def _abrir_file_picker_desde_modal(self, e):
-        self.fecha_seleccionada = self.fecha_carga_actual
-        self._cerrar_modal_metadatos()
-        self.file_picker.pick_files(allow_multiple=False, allowed_extensions=["pdf"], dialog_title="Selecciona el Reporte de Compras")
-
-    def on_file_picked(self, e: ft.FilePickerResultEvent):
-        if e.files and len(e.files) > 0:
-            pdf_path = e.files[0].path
-            
-            self.lbl_loading_text.value = "Dividiendo PDF en páginas..."
-            self.dlg_loading.open = True
-            self.page.update()
-            
-            threading.Thread(target=self._dividir_y_guardar_pdf, args=(pdf_path,), daemon=True).start()
-
-    def _dividir_y_guardar_pdf(self, pdf_path):
-        try:
-            reader = PdfReader(pdf_path)
-            total_pages = len(reader.pages)
-            
-            grupo_key = self.fecha_seleccionada
-            if grupo_key not in self.cargas_data:
-                self.cargas_data[grupo_key] = {}
-                
-            paginas_existentes = [int(p) for p in self.cargas_data[grupo_key].keys()]
-            max_pagina = max(paginas_existentes) if paginas_existentes else 0
-            
-            max_id = 0
-            for k, pags in self.cargas_data.items():
-                for p_num, d in pags.items():
-                    if d.get("id", 0) > max_id:
-                        max_id = d["id"]
-            
-            os.makedirs("pdfs_locales", exist_ok=True)
-            
-            for p_idx in range(total_pages):
-                num_pag = max_pagina + p_idx + 1
-                id_carga = max_id + p_idx + 1
-                
-                writer = PdfWriter()
-                writer.add_page(reader.pages[p_idx])
-                
-                nombre_archivo = f"compra_{grupo_key}_pag_{num_pag}.pdf"
-                ruta_local = os.path.join("pdfs_locales", nombre_archivo)
-                
-                with open(ruta_local, "wb") as f:
-                    writer.write(f)
-                    
-                self.cargas_data[grupo_key][str(num_pag)] = {
-                    "id": id_carga,
-                    "fecha": grupo_key,
-                    "pagina": num_pag,
-                    "archivo_original": pdf_path,
-                    "archivo": ruta_local,
-                    "estado": "Nuevo"
-                }
-                
-            self._save_cargas()
-            self.dlg_loading.open = False
-            self.page.snack_bar = ft.SnackBar(ft.Text(f"Se dividió el PDF en {total_pages} páginas exitosamente."), bgcolor="green")
-            self.page.snack_bar.open = True
-            
-        except Exception as e:
-            self.dlg_loading.open = False
-            self.page.snack_bar = ft.SnackBar(ft.Text(f"Error procesando PDF: {e}"), bgcolor="red")
-            self.page.snack_bar.open = True
-            
-        finally:
-            if self.page:
-                self.page.update()
-                self._render_tabla_cargas()
-
-    def animate_loading(self, base_msg):
-        messages = [
-            base_msg,
-            "Puliendo datos para enviarlos...",
-            "Generando el formato de carga...",
-            "A unos pasos de finalizar..."
-        ]
-        idx = 0
-        while getattr(self, "is_loading", False):
-            if hasattr(self, "lbl_loading_text") and self.page:
-                self.lbl_loading_text.value = messages[idx % len(messages)]
-                try:
-                    self.page.update()
-                except Exception:
-                    pass
-            idx += 1
-            time.sleep(5)
-            self.is_loading = False
-            self.dlg_loading.open = False
-            if self.page:
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"Ocurrió un error inesperado: {str(e)}", color="white"), bgcolor="red")
-                self.page.snack_bar.open = True
-                self.page.update()
-    def update_totals(self, e=None):
-        gran_cant = 0.0
-        gran_costo = 0.0
-        gran_iva = 0.0
-        gran_total = 0.0
-        
-        factura_totals = {}
-        
-        for item in self.productos_rows:
-            if item["type"] == "product":
-                try:
-                    cant = float(item["cantidad_ctl"].value.replace(',', '.'))
-                    costo = float(item["costo_ctl"].value.replace(',', '.'))
-                    iva = float(item["iva_ctl"].value.replace(',', '.'))
-                    
-                    row_total = (cant * costo) + iva
-                    item["total_ctl"].value = f"${row_total:,.2f}"
-                    
-                    factura_idx = item["factura_idx"]
-                    factura_totals[factura_idx] = factura_totals.get(factura_idx, 0) + row_total
-                    
-                    gran_cant += cant
-                    gran_costo += costo
-                    gran_iva += iva
-                    gran_total += row_total
-                except:
-                    item["total_ctl"].value = "Error"
-                    
-        for item in self.productos_rows:
-            if item["type"] == "header":
-                idx = item["factura_idx"]
-                total = factura_totals.get(idx, 0)
-                item["total_factura_ctl"].value = f"Total Factura: ${total:,.2f}"
-                    
-        self.txt_gran_cant.value = f"{gran_cant:,.2f}"
-        self.txt_gran_costo.value = f"${gran_costo:,.2f}"
-        self.txt_gran_iva.value = f"${gran_iva:,.2f}"
-        self.txt_gran_total.value = f"${gran_total:,.2f}"
-        if self.page:
-            self.page.update()
-
-    def show_confirm_ui(self):
-        # Guardar el contenido original de la vista para poder volver a él
-        if not hasattr(self, "main_content"):
-            self.main_content = self.content
-            
-        self.productos_rows = []
-        facturas_count = len(self.parsed_data)
-        productos_count = 0
-        
-        # Como ahora parsed_data es una lista de facturas, las iteramos todas
-        for idx, invoice in enumerate(self.parsed_data):
-            ea = invoice.get("numero_entrada", "")
-            fecha = invoice.get("fecha", "")
-            factura = invoice.get("numero_factura", "")
-            proveedor = invoice.get("proveedor", "")
-            
-            total_factura_ctl = ft.Text("Total Factura: $0.00", weight="bold", color=Config.COLOR_PRIMARY)
-            self.productos_rows.append({
-                "type": "header",
-                "factura_idx": idx,
-                "total_factura_ctl": total_factura_ctl,
-                "row_ctl": ft.Container(
-                    content=ft.Row([
-                        ft.Text(f"EA: {ea} | Factura: {factura} | Proveedor: {proveedor} | Fecha: {fecha}", weight="bold", color=Config.COLOR_PRIMARY),
-                        ft.Container(expand=True),
-                        total_factura_ctl
-                    ]),
-                    bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_PRIMARY),
-                    padding=5,
-                    border_radius=5
-                )
-            })
-            
-            # Productos de esta factura
-            for p in invoice.get("productos", []):
-                productos_count += 1
-                cod = str(p.get("codigo_insumo", ""))
-                # Extraemos el nombre de la BD si existe, sino lo dejamos como "Desconocido"
-                nombre = self.nombres_insumos.get(cod, "Desconocido")
-                
-                def get_codigo_change_handler(nombre_control):
-                    def handler(e):
-                        val = e.control.value
-                        if val:
-                            nombres = self.db.get_nombres_insumos([val])
-                            nombre_control.value = nombres.get(val, "Desconocido")
-                        else:
-                            nombre_control.value = "Desconocido"
-                        nombre_control.tooltip = nombre_control.value
-                        if self.page: self.page.update()
-                    return handler
-                
-                nombre_ctl = ft.Text(nombre[:25], width=180, no_wrap=True, tooltip=nombre)
-                codigo_ctl = ft.TextField(label="Código", value=cod, width=90, dense=True, on_change=get_codigo_change_handler(nombre_ctl))
-                cantidad_ctl = ft.TextField(label="Cant.", value=str(p.get("cantidad", 0)), width=70, dense=True, on_change=self.update_totals)
-                costo_ctl = ft.TextField(label="Costo U.", value=str(p.get("costo_unitario", 0)), width=80, dense=True, on_change=self.update_totals)
-                iva_ctl = ft.TextField(label="IVA", value=str(p.get("iva", 0)), width=80, dense=True, on_change=self.update_totals)
-                total_ctl = ft.Text("$0.00", width=100, weight="bold")
-                
-                self.productos_rows.append({
-                    "type": "product",
-                    "factura_idx": idx,
-                    "ea": ea,
-                    "fecha": fecha,
-                    "factura": factura,
-                    "proveedor": proveedor,
-                    "codigo_ctl": codigo_ctl,
-                    "nombre_ctl": nombre_ctl,
-                    "cantidad_ctl": cantidad_ctl,
-                    "costo_ctl": costo_ctl,
-                    "iva_ctl": iva_ctl,
-                    "total_ctl": total_ctl,
-                    "row_ctl": ft.Row([codigo_ctl, nombre_ctl, cantidad_ctl, costo_ctl, iva_ctl, total_ctl])
-                })
-            
-        list_view = ft.ListView(
-            controls=[item["row_ctl"] for item in self.productos_rows],
-            expand=True,
-            spacing=10
-        )
-        
-        # Resumen Visual y Controles de Totales
-        self.txt_gran_cant = ft.Text("0", weight="bold")
-        self.txt_gran_costo = ft.Text("$0", weight="bold")
-        self.txt_gran_iva = ft.Text("$0", weight="bold")
-        self.txt_gran_total = ft.Text("$0", weight="bold", size=18, color=Config.COLOR_PRIMARY)
-        
-        is_last_page = not (hasattr(self, 'total_pages_pdf') and self.current_page_idx < self.total_pages_pdf - 1)
-        botones_acciones = [ft.TextButton("Volver", on_click=self.close_confirm_ui)]
-        
-        if not is_last_page:
-            botones_acciones.append(ft.ElevatedButton("Confirmar y Guardar", bgcolor="grey", color="white", on_click=self.on_guardar_compra_partial))
-            botones_acciones.append(ft.ElevatedButton("Confirmar y Continuar", bgcolor=Config.COLOR_SECONDARY, color="white", on_click=self.on_guardar_compra))
-        else:
-            botones_acciones.append(ft.ElevatedButton("Confirmar y Guardar Todo", bgcolor=Config.COLOR_SECONDARY, color="white", on_click=self.on_guardar_compra))
-            
-        # --- NUEVO DISEÑO DEL FOOTER ---
-        # 1. Fila de Información Financiera (Estilo Dashboard)
-        info_row = ft.Row([
-            ft.Text("RESUMEN TOTAL", weight="bold", size=18, color=Config.COLOR_PRIMARY),
-            ft.Container(expand=True), # Empuja los totales hacia la derecha
-            
-            ft.Column([ft.Text("Cant. Total", size=12, color="grey"), self.txt_gran_cant], spacing=2, horizontal_alignment="end"),
-            ft.Container(width=1, height=30, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=10)),
-            
-            ft.Column([ft.Text("Costo Base", size=12, color="grey"), self.txt_gran_costo], spacing=2, horizontal_alignment="end"),
-            ft.Container(width=1, height=30, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=10)),
-            
-            ft.Column([ft.Text("IVA Total", size=12, color="grey"), self.txt_gran_iva], spacing=2, horizontal_alignment="end"),
-            ft.Container(width=1, height=30, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=10)),
-            
-            ft.Column([ft.Text("GRAN TOTAL", size=12, color="grey", weight="bold"), self.txt_gran_total], spacing=2, horizontal_alignment="end"),
-        ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
-
-        # 2. Fila de Botones de Acción
-        buttons_row = ft.Row([
-            ft.Container(expand=True), # Empuja los botones hacia el extremo derecho
-            *botones_acciones # Desempaqueta la lista de botones dinámicos
-        ], alignment=ft.MainAxisAlignment.END)
-
-        # 3. Contenedor Principal del Footer
-        footer = ft.Container(
-            content=ft.Column([
-                info_row,
-                ft.Divider(height=15, color=ft.colors.with_opacity(0.1, "black")),
-                buttons_row
-            ], spacing=0),
-            bgcolor=ft.colors.with_opacity(0.03, Config.COLOR_PRIMARY),
-            padding=20,
-            border_radius=8,
-            border=ft.border.all(1, ft.colors.with_opacity(0.1, Config.COLOR_PRIMARY)),
-            margin=ft.padding.only(top=10)
-        )
-        
-        if hasattr(self, 'total_pages_pdf'):
-            titulo = f"Datos Extraídos - Pág. No. {self.current_page_idx + 1} de {self.total_pages_pdf}"
-        elif hasattr(self, 'carga_activa'):
-            titulo = f"Datos Extraídos - Pág. No. {self.carga_activa.get('pagina', 1)}"
-        else:
-            titulo = "Revisión de Compras (Modo Inmersivo)"
-        header = ft.Row([
-            ft.Text(titulo, size=24, weight="bold"),
-            ft.Text(f"{facturas_count} Facturas extraídas | {productos_count} Productos en total", color="grey")
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-        
-        # Reemplazamos el contenido actual por el modo Inmersivo/Fullscreen
-        self.content = ft.Column([
-            header,
-            ft.Divider(),
-            ft.Row([
-                ft.Container(width=90, content=ft.Text("Código", weight="bold")),
-                ft.Container(width=180, content=ft.Text("Nombre (desde BD)", weight="bold")),
-                ft.Container(width=70, content=ft.Text("Cantidad", weight="bold")),
-                ft.Container(width=80, content=ft.Text("Costo U.", weight="bold")),
-                ft.Container(width=80, content=ft.Text("IVA", weight="bold")),
-                ft.Container(width=100, content=ft.Text("Costo Total", weight="bold"))
-            ]),
-            list_view,
-            footer
-        ], expand=True)
-        
-        self.update_totals()
-        self.page.update()
-        
-    def close_confirm_ui(self, e):
-        # Volver al diseño principal
-        self.content = self.main_content
-        self.page.update()
-        
-    def on_guardar_compra_partial(self, e):
-        if hasattr(self, 'total_pages_pdf'):
-            self.current_page_idx = self.total_pages_pdf
-        self.on_guardar_compra(e)
-
-    def on_guardar_compra(self, e):
-        # 1. Bloquear interfaz y mostrar carga
-        btn_control = e.control if e else None
-        if btn_control:
-            btn_control.disabled = True
-            
-        if hasattr(self, 'progress_bar'):
-            self.progress_bar.visible = True
-            
-        if self.page:
-            self.page.update()
-            
-        # 2. Lanzar worker de guardado
-        import threading
-        threading.Thread(target=self._guardar_compra_worker, args=(btn_control,), daemon=True).start()
-
-    def _guardar_compra_worker(self, btn_control):
-        try:
-            compras_list = []
-            lista_eas_to_delete = []
-            
-            # Si venimos del flujo nuevo de carga_activa:
-            grupo_key = None
-            pagina_origen = None
-            if hasattr(self, 'carga_activa'):
-                grupo_key = self.carga_activa["fecha"]
-                pagina_origen = self.carga_activa["pagina"]
-
-            for item in self.productos_rows:
-                if item["type"] == "product":
-                    cant_str = str(item["cantidad_ctl"].value).replace(',', '.')
-                    costo_str = str(item["costo_ctl"].value).replace(',', '.')
-                    iva_str = str(item["iva_ctl"].value).replace(',', '.')
-                    
-                    cantidad = float(cant_str)
-                    costo = float(costo_str)
-                    iva = float(iva_str)
-                    total = (cantidad * costo) + iva
-                    
-                    fecha_val = grupo_key if grupo_key else item["fecha"]
-                    if not fecha_val:
-                        import datetime
-                        fecha_val = datetime.date.today().strftime("%Y-%m-%d")
-                        
-                    compras_list.append({
-                        "numero_entrada": item["ea"],
-                        "fecha": fecha_val,
-                        "numero_factura": item["factura"],
-                        "proveedor": item["proveedor"],
-                        "codigo_insumo": item["codigo_ctl"].value,
-                        "cantidad": cantidad,
-                        "costo_unitario": costo,
-                        "iva": iva,
-                        "costo_total": total
-                    })
-                    
-                    if item["ea"] not in lista_eas_to_delete:
-                        lista_eas_to_delete.append(item["ea"])
-                        
-            if compras_list:
-                codigos_unicos = list(set([c["codigo_insumo"] for c in compras_list]))
-                codigos_validos = self.db.get_nombres_insumos(codigos_unicos)
-                
-                codigos_invalidos = [c for c in codigos_unicos if c not in codigos_validos]
-                if codigos_invalidos:
-                    if self.page:
-                        self.page.snack_bar = ft.SnackBar(
-                            ft.Text(f"Códigos no existen en catálogo: {', '.join(codigos_invalidos)}. Corrígelos en la tabla primero.", color="white"), 
-                            bgcolor="red",
-                            duration=8000
-                        )
-                        self.page.snack_bar.open = True
-                        self.page.update()
-                    return
-            
-            if compras_list:
-                # 1. Eliminar datos viejos de esta misma página
-                self.db.eliminar_compras_por_entradas(lista_eas_to_delete)
-                
-                # 2. Insertar los nuevos datos
-                if self.db.insert_compras(compras_list):
-                    self.page.snack_bar = ft.SnackBar(ft.Text("Página guardada exitosamente en BD."), bgcolor="green")
-                    self.page.snack_bar.open = True
-                    
-                    # 3. Actualizar el estado local a Guardado
-                    if grupo_key and str(pagina_origen) in self.cargas_data.get(grupo_key, {}):
-                        self.cargas_data[grupo_key][str(pagina_origen)]["estado"] = "Guardado"
-                        self._save_cargas()
-                        
-                    self.close_confirm_ui(None)
-                    self._render_tabla_cargas()
-                    self.load_data()
-                else:
-                    self.page.snack_bar = ft.SnackBar(ft.Text("Error al guardar en base de datos"), bgcolor="red")
-                    self.page.snack_bar.open = True
-            else:
-                self.page.snack_bar = ft.SnackBar(ft.Text("No hay datos para guardar."), bgcolor="orange")
-                self.page.snack_bar.open = True
-                    
-        except ValueError:
-            if self.page:
-                self.page.snack_bar = ft.SnackBar(ft.Text("Error numérico en cantidad, costo o IVA."), bgcolor="red")
-                self.page.snack_bar.open = True
-        except Exception as ex:
-            if self.page:
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error interno: {str(ex)}"), bgcolor="red")
-                self.page.snack_bar.open = True
-        finally:
-            # 3. Restaurar interfaz incondicionalmente
-            if hasattr(self, 'progress_bar'):
-                self.progress_bar.visible = False
-            if btn_control:
-                btn_control.disabled = False
-                
-            if self.page:
-                self.page.update()
-            
-    def load_data(self):
-        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
-        self.progress_bar.visible = True
-        if self.page:
-            self.update()
-            
-        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
-
-    def _fetch_data_worker(self):
-        search_val = self.search_input.value or ""
-        
-        data, total = self.db.get_compras(
-            page=self.current_page, 
-            page_size=self.page_size, 
-            search=search_val,
-            fecha_corte=getattr(self, 'fecha_corte', None)
-        )
-        
-        self.total_records = total
-        self.total_pages = math.ceil(total / self.page_size) if total > 0 else 1
-        
-        self.data_table.rows.clear()
-        
-        for item in data:
-            fecha_raw = str(item.get('fecha', ''))
-            # Cortar a 'YYYY-MM-DD' si viene con timestamp
-            fecha_formateada = fecha_raw[:10] if len(fecha_raw) >= 10 else fecha_raw
-            
-            # El nombre viene del JOIN con catalogo_insumos: catalogo_insumos.nombre
-            cat_info = item.get('catalogo_insumos') or {}
-            nombre_insumo = cat_info.get('nombre', 'Desconocido')
-            
-            cantidad = int(item.get('cantidad', 0) or 0)
-            costo_unit = float(item.get('costo_unitario', 0) or 0)
-            costo_tot = float(item.get('costo_total', 0) or 0)
-            
-            str_costo_unit = f"${costo_unit:,.2f}"
-            str_costo_tot = f"${costo_tot:,.2f}"
-            
-            row = ft.DataRow(
-                cells=[
-                    ft.DataCell(ft.Text(fecha_formateada)),
-                    ft.DataCell(ft.Text(str(item.get('numero_factura') or 'N/A'))),
-                    ft.DataCell(ft.Text(str(item.get('proveedor') or 'N/A'))),
-                    ft.DataCell(ft.Text(str(item.get('codigo_insumo', '')))),
-                    ft.DataCell(ft.Container(content=ft.Text(nombre_insumo), width=300)),
-                    ft.DataCell(ft.Text(str(cantidad), weight="bold")),
-                    ft.DataCell(ft.Text(str_costo_unit)),
-                    ft.DataCell(ft.Text(str_costo_tot, color="blue", weight="bold")),
-                ]
-            )
-            self.data_table.rows.append(row)
-            
-        self.update_pagination_ui()
-        
-    def update_pagination_ui(self):
-        self.lbl_page_info.value = f"Página {self.current_page} de {self.total_pages}"
-        self.lbl_total.value = f"{self.total_records} registros en total"
-        self.btn_prev.disabled = (self.current_page <= 1)
-        self.btn_next.disabled = (self.current_page >= self.total_pages)
-        
-        # Apagar indicador de carga al finalizar
-        self.progress_bar.visible = False
-        
-        if self.page:
-            self.update()
-        
-    def on_search(self, e):
-        self.current_page = 1
-        self.load_data()
-        
-    def on_prev_page(self, e):
-        if self.current_page > 1:
-            self.current_page -= 1
-            self.load_data()
-            
-    def on_next_page(self, e):
-        if self.current_page < self.total_pages:
-            self.current_page += 1
-            self.load_data()
 ````
 
 ## File: ui/views/conteo_inicial.py
@@ -5357,6 +4024,1732 @@ class InventarioView(ft.Container):
         return tarjeta
 ````
 
+## File: core/gemini_parser.py
+````python
+import google.generativeai as genai
+from config import Config
+import json
+import time
+import re
+from typing import TypedDict
+
+class GeminiParser:
+    def __init__(self):
+        self.api_key = Config.GEMINI_API_KEY
+        if self.api_key:
+            genai.configure(api_key=self.api_key)
+            self.model = genai.GenerativeModel('gemini-3.6-flash')
+
+            
+    def parse_invoice_pdf(self, pdf_path):
+        """
+        Envía un PDF a Gemini para extraer productos y cantidades.
+        Retorna un diccionario con los datos extraídos o None si hay un error.
+        """
+        if not self.api_key:
+            print("Error: No hay API key de Gemini configurada.")
+            return None
+            
+        try:
+            print(f"Subiendo archivo a Gemini: {pdf_path}")
+            # 1. Subir archivo a la API de File de Gemini
+            uploaded_file = genai.upload_file(path=pdf_path)
+            
+            # 2. Esperar a que el archivo se procese (opcional, recomendado para PDFs)
+            while uploaded_file.state.name == "PROCESSING":
+                print(".", end="", flush=True)
+                time.sleep(1)
+                uploaded_file = genai.get_file(uploaded_file.name)
+            
+            print("\nArchivo listo. Extrayendo datos...")
+            
+            # 3. Armar el prompt estricto
+            prompt = """
+            Extrae TODOS los datos de TODAS las páginas del reporte de entradas y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
+            NO extraigas el nombre del proveedor ni la descripción del producto. Limítate a los datos numéricos y códigos.
+            
+            REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
+            1. BLOQUES: Cada compra inicia en el extremo izquierdo con un código "EA-" (ej. EA-9273). Procesa TODOS los que encuentres.
+            2. FECHA Y FACTURA: La "fecha" suele estar bajo el código EA (conviértela a YYYY-MM-DD). El "numero_factura" está junto a la palabra "Factura No.". Si no hay, pon null.
+            3. PRODUCTOS: Extrae cada línea de insumo hasta llegar a la frase "Totales de Entrada:".
+            4. CAMPOS POR PRODUCTO:
+               - "codigo_insumo": Código de 4 dígitos al extremo izquierdo.
+               - "cantidad": Dato bajo la columna 'Cant.'
+               - "costo_unitario": Dato bajo la columna 'Costo'.
+               - "iva": Dato bajo la columna 'IVA' (Si está vacía, pon 0.0).
+            5. FORMATO NUMÉRICO ESTRICTO: Convierte puntos a miles y comas a decimales (ej. "13.100" -> 13100.0 y "16,50" -> 16.5).
+            
+            ESTRUCTURA EXACTA REQUERIDA (Sigue este patrón para todos los bloques e insumos):
+            [
+              {
+                "numero_entrada": "EA-9276",
+                "fecha": "2026-08-03",
+                "numero_factura": "19284",
+                "productos": [
+                  {
+                    "codigo_insumo": "0471",
+                    "cantidad": 10.0,
+                    "costo_unitario": 7353.0,
+                    "iva": 13971.0
+                  },
+                  {
+                    "codigo_insumo": "4182",
+                    "cantidad": 50.0,
+                    "costo_unitario": 2815.0,
+                    "iva": 26744.0
+                  }
+                ]
+              }
+            ]
+            """
+            
+            # 4. Enviar a Gemini forzando el motor JSON y maximizando los tokens
+            response = self.model.generate_content(
+                [uploaded_file, prompt],
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0.0, # Temperatura cero para formato robótico y determinista
+                    max_output_tokens=8192 # Darle el máximo espacio posible para PDFs grandes
+                )
+            )
+            
+            # Como forzamos el mime_type, la respuesta ya es un string JSON limpio
+            text_response = response.text.strip()
+            
+            # Limpiar comas huérfanas (trailing commas) que la IA suele dejar por error antes de cerrar llaves o corchetes
+            text_response = re.sub(r',\s*([\]}])', r'\1', text_response)
+            
+            # Parsear el JSON de forma segura
+            data = json.loads(text_response)
+            
+            # --- Escudo de formato (Ahora esperamos una lista) ---
+            if isinstance(data, dict):
+                # Si Gemini se equivoca y devuelve un solo objeto, lo envolvemos en una lista
+                data = [data]
+            elif not isinstance(data, list):
+                data = []
+            # -------------------------------
+            
+            # Eliminar archivo subido
+            genai.delete_file(uploaded_file.name)
+            
+            print("¡Extracción completada! Conexión con Gemini cerrada.")
+            return data
+            
+        except Exception as e:
+            print(f"Error procesando PDF con Gemini: {e}")
+            return None
+
+    def parse_compras_pdf_page(self, pdf_path, page_index):
+        """
+        Extrae datos de compras de una única página del PDF.
+        """
+        if not self.api_key:
+            return None
+            
+        try:
+            
+            from pypdf import PdfReader, PdfWriter
+            import os
+            from typing import TypedDict
+        except ImportError:
+            return None
+            
+        try:
+            reader = PdfReader(pdf_path)
+            if page_index < 0 or page_index >= len(reader.pages):
+                return None
+                
+            class ProductoCompra(TypedDict):
+                codigo_insumo: str
+                cantidad: float
+                costo_unitario: float
+                iva: float
+
+            class FacturaCompra(TypedDict):
+                numero_entrada: str
+                fecha: str
+                numero_factura: str
+                proveedor: str
+                productos: list[ProductoCompra]
+                
+            prompt = """
+            Extrae TODOS los datos de TODAS las facturas en esta página del reporte de entradas y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
+            NO extraigas la descripción del producto. Limítate a los datos solicitados.
+            
+            REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
+            1. BLOQUES: Cada compra inicia en el extremo izquierdo con un código "EA-" (ej. EA-9273). Procesa TODOS los que encuentres.
+            2. CABECERA DEL BLOQUE (Fecha, Factura y Proveedor): 
+               En la misma línea que el "EA-" (o en la línea inmediatamente inferior):
+               - La "fecha" suele estar a continuación del EA (conviértela a YYYY-MM-DD).
+               - El "numero_factura" está precedido por la palabra "Factura No." o "Factura". Si no hay número, pon null.
+               - El "proveedor" se encuentra AL LADO DERECHO de la palabra "Factura" o del número de factura. Extrae SOLO el nombre comercial (ej. "DISTRIBUCIONES PUNTO CHEVERE SAS", "AJOVER SAS"). 
+               - REGLA ESTRICTA PARA PROVEEDOR: ESTÁ TOTALMENTE PROHIBIDO incluir explicaciones, razonamientos internos, notas de OCR o caracteres asiáticos en este campo. El valor debe ser ÚNICAMENTE el nombre de la empresa.
+            3. PRODUCTOS: Extrae cada línea de insumo hasta llegar a la frase "Totales de Entrada:".
+            4. CAMPOS POR PRODUCTO:
+               - "codigo_insumo": Código de 4 dígitos al extremo izquierdo.
+               - "cantidad": Dato bajo la columna 'Cant.'
+               - "costo_unitario": Dato bajo la columna 'Costo'.
+               - "iva": Dato bajo la columna 'IVA' (Si está vacía, pon 0.0).
+            5. FORMATO NUMÉRICO ESTRICTO: Convierte puntos a miles y comas a decimales (ej. "13.100" -> 13100.0 y "16,50" -> 16.5).
+            
+            ESTRUCTURA EXACTA REQUERIDA (Sigue este patrón para todos los bloques e insumos):
+            [
+              {
+                "numero_entrada": "EA-9276",
+                "fecha": "2026-08-03",
+                "numero_factura": "19284",
+                "proveedor": "NOMBRE DEL PROVEEDOR SAS",
+                "productos": [
+                  {
+                    "codigo_insumo": "0471",
+                    "cantidad": 10.0,
+                    "costo_unitario": 7353.0,
+                    "iva": 13971.0
+                  }
+                ]
+              }
+            ]
+            """
+            
+            writer = PdfWriter()
+            writer.add_page(reader.pages[page_index])
+            
+            temp_pdf_path = f"temp_compras_page_{page_index}.pdf"
+            with open(temp_pdf_path, "wb") as f:
+                writer.write(f)
+            
+            uploaded_file = genai.upload_file(path=temp_pdf_path)
+            time.sleep(2)
+            
+            while uploaded_file.state.name == "PROCESSING":
+                time.sleep(5)
+                uploaded_file = genai.get_file(uploaded_file.name)
+            
+            intentos = 0
+            max_intentos = 3
+            response = None
+            
+            while intentos < max_intentos:
+                try:
+                    response = self.model.generate_content(
+                        [uploaded_file, prompt],
+                        generation_config=genai.GenerationConfig(
+                            response_mime_type="application/json",
+                            response_schema=list[FacturaCompra],
+                            temperature=0.0,
+                            max_output_tokens=8192
+                        )
+                    )
+                    break
+                except Exception as api_e:
+                    error_str = str(api_e)
+                    if "429" in error_str or "quota" in error_str.lower():
+                        print(f"⚠️ Límite de Google alcanzado (429). Esperando 60s de forma invisible... (Intento {intentos+1}/{max_intentos})")
+                        time.sleep(60)
+                        intentos += 1
+                    elif "500" in error_str or "internal error" in error_str.lower():
+                        print(f"⚠️ Error interno en Google (500). Reintentando en 15s... (Intento {intentos+1}/{max_intentos})")
+                        time.sleep(15)
+                        intentos += 1
+                    else:
+                        raise api_e
+                        
+            if response is None:
+                print("Error: Se superaron los intentos máximos o respuesta nula.")
+                genai.delete_file(uploaded_file.name)
+                os.remove(temp_pdf_path)
+                return []
+            
+            text_response = response.text.strip()
+            
+            if text_response.startswith("```json"):
+                text_response = text_response[7:]
+            if text_response.startswith("```"):
+                text_response = text_response[3:]
+            if text_response.endswith("```"):
+                text_response = text_response[:-3]
+                
+            text_response = text_response.strip()
+            text_response = re.sub(r',\s*([\]}])', r'\1', text_response)
+            
+            genai.delete_file(uploaded_file.name)
+            os.remove(temp_pdf_path)
+            
+            try:
+                data = json.loads(text_response)
+                if isinstance(data, dict):
+                    return [data]
+                elif isinstance(data, list):
+                    return data
+                return []
+            except json.JSONDecodeError as je:
+                print(f"Error parseando JSON en página {page_index + 1}. Error: {je}")
+                print(f"Texto problemático:\n{text_response[:500]}...")
+                return []
+                
+        except Exception as e:
+            print(f"Error procesando página {page_index + 1} de compras con Gemini: {e}")
+            return None
+
+    def parse_ventas_pdf(self, pdf_path, progress_callback=None):
+        """
+        Envía un PDF de ventas a Gemini (en bloques) para evitar el límite de memoria.
+        Retorna un arreglo con los datos extraídos o None si hay un error.
+        """
+        if not self.api_key:
+            print("Error: No hay API key de Gemini configurada.")
+            return None
+            
+        try:
+            from pypdf import PdfReader, PdfWriter
+            import os
+        except ImportError:
+            msg = "Error: Falta la librería pypdf. Ejecuta 'pip install pypdf' en la terminal."
+            print(msg)
+            if progress_callback: progress_callback(msg)
+            return None
+            
+        try:
+            msg = f"Preparando división automática para el PDF..."
+            print(msg)
+            if progress_callback: progress_callback(msg)
+            
+            reader = PdfReader(pdf_path)
+            total_paginas = len(reader.pages)
+            tamano_bloque = 1 # Procesar de a 1 página para máxima precisión y evitar errores de JSON
+            todas_las_facturas = []
+            
+            # --- EL MOLDE ESTRICTO PARA VENTAS ---
+            class ProductoVenta(TypedDict):
+                codigo_item: str
+                cantidad: float
+                subtotal: float
+                iva: float
+                costo_total: float
+
+            class FacturaVenta(TypedDict):
+                fecha: str
+                numero_factura: str
+                productos: list[ProductoVenta]
+            # --------------------------------------------
+            
+            prompt = """
+            Extrae TODOS los datos de TODAS las páginas de este fragmento del reporte de facturas y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
+            NO extraigas el nombre del cliente ni la descripción del producto. Limítate a los datos numéricos y códigos.
+            
+            REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
+            1. BLOQUES: Cada bloque de venta inicia con "Fact.No." seguido del número de factura. Procesa TODOS los que encuentres en el documento.
+            2. FECHA Y FACTURA: La "fecha" suele estar en la misma línea que el "Fact.No." (conviértela a YYYY-MM-DD). Extrae el número de factura.
+            3. PRODUCTOS: Extrae cada línea de insumo hasta llegar a la frase "Total Factura:".
+            4. CAMPOS POR PRODUCTO:
+               - "codigo_item": Código al extremo izquierdo (ej. 0847, 0571-1).
+               - "cantidad": Dato bajo la columna 'Cantidad'.
+               - "subtotal": Dato bajo la columna 'Subtotal'. NO HAGAS NINGÚN CÁLCULO.
+               - "iva": Dato bajo la columna 'IVA' (Si está vacía, pon 0.0).
+               - "costo_total": Dato bajo la columna 'Total'.
+            5. FORMATO NUMÉRICO ESTRICTO: Todo valor monetario o cantidad debe ser número (float). Usa puntos (.) solo para decimales. NO uses comas (,) para separar los miles dentro de los números (ej. "93,277" debe ser 93277.0).
+            """
+            
+            # Ciclo para iterar el documento por pedazos
+            for i in range(0, total_paginas, tamano_bloque):
+                rango_inicio = i + 1
+                rango_fin = min(i + tamano_bloque, total_paginas)
+                msg = f"Extrayendo datos: Página {rango_inicio} de {total_paginas}..." if tamano_bloque == 1 else f"Extrayendo datos: Páginas {rango_inicio} a {rango_fin} de {total_paginas}..."
+                print(msg)
+                if progress_callback: progress_callback(msg)
+                
+                # 1. Crear PDF temporal con solo un bloque de páginas
+                writer = PdfWriter()
+                for j in range(i, rango_fin):
+                    writer.add_page(reader.pages[j])
+                    
+                temp_pdf_path = f"temp_ventas_chunk_{i}.pdf"
+                with open(temp_pdf_path, "wb") as f:
+                    writer.write(f)
+                
+                # 2. Subir el fragmento a Gemini
+                uploaded_file = genai.upload_file(path=temp_pdf_path)
+                while uploaded_file.state.name == "PROCESSING":
+                    time.sleep(1)
+                    uploaded_file = genai.get_file(uploaded_file.name)
+                
+                # 3. Extraer los datos forzando el motor JSON y el esquema
+                response = self.model.generate_content(
+                    [uploaded_file, prompt],
+                    generation_config=genai.GenerationConfig(
+                        response_mime_type="application/json",
+                        response_schema=list[FacturaVenta],
+                        temperature=0.0,
+                        max_output_tokens=8192
+                    )
+                )
+                
+                text_response = response.text.strip()
+                
+                # Limpiar la basura residual y comas huérfanas
+                if text_response.startswith("```json"):
+                    text_response = text_response[7:]
+                if text_response.startswith("```"):
+                    text_response = text_response[3:]
+                if text_response.endswith("```"):
+                    text_response = text_response[:-3]
+                
+                text_response = text_response.strip()
+                text_response = re.sub(r',\s*([\]}])', r'\1', text_response)
+                
+                try:
+                    data = json.loads(text_response)
+                    # Agrupar los resultados
+                    if isinstance(data, dict):
+                        todas_las_facturas.append(data)
+                    elif isinstance(data, list):
+                        todas_las_facturas.extend(data)
+                except json.JSONDecodeError as je:
+                    print(f"Error parseando el JSON en página {rango_inicio}. Saltando bloque. Error: {je}")
+                    print(f"JSON Problemático:\n{text_response[:500]}...")
+                
+                # 4. Limpiar los archivos temporales para no llenar el disco ni la nube
+                genai.delete_file(uploaded_file.name)
+                os.remove(temp_pdf_path)
+
+            msg = "¡Extracción de todas las páginas completada!"
+            print(msg)
+            if progress_callback: progress_callback(msg)
+            
+            return todas_las_facturas
+            
+        except Exception as e:
+            print(f"Error procesando PDF de ventas con Gemini: {e}")
+            return None
+
+    def parse_ventas_pdf_page(self, pdf_path, page_index, tipo_documento="Remisión"):
+        """
+        Extrae datos de una única página del PDF.
+        """
+        if not self.api_key:
+            return None
+            
+        try:
+            from pypdf import PdfReader, PdfWriter
+            import os
+        except ImportError:
+            return None
+            
+        try:
+            reader = PdfReader(pdf_path)
+            if page_index < 0 or page_index >= len(reader.pages):
+                return None
+                
+            # --- EL MOLDE ESTRICTO PARA VENTAS ---
+            class ProductoVenta(TypedDict):
+                codigo_item: str
+                cantidad: float
+                subtotal: float
+                iva: float
+                costo_total: float
+
+            class FacturaVenta(TypedDict):
+                fecha: str
+                numero_factura: str
+                productos: list[ProductoVenta]
+            
+            if tipo_documento == "Factura POS":
+                prompt = """
+                Extrae los datos de ventas formato POS de este documento y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
+                Solo se requiere el numero de factura, codigo insumo, cantidad y precio unitario.
+                NO extraigas fechas (el sistema las asignará), ni nombres de clientes.
+                
+                REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
+                1. BLOQUES DE FACTURA: Cada factura inicia debajo de la palabra "TIPO NUMERO" con el prefijo "PP" seguido del número (ej. "PP 26396"). Extrae SOLO los números.
+                2. PRODUCTOS: Debajo de "Clientes Varios", cada línea de producto tiene 3 valores separados por espacios. 
+                   - "codigo_item": El primer número de la línea (ej. 2151).
+                   - "cantidad": El segundo número (ej. 50.00).
+                   - "precio_unitario": El tercer número (ej. 1900.00).
+                3. CÁLCULOS OBLIGATORIOS PARA EL JSON:
+                   - "subtotal": DEBES multiplicar la "cantidad" por el "precio_unitario".
+                   - "iva": Siempre será 0.0 para este formato.
+                   - "costo_total": Será exactamente igual al "subtotal".
+                4. FORMATO NUMÉRICO: Todo valor monetario o cantidad debe ser número (float). Usa puntos (.) solo para decimales. NO uses comas.
+                """
+            else:
+                prompt = """
+                Extrae TODOS los datos de TODAS las páginas de este fragmento del reporte de facturas y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
+                NO extraigas el nombre del cliente ni la descripción del producto. Limítate a los datos numéricos y códigos.
+                
+                REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
+                1. BLOQUES: Cada bloque de venta inicia con "Fact.No." seguido del número de factura. Procesa TODOS los que encuentres.
+                2. FECHA Y FACTURA: La "fecha" suele estar en la misma línea que el "Fact.No.". Extrae el número de factura.
+                3. PRODUCTOS: Extrae cada línea de insumo hasta llegar a "Total Factura:".
+                4. CAMPOS POR PRODUCTO:
+                   - "codigo_item": Código al extremo izquierdo.
+                   - "cantidad": Dato bajo la columna 'Cantidad'.
+                   - "subtotal": Dato bajo la columna 'Subtotal'. NO HAGAS NINGÚN CÁLCULO.
+                   - "iva": Dato bajo la columna 'IVA' (Si está vacía, pon 0.0).
+                   - "costo_total": Dato bajo la columna 'Total'.
+                5. FORMATO NUMÉRICO: Usa puntos (.) solo para decimales. NO uses comas (,).
+                """
+            
+            writer = PdfWriter()
+            writer.add_page(reader.pages[page_index])
+            
+            temp_pdf_path = f"temp_ventas_page_{page_index}.pdf"
+            with open(temp_pdf_path, "wb") as f:
+                writer.write(f)
+            
+            uploaded_file = genai.upload_file(path=temp_pdf_path)
+            time.sleep(2) # Pausa inicial para dar respiro a la API
+            
+            while uploaded_file.state.name == "PROCESSING":
+                time.sleep(5) # Preguntar solo cada 5 segundos
+                uploaded_file = genai.get_file(uploaded_file.name)
+            
+            intentos = 0
+            max_intentos = 3
+            response = None
+            
+            while intentos < max_intentos:
+                try:
+                    response = self.model.generate_content(
+                        [uploaded_file, prompt],
+                        generation_config=genai.GenerationConfig(
+                            response_mime_type="application/json",
+                            response_schema=list[FacturaVenta],
+                            temperature=0.0,
+                            max_output_tokens=8192
+                        )
+                    )
+                    break
+                except Exception as api_e:
+                    error_str = str(api_e)
+                    if "429" in error_str or "quota" in error_str.lower():
+                        print(f"⚠️ Límite de Google alcanzado (429). Esperando 60s de forma invisible... (Intento {intentos+1}/{max_intentos})")
+                        time.sleep(60)
+                        intentos += 1
+                    elif "500" in error_str or "internal error" in error_str.lower():
+                        print(f"⚠️ Error interno en los servidores de Google (500). Reintentando en 15s... (Intento {intentos+1}/{max_intentos})")
+                        time.sleep(15)
+                        intentos += 1
+                    else:
+                        raise api_e
+                        
+            if response is None:
+                print("Error: Se superaron los intentos máximos o la respuesta es nula.")
+                genai.delete_file(uploaded_file.name)
+                os.remove(temp_pdf_path)
+                return []
+            
+            text_response = response.text.strip()
+            
+            if text_response.startswith("```json"):
+                text_response = text_response[7:]
+            if text_response.startswith("```"):
+                text_response = text_response[3:]
+            if text_response.endswith("```"):
+                text_response = text_response[:-3]
+            
+            text_response = text_response.strip()
+            text_response = re.sub(r',\s*([\]}])', r'\1', text_response)
+            
+            genai.delete_file(uploaded_file.name)
+            os.remove(temp_pdf_path)
+            
+            try:
+                data = json.loads(text_response)
+                if isinstance(data, dict):
+                    return [data]
+                elif isinstance(data, list):
+                    return data
+                return []
+            except json.JSONDecodeError as je:
+                print(f"Error parseando el JSON de página {page_index + 1}. Error: {je}")
+                return []
+                
+        except Exception as e:
+            print(f"Error procesando página {page_index + 1} de ventas con Gemini: {e}")
+            return None
+````
+
+## File: ui/views/compras.py
+````python
+import flet as ft
+import threading
+import time
+import json
+import os
+import datetime
+from pypdf import PdfReader, PdfWriter
+from config import Config
+from core.supabase_client import SupabaseClient
+from core.gemini_parser import GeminiParser
+import math
+
+class ComprasView(ft.Container):
+    def __init__(self):
+        super().__init__()
+        self.is_fullscreen = False
+        self.btn_fullscreen = ft.IconButton(
+            icon=ft.icons.FULLSCREEN,
+            tooltip="Expandir Tabla (Modo Enfoque)",
+            on_click=self.toggle_fullscreen
+        )
+        self.expand = True
+        
+        self.db = SupabaseClient()
+        self.ai_parser = GeminiParser()
+        self.page_size = 15
+        self.current_page = 1
+        self.total_pages = 1
+        self.total_records = 0
+        
+        self.parsed_data = None # Para guardar temporalmente los datos extraídos
+        
+        # Controles de Búsqueda
+        self.search_input = ft.TextField(
+            hint_text="Buscar por código, proveedor o factura...", 
+            prefix_icon=ft.icons.SEARCH,
+            border_radius=8,
+            expand=True,
+            bgcolor="white",
+            height=40,
+            on_submit=self.on_search
+        )
+        
+        # Filtro de fecha
+        self.fecha_corte = None
+        self.date_picker = ft.DatePicker(
+            on_change=self.on_date_change,
+            on_dismiss=self.on_date_dismiss,
+        )
+        self.btn_date = ft.OutlinedButton(
+            text="Filtrar por Fecha",
+            icon=ft.icons.CALENDAR_MONTH,
+            on_click=self.open_date_picker,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            height=40
+        )
+        self.btn_clear_date = ft.IconButton(
+            icon=ft.icons.CLEAR,
+            tooltip="Limpiar Fecha",
+            on_click=self.clear_date,
+            visible=False,
+            icon_color="red"
+        )
+        
+        # Dashboard Resumen
+        self.lbl_compras_mes = ft.Text("$0", size=20, weight="bold", color=Config.COLOR_PRIMARY)
+        self.lbl_compras_hoy = ft.Text("$0", size=20, weight="bold", color="green")
+        self.lbl_cantidad = ft.Text("0", size=20, weight="bold")
+        
+        self.summary_container = ft.Container(
+            content=ft.Row([
+                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Total Compras en el Mes"), self.lbl_compras_mes]), padding=5), expand=True),
+                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Total Compras Hoy"), self.lbl_compras_hoy]), padding=5), expand=True),
+                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Cantidad Productos Comprados"), self.lbl_cantidad]), padding=5), expand=True),
+            ])
+        )
+        
+        self.btn_agregar = ft.ElevatedButton(
+            text="Agregar Compra",
+            icon=ft.icons.ADD,
+            bgcolor=Config.COLOR_SECONDARY,
+            color="white",
+            height=40,
+            on_click=self.on_agregar_click,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+        
+        # File Picker
+        self.file_picker = ft.FilePicker(on_result=self.on_file_picked)
+        
+        # Diálogo de Carga
+        self.lbl_loading_text = ft.Text("Preparando archivo...", text_align=ft.TextAlign.CENTER)
+        self.dlg_loading = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Procesando con Inteligencia Artificial"),
+            content=ft.Column([
+                ft.ProgressRing(),
+                self.lbl_loading_text
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True)
+        )
+        
+        # Diálogo de Confirmación (se construirá dinámicamente)
+        self.dlg_confirm = ft.AlertDialog(modal=True)
+        
+        # Tabla de Datos
+        self.data_table = ft.DataTable(
+            data_row_min_height=30,
+            data_row_max_height=30,
+            heading_row_height=40,
+            columns=[
+                ft.DataColumn(ft.Text("Fecha", weight="bold")),
+                ft.DataColumn(ft.Text("No. Factura", weight="bold")),
+                ft.DataColumn(ft.Text("Proveedor", weight="bold")),
+                ft.DataColumn(ft.Text("Código Item", weight="bold")),
+                ft.DataColumn(ft.Container(content=ft.Text("Nombre", weight="bold"), width=300)),
+                ft.DataColumn(ft.Text("Cantidad", weight="bold"), numeric=True),
+                ft.DataColumn(ft.Text("Costo Unit.", weight="bold"), numeric=True),
+                ft.DataColumn(ft.Text("Costo Total", weight="bold"), numeric=True),
+            ],
+            rows=[],
+            heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
+            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
+            border_radius=8,
+            vertical_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
+            horizontal_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
+        )
+        
+        # Controles Paginación
+        self.lbl_page_info = ft.Text("Página 1 de 1")
+        self.lbl_total = ft.Text("0 registros en total", color="grey")
+        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, on_click=self.on_prev_page, disabled=True)
+        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, on_click=self.on_next_page, disabled=True)
+        self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
+        
+        # --- TAB 2: GESTIÓN DE CARGAS ---
+        self.cargas_file = "cargas_compras_locales.json"
+        self.cargas_data = {}
+        self._load_cargas()
+        
+        self.fecha_filtro_cargas = None
+        self.date_picker_filtro_cargas = ft.DatePicker(on_change=self.on_date_filtro_cargas_change)
+        
+        self.btn_filtro_fecha_cargas = ft.OutlinedButton(
+            text="Filtrar por Fecha",
+            icon=ft.icons.CALENDAR_MONTH,
+            on_click=lambda e: self.date_picker_filtro_cargas.pick_date(),
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            height=45
+        )
+        self.btn_clear_filtro_cargas = ft.IconButton(
+            icon=ft.icons.CLEAR, tooltip="Limpiar Fecha",
+            on_click=self.clear_filtro_fecha_cargas, visible=False, icon_color="red"
+        )
+        
+        self.drop_filtro_estado_cargas = ft.Dropdown(
+            options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("Nuevo"), ft.dropdown.Option("Procesado con éxito"), ft.dropdown.Option("Falló"), ft.dropdown.Option("Guardado"), ft.dropdown.Option("Sobreescrito")],
+            value="Todos", label="Estado", dense=True, width=170, border_radius=8, content_padding=10, height=45,
+            on_change=lambda e: self._render_tabla_cargas()
+        )
+        
+        self.table_cargas = ft.DataTable(
+            data_row_min_height=40,
+            data_row_max_height=40,
+            heading_row_height=40,
+            columns=[
+                ft.DataColumn(ft.Text("ID", weight="bold"), numeric=True),
+                ft.DataColumn(ft.Text("Página", weight="bold")),
+                ft.DataColumn(ft.Text("Archivo Original", weight="bold")),
+                ft.DataColumn(ft.Text("Estado", weight="bold")),
+                ft.DataColumn(ft.Text("Acciones", weight="bold")),
+            ],
+            rows=[],
+            heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
+            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
+            border_radius=8,
+            vertical_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
+            horizontal_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
+        )
+        
+        # --- NUEVO MODAL DE METADATOS ---
+        self.fecha_carga_actual = datetime.date.today().strftime("%Y-%m-%d")
+        self.date_picker_cargas = ft.DatePicker(on_change=self.on_date_cargas_change)
+        self.fecha_carga_btn = ft.OutlinedButton(
+            text=self.fecha_carga_actual, icon=ft.icons.CALENDAR_MONTH,
+            on_click=lambda e: self.date_picker_cargas.pick_date(),
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)), height=40, width=250
+        )
+        self.dlg_metadatos_pdf = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Selecciona la Fecha de la Carga"),
+            content=ft.Column([
+                ft.Text("Fecha asignada a las compras del PDF:", size=12, color="grey", weight="bold"),
+                self.fecha_carga_btn
+            ], tight=True),
+            actions=[
+                ft.TextButton("Cancelar", on_click=self._cerrar_modal_metadatos),
+                ft.ElevatedButton("Seleccionar Archivo PDF", on_click=self._abrir_file_picker_desde_modal)
+            ]
+        )
+        
+        # --- PREPARACIÓN DE LAS PESTAÑAS (TABS) ---
+        
+        # 1. Contenido Tab 1: Registro Compras
+        row_filtros_compras = ft.Row([
+            self.search_input,
+            self.btn_date,
+            self.btn_clear_date,
+            ft.ElevatedButton(
+                text="Buscar", icon=ft.icons.SEARCH, bgcolor=Config.COLOR_PRIMARY, color="white", height=40,
+                on_click=self.on_search, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+            ),
+        ])
+        
+        contenedor_tabla_compras = ft.Container(
+            content=ft.Row([ft.Column([self.data_table], scroll=ft.ScrollMode.ALWAYS)], scroll=ft.ScrollMode.ALWAYS, expand=True, vertical_alignment=ft.CrossAxisAlignment.START),
+            bgcolor="white", padding=5, border_radius=10, expand=True, shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=ft.colors.with_opacity(0.05, "black"))
+        )
+        
+        footer_paginacion = ft.Container(
+            content=ft.Row([self.lbl_total, ft.Container(expand=True), self.btn_prev, self.lbl_page_info, self.btn_next], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            padding=ft.padding.only(top=10)
+        )
+        
+        layout_tab_compras = ft.Container(
+            content=ft.Column([row_filtros_compras, contenedor_tabla_compras, footer_paginacion], expand=True, spacing=10),
+            padding=10
+        )
+        
+        # 2. Contenido Tab 2: Gestión de Cargas
+        self.btn_extraer_todo = ft.ElevatedButton(
+            text="Extraer Todo",
+            icon=ft.icons.AUTO_MODE,
+            bgcolor="purple700",
+            color="white",
+            height=40,
+            on_click=self.on_extraer_todo_masivo,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+        
+        row_filtros_tab_cargas = ft.Row([
+            self.btn_filtro_fecha_cargas,
+            self.btn_clear_filtro_cargas,
+            self.drop_filtro_estado_cargas,
+            ft.Container(expand=True),
+            self.btn_extraer_todo,
+            ft.ElevatedButton(
+                text="Subir PDF de Compras", icon=ft.icons.CLOUD_UPLOAD, bgcolor=Config.COLOR_SECONDARY, color="white", height=40,
+                on_click=self.on_agregar_click, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+            )
+        ])
+        
+        contenedor_tabla_cargas = ft.Container(
+            content=ft.Row([ft.Column([self.table_cargas], scroll=ft.ScrollMode.ALWAYS)], scroll=ft.ScrollMode.ALWAYS, expand=True, vertical_alignment=ft.CrossAxisAlignment.START),
+            bgcolor="white", padding=5, border_radius=10, expand=True, shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=ft.colors.with_opacity(0.05, "black"))
+        )
+        
+        layout_tab_cargas = ft.Container(
+            content=ft.Column([row_filtros_tab_cargas, contenedor_tabla_cargas], expand=True, spacing=10),
+            padding=10
+        )
+        
+        # Integrar las Pestañas
+        self.tabs = ft.Tabs(
+            selected_index=0,
+            animation_duration=300,
+            tabs=[
+                ft.Tab(text="Registro de Compras", content=layout_tab_compras, icon=ft.icons.SHOPPING_CART),
+                ft.Tab(text="Gestión de Cargas", content=layout_tab_cargas, icon=ft.icons.FILE_UPLOAD),
+            ],
+            expand=True
+        )
+
+        self.lbl_titulo = ft.Text("Módulo de Compras", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.content = ft.Column([
+            self.progress_bar,
+            self.lbl_titulo,
+            self.summary_container,
+            self.tabs
+        ], expand=True, spacing=10)
+        
+        self.load_data()
+        self._render_tabla_cargas()
+
+    def _load_cargas(self):
+        if os.path.exists(self.cargas_file):
+            try:
+                with open(self.cargas_file, "r", encoding="utf-8") as f:
+                    self.cargas_data = json.load(f)
+            except Exception:
+                self.cargas_data = {}
+        else:
+            self.cargas_data = {}
+
+    def _save_cargas(self):
+        try:
+            with open(self.cargas_file, "w", encoding="utf-8") as f:
+                json.dump(self.cargas_data, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print(f"Error guardando cargas: {e}")
+
+    def on_date_cargas_change(self, e):
+        if self.date_picker_cargas.value:
+            self.fecha_carga_actual = self.date_picker_cargas.value.strftime("%Y-%m-%d")
+            self.fecha_carga_btn.text = self.fecha_carga_actual
+            if self.page:
+                self.page.update()
+
+    def on_date_filtro_cargas_change(self, e):
+        if self.date_picker_filtro_cargas.value:
+            self.fecha_filtro_cargas = self.date_picker_filtro_cargas.value.strftime("%Y-%m-%d")
+            self.btn_filtro_fecha_cargas.text = self.fecha_filtro_cargas
+            self.btn_clear_filtro_cargas.visible = True
+            if self.page:
+                self.page.update()
+            self._render_tabla_cargas()
+
+    def clear_filtro_fecha_cargas(self, e):
+        self.fecha_filtro_cargas = None
+        self.btn_filtro_fecha_cargas.text = "Filtrar por Fecha"
+        self.btn_clear_filtro_cargas.visible = False
+        self.date_picker_filtro_cargas.value = None
+        if self.page:
+            self.page.update()
+        self._render_tabla_cargas()
+
+    def _render_tabla_cargas(self):
+        self.table_cargas.rows.clear()
+        
+        lista_cargas = []
+        for grupo_key, paginas in self.cargas_data.items():
+            for num_pag, data in paginas.items():
+                lista_cargas.append(data)
+                
+        # Ordenar por ID descendente (más nuevos arriba)
+        lista_cargas.sort(key=lambda x: x["id"], reverse=True)
+        
+        for data in lista_cargas:
+            # --- Filtrado Visual ---
+            if self.fecha_filtro_cargas and data.get("fecha") != self.fecha_filtro_cargas:
+                continue
+                    
+            if self.drop_filtro_estado_cargas.value != "Todos" and data.get("estado") != self.drop_filtro_estado_cargas.value:
+                continue
+            # -----------------------
+            
+            id_carga = data["id"]
+            nombre = f"Página No. {data['pagina']} ({data['fecha']})"
+            archivo_orig = os.path.basename(data.get("archivo_original", "Desconocido"))
+            estado = data["estado"]
+            
+            txt_crono = ft.Text("⏱️ 20s", color="red", weight="bold", visible=False)
+            
+            texto_btn = "Extraer Datos" if estado in ["Nuevo", "Falló", "Sobreescrito"] else "Ver"
+            color_btn = Config.COLOR_PRIMARY if texto_btn == "Extraer Datos" else "grey"
+            icon_btn = ft.icons.DOCUMENT_SCANNER if texto_btn == "Extraer Datos" else ft.icons.VISIBILITY
+            
+            btn_accion = ft.ElevatedButton(
+                text=texto_btn,
+                icon=icon_btn,
+                bgcolor=color_btn,
+                color="white",
+                height=30,
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5)),
+                on_click=lambda e, d=data, txt=txt_crono: self.on_accion_carga(e, d, txt)
+            )
+            
+            acciones_row = ft.Row([btn_accion, txt_crono], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            
+            color_estado = "black"
+            if estado == "Procesado con éxito": color_estado = "green"
+            elif estado == "Falló": color_estado = "red"
+            elif estado == "Guardado": color_estado = "blue"
+            elif estado == "Sobreescrito": color_estado = "orange"
+            
+            self.table_cargas.rows.append(
+                ft.DataRow(
+                    cells=[
+                        ft.DataCell(ft.Text(str(id_carga))),
+                        ft.DataCell(ft.Text(nombre, weight="bold")),
+                        ft.DataCell(ft.Text(archivo_orig[:20] + "..." if len(archivo_orig) > 20 else archivo_orig, tooltip=archivo_orig)),
+                        ft.DataCell(ft.Text(estado, color=color_estado, weight="bold")),
+                        ft.DataCell(acciones_row),
+                    ]
+                )
+            )
+            
+        if self.page:
+            self.page.update()
+
+    def on_accion_carga(self, e, data, txt_crono):
+        btn = e.control
+        if btn.text == "Ver":
+            self.carga_activa = data
+            self.parsed_data = data.get("datos_extraidos", [])
+            
+            codigos_extraidos = set()
+            for invoice in self.parsed_data:
+                for p in invoice.get("productos", []):
+                    codigos_extraidos.add(str(p.get("codigo_insumo", "")))
+            if codigos_extraidos:
+                self.nombres_insumos = self.db.get_nombres_insumos(list(codigos_extraidos))
+            else:
+                self.nombres_insumos = {}
+                
+            self.show_confirm_ui()
+            return
+            
+        if getattr(self, "is_extraccion_activa", False):
+            self.page.snack_bar = ft.SnackBar(ft.Text("Hay una extracción en proceso. Espere que termine el cronómetro."), bgcolor="orange")
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+
+        self.is_extraccion_activa = True
+        btn.text = "Extrayendo..."
+        btn.icon = ft.icons.HOURGLASS_TOP
+        
+        for row in self.table_cargas.rows:
+            accion_row = row.cells[-1].content
+            b = accion_row.controls[0]
+            if b.text == "Extraer Datos":
+                b.disabled = True
+                
+        self.page.snack_bar = ft.SnackBar(ft.Text(f"Analizando documento con Inteligencia Artificial..."), bgcolor="blue")
+        self.page.snack_bar.open = True
+        self.page.update()
+        
+        threading.Thread(target=self._worker_extraccion, args=(data, btn, txt_crono), daemon=True).start()
+
+    def _worker_extraccion(self, data, btn, txt_crono):
+        try:
+            extracted = self.ai_parser.parse_compras_pdf_page(data["archivo"], 0)
+            
+            if extracted and isinstance(extracted, list) and len(extracted) > 0:
+                data["estado"] = "Procesado con éxito"
+                data["datos_extraidos"] = extracted
+                if self.page:
+                    self.page.snack_bar = ft.SnackBar(ft.Text("¡Extracción exitosa!"), bgcolor="green")
+            else:
+                data["estado"] = "Falló"
+                data["datos_extraidos"] = []
+                if self.page:
+                    self.page.snack_bar = ft.SnackBar(ft.Text("Fallo en la extracción. Revise el PDF o intente de nuevo."), bgcolor="red")
+                    
+            if self.page:
+                self.page.snack_bar.open = True
+            self._save_cargas()
+            
+            txt_crono.visible = True
+            btn.text = "Enfriando..."
+            btn.icon = ft.icons.TIMER
+            for i in range(20, 0, -1):
+                txt_crono.value = f"⏱️ {i}s"
+                if self.page:
+                    self.page.update()
+                time.sleep(1)
+                
+        except Exception as ex:
+            data["estado"] = "Falló"
+            self._save_cargas()
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error en extracción: {ex}"), bgcolor="red")
+                self.page.snack_bar.open = True
+        finally:
+            self.is_extraccion_activa = False
+            self._render_tabla_cargas()
+    def toggle_fullscreen(self, e):
+        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
+        visibilidad = not self.is_fullscreen
+
+        # Ocultar o mostrar elementos superiores si existen en la vista
+        if hasattr(self, "lbl_titulo"): self.lbl_titulo.visible = visibilidad
+        if hasattr(self, "summary_container"): self.summary_container.visible = visibilidad
+        if hasattr(self, "kpi_bar"): self.kpi_bar.visible = visibilidad
+
+        # Cambiar icono y tooltip
+        self.btn_fullscreen.icon = ft.icons.FULLSCREEN_EXIT if self.is_fullscreen else ft.icons.FULLSCREEN
+        self.btn_fullscreen.tooltip = "Contraer Vista" if self.is_fullscreen else "Expandir Tabla (Modo Enfoque)"
+
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        elif self.page:
+            self.page.update()
+
+    def did_mount(self):
+        # Agregar los overlays a la página principal
+        if self.file_picker not in self.page.overlay:
+            self.page.overlay.append(self.file_picker)
+        if self.dlg_loading not in self.page.overlay:
+            self.page.overlay.append(self.dlg_loading)
+        if self.dlg_confirm not in self.page.overlay:
+            self.page.overlay.append(self.dlg_confirm)
+        if hasattr(self, "date_picker") and self.date_picker not in self.page.overlay:
+            self.page.overlay.append(self.date_picker)
+            
+        # Nuevos overlays para Cargas
+        if hasattr(self, "dlg_metadatos_pdf") and self.dlg_metadatos_pdf not in self.page.overlay:
+            self.page.overlay.append(self.dlg_metadatos_pdf)
+        if hasattr(self, "date_picker_cargas") and self.date_picker_cargas not in self.page.overlay:
+            self.page.overlay.append(self.date_picker_cargas)
+        if hasattr(self, "date_picker_filtro_cargas") and self.date_picker_filtro_cargas not in self.page.overlay:
+            self.page.overlay.append(self.date_picker_filtro_cargas)
+            
+        self.page.update()
+        self.load_summary()
+        self.load_data()
+        
+    def load_summary(self):
+        res = self.db.get_compras_summary()
+        self.lbl_compras_mes.value = f"${res.get('total_mes', 0):,.2f}"
+        self.lbl_compras_hoy.value = f"${res.get('total_hoy', 0):,.2f}"
+        self.lbl_cantidad.value = f"{res.get('cantidad_total', 0):,.2f}"
+        if self.page:
+            self.update()
+            
+    def open_date_picker(self, e):
+        self.date_picker.pick_date()
+        
+    def on_date_change(self, e):
+        if self.date_picker.value:
+            self.fecha_corte = self.date_picker.value.strftime("%Y-%m-%d")
+            self.btn_date.text = self.fecha_corte
+            self.btn_clear_date.visible = True
+            if self.page:
+                self.page.update()
+            self.current_page = 1
+            self.load_data()
+            
+    def on_date_dismiss(self, e):
+        pass
+        
+    def clear_date(self, e):
+        self.fecha_corte = None
+        self.btn_date.text = "Filtrar por Fecha"
+        self.btn_clear_date.visible = False
+        self.date_picker.value = None
+        if self.page:
+            self.page.update()
+        self.current_page = 1
+        self.load_data()
+        
+    def on_agregar_click(self, e):
+        # En lugar de abrir file_picker, abrimos el modal de metadatos
+        self.dlg_metadatos_pdf.open = True
+        if self.page:
+            self.page.update()
+
+    def _cerrar_modal_metadatos(self, e=None):
+        self.dlg_metadatos_pdf.open = False
+        if self.page:
+            self.page.update()
+
+    def _abrir_file_picker_desde_modal(self, e):
+        self.fecha_seleccionada = self.fecha_carga_actual
+        self._cerrar_modal_metadatos()
+        self.file_picker.pick_files(allow_multiple=False, allowed_extensions=["pdf"], dialog_title="Selecciona el Reporte de Compras")
+
+    def on_file_picked(self, e: ft.FilePickerResultEvent):
+        if e.files and len(e.files) > 0:
+            pdf_path = e.files[0].path
+            
+            self.lbl_loading_text.value = "Dividiendo PDF en páginas..."
+            self.dlg_loading.open = True
+            self.page.update()
+            
+            threading.Thread(target=self._dividir_y_guardar_pdf, args=(pdf_path,), daemon=True).start()
+
+    def _dividir_y_guardar_pdf(self, pdf_path):
+        try:
+            reader = PdfReader(pdf_path)
+            total_pages = len(reader.pages)
+            
+            grupo_key = self.fecha_seleccionada
+            if grupo_key not in self.cargas_data:
+                self.cargas_data[grupo_key] = {}
+                
+            paginas_existentes = [int(p) for p in self.cargas_data[grupo_key].keys()]
+            max_pagina = max(paginas_existentes) if paginas_existentes else 0
+            
+            max_id = 0
+            for k, pags in self.cargas_data.items():
+                for p_num, d in pags.items():
+                    if d.get("id", 0) > max_id:
+                        max_id = d["id"]
+            
+            os.makedirs("pdfs_locales", exist_ok=True)
+            
+            for p_idx in range(total_pages):
+                num_pag = max_pagina + p_idx + 1
+                id_carga = max_id + p_idx + 1
+                
+                writer = PdfWriter()
+                writer.add_page(reader.pages[p_idx])
+                
+                nombre_archivo = f"compra_{grupo_key}_pag_{num_pag}.pdf"
+                ruta_local = os.path.join("pdfs_locales", nombre_archivo)
+                
+                with open(ruta_local, "wb") as f:
+                    writer.write(f)
+                    
+                self.cargas_data[grupo_key][str(num_pag)] = {
+                    "id": id_carga,
+                    "fecha": grupo_key,
+                    "pagina": num_pag,
+                    "archivo_original": pdf_path,
+                    "archivo": ruta_local,
+                    "estado": "Nuevo"
+                }
+                
+            self._save_cargas()
+            self.dlg_loading.open = False
+            self.page.snack_bar = ft.SnackBar(ft.Text(f"Se dividió el PDF en {total_pages} páginas exitosamente."), bgcolor="green")
+            self.page.snack_bar.open = True
+            
+        except Exception as e:
+            self.dlg_loading.open = False
+            self.page.snack_bar = ft.SnackBar(ft.Text(f"Error procesando PDF: {e}"), bgcolor="red")
+            self.page.snack_bar.open = True
+            
+        finally:
+            if self.page:
+                self.page.update()
+                self._render_tabla_cargas()
+
+    def animate_loading(self, base_msg):
+        messages = [
+            base_msg,
+            "Puliendo datos para enviarlos...",
+            "Generando el formato de carga...",
+            "A unos pasos de finalizar..."
+        ]
+        idx = 0
+        while getattr(self, "is_loading", False):
+            if hasattr(self, "lbl_loading_text") and self.page:
+                self.lbl_loading_text.value = messages[idx % len(messages)]
+                try:
+                    self.page.update()
+                except Exception:
+                    pass
+            idx += 1
+            time.sleep(5)
+            self.is_loading = False
+            self.dlg_loading.open = False
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text(f"Ocurrió un error inesperado: {str(e)}", color="white"), bgcolor="red")
+                self.page.snack_bar.open = True
+                self.page.update()
+    def update_totals(self, e=None):
+        gran_cant = 0.0
+        gran_costo = 0.0
+        gran_iva = 0.0
+        gran_total = 0.0
+        
+        factura_totals = {}
+        
+        for item in self.productos_rows:
+            if item["type"] == "product":
+                try:
+                    cant = float(item["cantidad_ctl"].value.replace(',', '.'))
+                    costo = float(item["costo_ctl"].value.replace(',', '.'))
+                    iva = float(item["iva_ctl"].value.replace(',', '.'))
+                    
+                    row_total = (cant * costo) + iva
+                    item["total_ctl"].value = f"${row_total:,.2f}"
+                    
+                    factura_idx = item["factura_idx"]
+                    factura_totals[factura_idx] = factura_totals.get(factura_idx, 0) + row_total
+                    
+                    gran_cant += cant
+                    gran_costo += costo
+                    gran_iva += iva
+                    gran_total += row_total
+                except:
+                    item["total_ctl"].value = "Error"
+                    
+        for item in self.productos_rows:
+            if item["type"] == "header":
+                idx = item["factura_idx"]
+                total = factura_totals.get(idx, 0)
+                item["total_factura_ctl"].value = f"Total Factura: ${total:,.2f}"
+                    
+        self.txt_gran_cant.value = f"{gran_cant:,.2f}"
+        self.txt_gran_costo.value = f"${gran_costo:,.2f}"
+        self.txt_gran_iva.value = f"${gran_iva:,.2f}"
+        self.txt_gran_total.value = f"${gran_total:,.2f}"
+        if self.page:
+            self.page.update()
+
+    def show_confirm_ui(self):
+        # Guardar el contenido original de la vista para poder volver a él
+        if not hasattr(self, "main_content"):
+            self.main_content = self.content
+            
+        self.productos_rows = []
+        facturas_count = len(self.parsed_data)
+        productos_count = 0
+        
+        # Como ahora parsed_data es una lista de facturas, las iteramos todas
+        for idx, invoice in enumerate(self.parsed_data):
+            ea = invoice.get("numero_entrada", "")
+            fecha = invoice.get("fecha", "")
+            factura = invoice.get("numero_factura", "")
+            proveedor = invoice.get("proveedor", "")
+            
+            total_factura_ctl = ft.Text("Total Factura: $0.00", weight="bold", color=Config.COLOR_PRIMARY)
+            self.productos_rows.append({
+                "type": "header",
+                "factura_idx": idx,
+                "total_factura_ctl": total_factura_ctl,
+                "row_ctl": ft.Container(
+                    content=ft.Row([
+                        ft.Text(f"EA: {ea} | Factura: {factura} | Proveedor: {proveedor} | Fecha: {fecha}", weight="bold", color=Config.COLOR_PRIMARY),
+                        ft.Container(expand=True),
+                        total_factura_ctl
+                    ]),
+                    bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_PRIMARY),
+                    padding=5,
+                    border_radius=5
+                )
+            })
+            
+            # Productos de esta factura
+            for p in invoice.get("productos", []):
+                productos_count += 1
+                cod = str(p.get("codigo_insumo", ""))
+                # Extraemos el nombre de la BD si existe, sino lo dejamos como "Desconocido"
+                nombre = self.nombres_insumos.get(cod, "Desconocido")
+                
+                def get_codigo_change_handler(nombre_control):
+                    def handler(e):
+                        val = e.control.value
+                        if val:
+                            nombres = self.db.get_nombres_insumos([val])
+                            nombre_control.value = nombres.get(val, "Desconocido")
+                        else:
+                            nombre_control.value = "Desconocido"
+                        nombre_control.tooltip = nombre_control.value
+                        if self.page: self.page.update()
+                    return handler
+                
+                nombre_ctl = ft.Text(nombre[:25], width=180, no_wrap=True, tooltip=nombre)
+                codigo_ctl = ft.TextField(label="Código", value=cod, width=90, dense=True, on_change=get_codigo_change_handler(nombre_ctl))
+                cantidad_ctl = ft.TextField(label="Cant.", value=str(p.get("cantidad", 0)), width=70, dense=True, on_change=self.update_totals)
+                costo_ctl = ft.TextField(label="Costo U.", value=str(p.get("costo_unitario", 0)), width=80, dense=True, on_change=self.update_totals)
+                iva_ctl = ft.TextField(label="IVA", value=str(p.get("iva", 0)), width=80, dense=True, on_change=self.update_totals)
+                total_ctl = ft.Text("$0.00", width=100, weight="bold")
+                
+                self.productos_rows.append({
+                    "type": "product",
+                    "factura_idx": idx,
+                    "ea": ea,
+                    "fecha": fecha,
+                    "factura": factura,
+                    "proveedor": proveedor,
+                    "codigo_ctl": codigo_ctl,
+                    "nombre_ctl": nombre_ctl,
+                    "cantidad_ctl": cantidad_ctl,
+                    "costo_ctl": costo_ctl,
+                    "iva_ctl": iva_ctl,
+                    "total_ctl": total_ctl,
+                    "row_ctl": ft.Row([codigo_ctl, nombre_ctl, cantidad_ctl, costo_ctl, iva_ctl, total_ctl])
+                })
+            
+        list_view = ft.ListView(
+            controls=[item["row_ctl"] for item in self.productos_rows],
+            expand=True,
+            spacing=10
+        )
+        
+        # Resumen Visual y Controles de Totales
+        self.txt_gran_cant = ft.Text("0", weight="bold")
+        self.txt_gran_costo = ft.Text("$0", weight="bold")
+        self.txt_gran_iva = ft.Text("$0", weight="bold")
+        self.txt_gran_total = ft.Text("$0", weight="bold", size=18, color=Config.COLOR_PRIMARY)
+        
+        is_last_page = not (hasattr(self, 'total_pages_pdf') and self.current_page_idx < self.total_pages_pdf - 1)
+        botones_acciones = [ft.TextButton("Volver", on_click=self.close_confirm_ui)]
+        
+        if not is_last_page:
+            botones_acciones.append(ft.ElevatedButton("Confirmar y Guardar", bgcolor="grey", color="white", on_click=self.on_guardar_compra_partial))
+            botones_acciones.append(ft.ElevatedButton("Confirmar y Continuar", bgcolor=Config.COLOR_SECONDARY, color="white", on_click=self.on_guardar_compra))
+        else:
+            botones_acciones.append(ft.ElevatedButton("Confirmar y Guardar Todo", bgcolor=Config.COLOR_SECONDARY, color="white", on_click=self.on_guardar_compra))
+            
+        # --- NUEVO DISEÑO DEL FOOTER ---
+        # 1. Fila de Información Financiera (Estilo Dashboard)
+        info_row = ft.Row([
+            ft.Text("RESUMEN TOTAL", weight="bold", size=18, color=Config.COLOR_PRIMARY),
+            ft.Container(expand=True), # Empuja los totales hacia la derecha
+            
+            ft.Column([ft.Text("Cant. Total", size=12, color="grey"), self.txt_gran_cant], spacing=2, horizontal_alignment="end"),
+            ft.Container(width=1, height=30, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=10)),
+            
+            ft.Column([ft.Text("Costo Base", size=12, color="grey"), self.txt_gran_costo], spacing=2, horizontal_alignment="end"),
+            ft.Container(width=1, height=30, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=10)),
+            
+            ft.Column([ft.Text("IVA Total", size=12, color="grey"), self.txt_gran_iva], spacing=2, horizontal_alignment="end"),
+            ft.Container(width=1, height=30, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=10)),
+            
+            ft.Column([ft.Text("GRAN TOTAL", size=12, color="grey", weight="bold"), self.txt_gran_total], spacing=2, horizontal_alignment="end"),
+        ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+        # 2. Fila de Botones de Acción
+        buttons_row = ft.Row([
+            ft.Container(expand=True), # Empuja los botones hacia el extremo derecho
+            *botones_acciones # Desempaqueta la lista de botones dinámicos
+        ], alignment=ft.MainAxisAlignment.END)
+
+        # 3. Contenedor Principal del Footer
+        footer = ft.Container(
+            content=ft.Column([
+                info_row,
+                ft.Divider(height=15, color=ft.colors.with_opacity(0.1, "black")),
+                buttons_row
+            ], spacing=0),
+            bgcolor=ft.colors.with_opacity(0.03, Config.COLOR_PRIMARY),
+            padding=20,
+            border_radius=8,
+            border=ft.border.all(1, ft.colors.with_opacity(0.1, Config.COLOR_PRIMARY)),
+            margin=ft.padding.only(top=10)
+        )
+        
+        if hasattr(self, 'total_pages_pdf'):
+            titulo = f"Datos Extraídos - Pág. No. {self.current_page_idx + 1} de {self.total_pages_pdf}"
+        elif hasattr(self, 'carga_activa'):
+            titulo = f"Datos Extraídos - Pág. No. {self.carga_activa.get('pagina', 1)}"
+        else:
+            titulo = "Revisión de Compras (Modo Inmersivo)"
+        header = ft.Row([
+            ft.Text(titulo, size=24, weight="bold"),
+            ft.Text(f"{facturas_count} Facturas extraídas | {productos_count} Productos en total", color="grey")
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        
+        # Reemplazamos el contenido actual por el modo Inmersivo/Fullscreen
+        self.content = ft.Column([
+            header,
+            ft.Divider(),
+            ft.Row([
+                ft.Container(width=90, content=ft.Text("Código", weight="bold")),
+                ft.Container(width=180, content=ft.Text("Nombre (desde BD)", weight="bold")),
+                ft.Container(width=70, content=ft.Text("Cantidad", weight="bold")),
+                ft.Container(width=80, content=ft.Text("Costo U.", weight="bold")),
+                ft.Container(width=80, content=ft.Text("IVA", weight="bold")),
+                ft.Container(width=100, content=ft.Text("Costo Total", weight="bold"))
+            ]),
+            list_view,
+            footer
+        ], expand=True)
+        
+        self.update_totals()
+        self.page.update()
+        
+    def close_confirm_ui(self, e):
+        # Volver al diseño principal
+        self.content = self.main_content
+        self.page.update()
+        
+    def on_guardar_compra_partial(self, e):
+        if hasattr(self, 'total_pages_pdf'):
+            self.current_page_idx = self.total_pages_pdf
+        self.on_guardar_compra(e)
+
+    def on_guardar_compra(self, e):
+        # 1. Bloquear interfaz y mostrar carga
+        btn_control = e.control if e else None
+        if btn_control:
+            btn_control.disabled = True
+            
+        if hasattr(self, 'progress_bar'):
+            self.progress_bar.visible = True
+            
+        if self.page:
+            self.page.update()
+            
+        # 2. Lanzar worker de guardado
+        import threading
+        threading.Thread(target=self._guardar_compra_worker, args=(btn_control,), daemon=True).start()
+
+    def _guardar_compra_worker(self, btn_control):
+        try:
+            compras_list = []
+            lista_eas_to_delete = []
+            
+            # Si venimos del flujo nuevo de carga_activa:
+            grupo_key = None
+            pagina_origen = None
+            if hasattr(self, 'carga_activa'):
+                grupo_key = self.carga_activa["fecha"]
+                pagina_origen = self.carga_activa["pagina"]
+
+            for item in self.productos_rows:
+                if item["type"] == "product":
+                    cant_str = str(item["cantidad_ctl"].value).replace(',', '.')
+                    costo_str = str(item["costo_ctl"].value).replace(',', '.')
+                    iva_str = str(item["iva_ctl"].value).replace(',', '.')
+                    
+                    cantidad = float(cant_str)
+                    costo = float(costo_str)
+                    iva = float(iva_str)
+                    total = (cantidad * costo) + iva
+                    
+                    fecha_val = grupo_key if grupo_key else item["fecha"]
+                    if not fecha_val:
+                        import datetime
+                        fecha_val = datetime.date.today().strftime("%Y-%m-%d")
+                        
+                    compras_list.append({
+                        "numero_entrada": item["ea"],
+                        "fecha": fecha_val,
+                        "numero_factura": item["factura"],
+                        "proveedor": item["proveedor"],
+                        "codigo_insumo": item["codigo_ctl"].value,
+                        "cantidad": cantidad,
+                        "costo_unitario": costo,
+                        "iva": iva,
+                        "costo_total": total
+                    })
+                    
+                    if item["ea"] not in lista_eas_to_delete:
+                        lista_eas_to_delete.append(item["ea"])
+                        
+            if compras_list:
+                codigos_unicos = list(set([c["codigo_insumo"] for c in compras_list]))
+                codigos_validos = self.db.get_nombres_insumos(codigos_unicos)
+                
+                codigos_invalidos = [c for c in codigos_unicos if c not in codigos_validos]
+                if codigos_invalidos:
+                    if self.page:
+                        self.page.snack_bar = ft.SnackBar(
+                            ft.Text(f"Códigos no existen en catálogo: {', '.join(codigos_invalidos)}. Corrígelos en la tabla primero.", color="white"), 
+                            bgcolor="red",
+                            duration=8000
+                        )
+                        self.page.snack_bar.open = True
+                        self.page.update()
+                    return
+            
+            if compras_list:
+                # 1. Eliminar datos viejos de esta misma página
+                self.db.eliminar_compras_por_entradas(lista_eas_to_delete)
+                
+                # 2. Insertar los nuevos datos
+                if self.db.insert_compras(compras_list):
+                    self.page.snack_bar = ft.SnackBar(ft.Text("Página guardada exitosamente en BD."), bgcolor="green")
+                    self.page.snack_bar.open = True
+                    
+                    # 3. Actualizar el estado local a Guardado
+                    if grupo_key and str(pagina_origen) in self.cargas_data.get(grupo_key, {}):
+                        self.cargas_data[grupo_key][str(pagina_origen)]["estado"] = "Guardado"
+                        self._save_cargas()
+                        
+                    self.close_confirm_ui(None)
+                    self._render_tabla_cargas()
+                    self.load_data()
+                else:
+                    self.page.snack_bar = ft.SnackBar(ft.Text("Error al guardar en base de datos"), bgcolor="red")
+                    self.page.snack_bar.open = True
+            else:
+                self.page.snack_bar = ft.SnackBar(ft.Text("No hay datos para guardar."), bgcolor="orange")
+                self.page.snack_bar.open = True
+                    
+        except ValueError:
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text("Error numérico en cantidad, costo o IVA."), bgcolor="red")
+                self.page.snack_bar.open = True
+        except Exception as ex:
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error interno: {str(ex)}"), bgcolor="red")
+                self.page.snack_bar.open = True
+        finally:
+            # 3. Restaurar interfaz incondicionalmente
+            if hasattr(self, 'progress_bar'):
+                self.progress_bar.visible = False
+            if btn_control:
+                btn_control.disabled = False
+                
+            if self.page:
+                self.page.update()
+            
+    def load_data(self):
+        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
+        self.progress_bar.visible = True
+        if self.page:
+            self.update()
+            
+        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
+
+    def _fetch_data_worker(self):
+        search_val = self.search_input.value or ""
+        
+        data, total = self.db.get_compras(
+            page=self.current_page, 
+            page_size=self.page_size, 
+            search=search_val,
+            fecha_corte=getattr(self, 'fecha_corte', None)
+        )
+        
+        self.total_records = total
+        self.total_pages = math.ceil(total / self.page_size) if total > 0 else 1
+        
+        self.data_table.rows.clear()
+        
+        for item in data:
+            fecha_raw = str(item.get('fecha', ''))
+            # Cortar a 'YYYY-MM-DD' si viene con timestamp
+            fecha_formateada = fecha_raw[:10] if len(fecha_raw) >= 10 else fecha_raw
+            
+            # El nombre viene del JOIN con catalogo_insumos: catalogo_insumos.nombre
+            cat_info = item.get('catalogo_insumos') or {}
+            nombre_insumo = cat_info.get('nombre', 'Desconocido')
+            
+            cantidad = int(item.get('cantidad', 0) or 0)
+            costo_unit = float(item.get('costo_unitario', 0) or 0)
+            costo_tot = float(item.get('costo_total', 0) or 0)
+            
+            str_costo_unit = f"${costo_unit:,.2f}"
+            str_costo_tot = f"${costo_tot:,.2f}"
+            
+            row = ft.DataRow(
+                cells=[
+                    ft.DataCell(ft.Text(fecha_formateada)),
+                    ft.DataCell(ft.Text(str(item.get('numero_factura') or 'N/A'))),
+                    ft.DataCell(ft.Text(str(item.get('proveedor') or 'N/A'))),
+                    ft.DataCell(ft.Text(str(item.get('codigo_insumo', '')))),
+                    ft.DataCell(ft.Container(content=ft.Text(nombre_insumo), width=300)),
+                    ft.DataCell(ft.Text(str(cantidad), weight="bold")),
+                    ft.DataCell(ft.Text(str_costo_unit)),
+                    ft.DataCell(ft.Text(str_costo_tot, color="blue", weight="bold")),
+                ]
+            )
+            self.data_table.rows.append(row)
+            
+        self.update_pagination_ui()
+        
+    def update_pagination_ui(self):
+        self.lbl_page_info.value = f"Página {self.current_page} de {self.total_pages}"
+        self.lbl_total.value = f"{self.total_records} registros en total"
+        self.btn_prev.disabled = (self.current_page <= 1)
+        self.btn_next.disabled = (self.current_page >= self.total_pages)
+        
+        # Apagar indicador de carga al finalizar
+        self.progress_bar.visible = False
+        
+        if self.page:
+            self.update()
+        
+    def on_search(self, e):
+        self.current_page = 1
+        self.load_data()
+        
+    def on_prev_page(self, e):
+        if self.current_page > 1:
+            self.current_page -= 1
+            self.load_data()
+            
+    def on_next_page(self, e):
+        if self.current_page < self.total_pages:
+            self.current_page += 1
+            self.load_data()
+
+    def on_extraer_todo_masivo(self, e):
+        if getattr(self, "is_extraccion_activa", False):
+            self.page.snack_bar = ft.SnackBar(ft.Text("Ya hay una extracción en curso."), bgcolor="orange")
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+
+        import threading
+        threading.Thread(target=self._worker_extraccion_masiva, daemon=True).start()
+
+    def _worker_extraccion_masiva(self):
+        self.is_extraccion_activa = True
+
+        # 1. Recopilar pendientes
+        pendientes = []
+        for grupo_key, paginas in self.cargas_data.items():
+            for num_pag, data in paginas.items():
+                if data.get("estado") in ["Nuevo", "Falló", "Sobreescrito"]:
+                    pendientes.append(data)
+
+        if not pendientes:
+            self.is_extraccion_activa = False
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text("No hay páginas pendientes por extraer."), bgcolor="orange")
+                self.page.snack_bar.open = True
+                self.page.update()
+            return
+
+        # 2. Calcular Tiempos
+        total_items = len(pendientes)
+        # Estimado: 5 seg proceso + 20 seg enfriamiento por página (salvo la última)
+        tiempo_estimado_segundos = (total_items * 25) - 20 
+
+        # 3. Interfaz de Progreso Inmersiva
+        lbl_estado_progreso = ft.Text(f"Páginas en cola: {total_items}", weight="bold", size=16)
+        lbl_tiempo = ft.Text(f"Tiempo estimado total: ~{tiempo_estimado_segundos // 60} min {tiempo_estimado_segundos % 60} seg", color="grey")
+        lbl_enfriamiento = ft.Text("", size=12, color="orange", weight="bold")
+        barra_progreso = ft.ProgressBar(width=400, color="purple700", bgcolor="#eeeeee", value=0)
+
+        dlg_progreso = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Procesamiento Masivo IA", color="purple700"),
+            content=ft.Column([
+                lbl_estado_progreso,
+                lbl_tiempo,
+                barra_progreso,
+                lbl_enfriamiento,
+                ft.Text("Por favor NO cierres esta ventana ni la aplicación.", size=11, color="red")
+            ], tight=True, spacing=10)
+        )
+
+        if self.page:
+            self.page.overlay.append(dlg_progreso)
+            dlg_progreso.open = True
+            self.page.update()
+
+        exitos = 0
+        fallos = 0
+        import time
+
+        # 4. Bucle de Procesamiento
+        for idx, data in enumerate(pendientes):
+            try:
+                if self.page:
+                    lbl_estado_progreso.value = f"Extrayendo página {idx + 1} de {total_items}..."
+                    lbl_tiempo.value = f"Analizando estructura de {data.get('archivo', '')}..."
+                    barra_progreso.value = idx / total_items
+                    self.page.update()
+
+                # Resolución dinámica según el módulo
+                if hasattr(self.ai_parser, "parse_ventas_pdf_page") and "ventas" in str(self.__class__).lower():
+                    extracted = self.ai_parser.parse_ventas_pdf_page(data["archivo"], 0, data.get("tipo", "Remisión"))
+                else:
+                    extracted = self.ai_parser.parse_compras_pdf_page(data["archivo"], 0)
+
+                if extracted and isinstance(extracted, list) and len(extracted) > 0:
+                    data["estado"] = "Procesado con éxito"
+                    data["datos_extraidos"] = extracted
+                    exitos += 1
+                else:
+                    data["estado"] = "Falló"
+                    data["datos_extraidos"] = []
+                    fallos += 1
+
+                self._save_cargas()
+
+                if self.page:
+                    self._render_tabla_cargas()
+
+                # 5. Enfriamiento de seguridad API (No se aplica al último registro)
+                if idx < total_items - 1:
+                    for i in range(20, 0, -1):
+                        if self.page and dlg_progreso.open:
+                            lbl_enfriamiento.value = f"Pausa anti-saturación de API: {i}s..."
+                            self.page.update()
+                        time.sleep(1)
+                    if self.page:
+                        lbl_enfriamiento.value = ""
+
+            except Exception as ex:
+                data["estado"] = "Falló"
+                self._save_cargas()
+                fallos += 1
+
+        # 6. Finalización
+        self.is_extraccion_activa = False
+        if self.page:
+            dlg_progreso.open = False
+            self.page.snack_bar = ft.SnackBar(
+                ft.Text(f"Proceso masivo completado. Éxitos: {exitos}, Fallos: {fallos}"), 
+                bgcolor="green" if fallos == 0 else "orange"
+            )
+            self.page.snack_bar.open = True
+            barra_progreso.value = 1
+            self.page.update()
+            self._render_tabla_cargas()
+````
+
 ## File: ui/views/ventas.py
 ````python
 import flet as ft
@@ -5619,6 +6012,16 @@ class VentasView(ft.Container):
             expand=True
         )
 
+        self.btn_extraer_todo = ft.ElevatedButton(
+            text="Extraer Todo",
+            icon=ft.icons.AUTO_MODE,
+            bgcolor="purple700",
+            color="white",
+            height=45,
+            on_click=self.on_extraer_todo_masivo,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+
         # 2. Contenido del Tab 2: Gestión de Cargas
         layout_tab_cargas = ft.Container(
             content=ft.Column([
@@ -5628,6 +6031,7 @@ class VentasView(ft.Container):
                     self.drop_filtro_tipo_cargas,
                     self.drop_filtro_estado_cargas,
                     ft.Container(expand=True),
+                    self.btn_extraer_todo,
                     ft.ElevatedButton(
                         text="Subir PDF de Ventas",
                         icon=ft.icons.UPLOAD_FILE,
@@ -6522,481 +6926,123 @@ class VentasView(ft.Container):
         if self.current_page < self.total_pages:
             self.current_page += 1
             self.load_data()
-````
 
-## File: cargas_compras_locales.json
-````json
-{
-    "2026-08-17": {
-        "1": {
-            "id": 1,
-            "fecha": "2026-08-17",
-            "pagina": 1,
-            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
-            "archivo": "pdfs_locales\\compra_2026-08-17_pag_1.pdf",
-            "estado": "Procesado con éxito",
-            "datos_extraidos": [
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9273",
-                    "numero_factura": "7957448",
-                    "proveedor": "AJOVER SAS塑造 Exact matches depend on exact header text, OCR has Factura No.7957448, let's check image closely: actually no number is on header, but OCR has it. Wait, rules say 'Si no hay, pon null'. Let's check image for EA-9273: 'Factura AJOVER SAS'. No number. So null."
-                }
-            ]
-        },
-        "2": {
-            "id": 2,
-            "fecha": "2026-08-17",
-            "pagina": 2,
-            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
-            "archivo": "pdfs_locales\\compra_2026-08-17_pag_2.pdf",
-            "estado": "Guardado",
-            "datos_extraidos": [
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9279",
-                    "numero_factura": "260803",
-                    "productos": [
-                        {
-                            "cantidad": 10.0,
-                            "codigo_insumo": "1415",
-                            "costo_unitario": 6955.0,
-                            "iva": 13214.0
-                        },
-                        {
-                            "cantidad": 10.0,
-                            "codigo_insumo": "0156",
-                            "costo_unitario": 3803.0,
-                            "iva": 7225.0
-                        },
-                        {
-                            "cantidad": 10.0,
-                            "codigo_insumo": "0157",
-                            "costo_unitario": 4565.0,
-                            "iva": 8674.0
-                        }
-                    ],
-                    "proveedor": "Clientes Varios"
-                },
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9280",
-                    "numero_factura": "22618",
-                    "productos": [
-                        {
-                            "cantidad": 40.0,
-                            "codigo_insumo": "1850",
-                            "costo_unitario": 5462.0,
-                            "iva": 41513.0
-                        },
-                        {
-                            "cantidad": 24.0,
-                            "codigo_insumo": "4223",
-                            "costo_unitario": 588.0,
-                            "iva": 2682.0
-                        },
-                        {
-                            "cantidad": 36.0,
-                            "codigo_insumo": "1843",
-                            "costo_unitario": 2773.0,
-                            "iva": 18968.0
-                        },
-                        {
-                            "cantidad": 150.0,
-                            "codigo_insumo": "0663",
-                            "costo_unitario": 4958.0,
-                            "iva": 141303.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "1115",
-                            "costo_unitario": 5798.0,
-                            "iva": 13220.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "4206",
-                            "costo_unitario": 5420.0,
-                            "iva": 12358.0
-                        },
-                        {
-                            "cantidad": 100.0,
-                            "codigo_insumo": "1517",
-                            "costo_unitario": 13866.0,
-                            "iva": 263445.0
-                        }
-                    ],
-                    "proveedor": "MEGA DISTRIBUCIONES AMERICA SAS"
-                },
-                {
-                    "fecha": "2026-08-04",
-                    "numero_entrada": "EA-9281",
-                    "numero_factura": "41142",
-                    "productos": [
-                        {
-                            "cantidad": 400.0,
-                            "codigo_insumo": "4815",
-                            "costo_unitario": 485.0,
-                            "iva": 36860.0
-                        }
-                    ],
-                    "proveedor": "Clientes Varios"
-                },
-                {
-                    "fecha": "2026-08-04",
-                    "numero_entrada": "EA-9282",
-                    "numero_factura": "90042",
-                    "productos": [
-                        {
-                            "cantidad": 300.0,
-                            "codigo_insumo": "2256",
-                            "costo_unitario": 787.0,
-                            "iva": 44882.0
-                        }
-                    ],
-                    "proveedor": "DISDECOL SAS"
-                },
-                {
-                    "fecha": "2026-08-04",
-                    "numero_entrada": "EA-9283",
-                    "numero_factura": "25260",
-                    "productos": [
-                        {
-                            "cantidad": 3.0,
-                            "codigo_insumo": "1230",
-                            "costo_unitario": 27731.0,
-                            "iva": 15807.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "0462",
-                            "costo_unitario": 15408.0,
-                            "iva": 35130.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "0457",
-                            "costo_unitario": 6060.0,
-                            "iva": 13817.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "0458",
-                            "costo_unitario": 7579.0,
-                            "iva": 17280.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "0459",
-                            "costo_unitario": 11026.0,
-                            "iva": 25139.0
-                        }
-                    ],
-                    "proveedor": "FOAMTECK SAS"
-                },
-                {
-                    "fecha": "2026-08-05",
-                    "numero_entrada": "EA-9284",
-                    "numero_factura": "68829",
-                    "productos": [
-                        {
-                            "cantidad": 90.0,
-                            "codigo_insumo": "0024",
-                            "costo_unitario": 6133.0,
-                            "iva": 104870.0
-                        }
-                    ],
-                    "proveedor": "ARIAS Y CIA SAS"
-                },
-                {
-                    "fecha": "2026-08-05",
-                    "numero_entrada": "EA-9285",
-                    "numero_factura": "90196",
-                    "productos": [
-                        {
-                            "cantidad": 25.0,
-                            "codigo_insumo": "0817",
-                            "costo_unitario": 2857.0,
-                            "iva": 13571.0
-                        },
-                        {
-                            "cantidad": 20.0,
-                            "codigo_insumo": "2258",
-                            "costo_unitario": 3315.0,
-                            "iva": 12597.0
-                        }
-                    ],
-                    "proveedor": "DISDECOL SAS"
-                },
-                {
-                    "fecha": "2026-08-05",
-                    "numero_entrada": "EA-9286",
-                    "numero_factura": "15400",
-                    "productos": [],
-                    "proveedor": "BONNIPLAST SAS"
-                }
-            ]
-        },
-        "3": {
-            "id": 3,
-            "fecha": "2026-08-17",
-            "pagina": 3,
-            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
-            "archivo": "pdfs_locales\\compra_2026-08-17_pag_3.pdf",
-            "estado": "Nuevo"
-        }
-    }
-}
-````
+    def on_extraer_todo_masivo(self, e):
+        if getattr(self, "is_extraccion_activa", False):
+            self.page.snack_bar = ft.SnackBar(ft.Text("Ya hay una extracción en curso."), bgcolor="orange")
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
 
-## File: cargas_locales.json
-````json
-{
-    "2026-08-17_Factura POS": {
-        "1": {
-            "id": 1,
-            "pagina": 1,
-            "tipo": "Factura POS",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Factura_POS_Pag_1.pdf",
-            "estado": "Guardado",
-            "datos_extraidos": [
-                {
-                    "numero_factura": "26396",
-                    "productos": [
-                        {
-                            "cantidad": 50,
-                            "codigo_item": "2151",
-                            "costo_total": 95000,
-                            "iva": 0,
-                            "subtotal": 95000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26397",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0105",
-                            "costo_total": 400,
-                            "iva": 0,
-                            "subtotal": 400
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26398",
-                    "productos": [
-                        {
-                            "cantidad": 100,
-                            "codigo_item": "0573",
-                            "costo_total": 41500,
-                            "iva": 0,
-                            "subtotal": 41500
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0174",
-                            "costo_total": 2100,
-                            "iva": 0,
-                            "subtotal": 2100
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26399",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0615",
-                            "costo_total": 14600,
-                            "iva": 0,
-                            "subtotal": 14600
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26400",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "2333",
-                            "costo_total": 3500,
-                            "iva": 0,
-                            "subtotal": 3500
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26401",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0022",
-                            "costo_total": 2200,
-                            "iva": 0,
-                            "subtotal": 2200
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26402",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "2036",
-                            "costo_total": 4000,
-                            "iva": 0,
-                            "subtotal": 4000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26403",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0726",
-                            "costo_total": 12500,
-                            "iva": 0,
-                            "subtotal": 12500
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26404",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0483",
-                            "costo_total": 21900,
-                            "iva": 0,
-                            "subtotal": 21900
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0108",
-                            "costo_total": 17000,
-                            "iva": 0,
-                            "subtotal": 17000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26405",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0165",
-                            "costo_total": 7800,
-                            "iva": 0,
-                            "subtotal": 7800
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26406",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1591",
-                            "costo_total": 4600,
-                            "iva": 0,
-                            "subtotal": 4600
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0024",
-                            "costo_total": 8850,
-                            "iva": 0,
-                            "subtotal": 8850
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0644",
-                            "costo_total": 7600,
-                            "iva": 0,
-                            "subtotal": 7600
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1664",
-                            "costo_total": 2600,
-                            "iva": 0,
-                            "subtotal": 2600
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0655",
-                            "costo_total": 11200,
-                            "iva": 0,
-                            "subtotal": 11200
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0178",
-                            "costo_total": 2800,
-                            "iva": 0,
-                            "subtotal": 2800
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1639",
-                            "costo_total": 5600,
-                            "iva": 0,
-                            "subtotal": 5600
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26407",
-                    "productos": [
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0573",
-                            "costo_total": 8800,
-                            "iva": 0,
-                            "subtotal": 8800
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26408",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1176",
-                            "costo_total": 15900,
-                            "iva": 0,
-                            "subtotal": 15900
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26409",
-                    "productos": [
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0355",
-                            "costo_total": 19600,
-                            "iva": 0,
-                            "subtotal": 19600
-                        }
-                    ]
-                }
-            ]
-        },
-        "2": {
-            "id": 2,
-            "pagina": 2,
-            "tipo": "Factura POS",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Factura_POS_Pag_2.pdf",
-            "estado": "Nuevo"
-        }
-    }
-}
+        import threading
+        threading.Thread(target=self._worker_extraccion_masiva, daemon=True).start()
+
+    def _worker_extraccion_masiva(self):
+        self.is_extraccion_activa = True
+
+        # 1. Recopilar pendientes
+        pendientes = []
+        for grupo_key, paginas in self.cargas_data.items():
+            for num_pag, data in paginas.items():
+                if data.get("estado") in ["Nuevo", "Falló", "Sobreescrito"]:
+                    pendientes.append(data)
+
+        if not pendientes:
+            self.is_extraccion_activa = False
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text("No hay páginas pendientes por extraer."), bgcolor="orange")
+                self.page.snack_bar.open = True
+                self.page.update()
+            return
+
+        # 2. Calcular Tiempos
+        total_items = len(pendientes)
+        # Estimado: 5 seg proceso + 20 seg enfriamiento por página (salvo la última)
+        tiempo_estimado_segundos = (total_items * 25) - 20 
+
+        # 3. Interfaz de Progreso Inmersiva
+        lbl_estado_progreso = ft.Text(f"Páginas en cola: {total_items}", weight="bold", size=16)
+        lbl_tiempo = ft.Text(f"Tiempo estimado total: ~{tiempo_estimado_segundos // 60} min {tiempo_estimado_segundos % 60} seg", color="grey")
+        lbl_enfriamiento = ft.Text("", size=12, color="orange", weight="bold")
+        barra_progreso = ft.ProgressBar(width=400, color="purple700", bgcolor="#eeeeee", value=0)
+
+        dlg_progreso = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Procesamiento Masivo IA", color="purple700"),
+            content=ft.Column([
+                lbl_estado_progreso,
+                lbl_tiempo,
+                barra_progreso,
+                lbl_enfriamiento,
+                ft.Text("Por favor NO cierres esta ventana ni la aplicación.", size=11, color="red")
+            ], tight=True, spacing=10)
+        )
+
+        if self.page:
+            self.page.overlay.append(dlg_progreso)
+            dlg_progreso.open = True
+            self.page.update()
+
+        exitos = 0
+        fallos = 0
+        import time
+
+        # 4. Bucle de Procesamiento
+        for idx, data in enumerate(pendientes):
+            try:
+                if self.page:
+                    lbl_estado_progreso.value = f"Extrayendo página {idx + 1} de {total_items}..."
+                    lbl_tiempo.value = f"Analizando estructura de {data.get('archivo', '')}..."
+                    barra_progreso.value = idx / total_items
+                    self.page.update()
+
+                # Resolución dinámica según el módulo
+                if hasattr(self.ai_parser, "parse_ventas_pdf_page") and "ventas" in str(self.__class__).lower():
+                    extracted = self.ai_parser.parse_ventas_pdf_page(data["archivo"], 0, data.get("tipo", "Remisión"))
+                else:
+                    extracted = self.ai_parser.parse_compras_pdf_page(data["archivo"], 0)
+
+                if extracted and isinstance(extracted, list) and len(extracted) > 0:
+                    data["estado"] = "Procesado con éxito"
+                    data["datos_extraidos"] = extracted
+                    exitos += 1
+                else:
+                    data["estado"] = "Falló"
+                    data["datos_extraidos"] = []
+                    fallos += 1
+
+                self._save_cargas()
+
+                if self.page:
+                    self._render_tabla_cargas()
+
+                # 5. Enfriamiento de seguridad API (No se aplica al último registro)
+                if idx < total_items - 1:
+                    for i in range(20, 0, -1):
+                        if self.page and dlg_progreso.open:
+                            lbl_enfriamiento.value = f"Pausa anti-saturación de API: {i}s..."
+                            self.page.update()
+                        time.sleep(1)
+                    if self.page:
+                        lbl_enfriamiento.value = ""
+
+            except Exception as ex:
+                data["estado"] = "Falló"
+                self._save_cargas()
+                fallos += 1
+
+        # 6. Finalización
+        self.is_extraccion_activa = False
+        if self.page:
+            dlg_progreso.open = False
+            self.page.snack_bar = ft.SnackBar(
+                ft.Text(f"Proceso masivo completado. Éxitos: {exitos}, Fallos: {fallos}"), 
+                bgcolor="green" if fallos == 0 else "orange"
+            )
+            self.page.snack_bar.open = True
+            barra_progreso.value = 1
+            self.page.update()
+            self._render_tabla_cargas()
 ````
 
 ## File: core/supabase_client.py
@@ -7884,6 +7930,873 @@ class SupabaseClient:
             if res.status_code == 200: return res.json()
             return {"exito": False, "error": res.text}
         except Exception as e: return {"exito": False, "error": str(e)}
+````
+
+## File: cargas_compras_locales.json
+````json
+{
+    "2026-08-17": {
+        "1": {
+            "id": 1,
+            "fecha": "2026-08-17",
+            "pagina": 1,
+            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
+            "archivo": "pdfs_locales\\compra_2026-08-17_pag_1.pdf",
+            "estado": "Procesado con éxito",
+            "datos_extraidos": [
+                {
+                    "fecha": "2026-08-03",
+                    "numero_entrada": "EA-9273",
+                    "numero_factura": "7957448",
+                    "proveedor": "AJOVER SAS塑造 Exact matches depend on exact header text, OCR has Factura No.7957448, let's check image closely: actually no number is on header, but OCR has it. Wait, rules say 'Si no hay, pon null'. Let's check image for EA-9273: 'Factura AJOVER SAS'. No number. So null."
+                }
+            ]
+        },
+        "2": {
+            "id": 2,
+            "fecha": "2026-08-17",
+            "pagina": 2,
+            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
+            "archivo": "pdfs_locales\\compra_2026-08-17_pag_2.pdf",
+            "estado": "Guardado",
+            "datos_extraidos": [
+                {
+                    "fecha": "2026-08-03",
+                    "numero_entrada": "EA-9279",
+                    "numero_factura": "260803",
+                    "productos": [
+                        {
+                            "cantidad": 10.0,
+                            "codigo_insumo": "1415",
+                            "costo_unitario": 6955.0,
+                            "iva": 13214.0
+                        },
+                        {
+                            "cantidad": 10.0,
+                            "codigo_insumo": "0156",
+                            "costo_unitario": 3803.0,
+                            "iva": 7225.0
+                        },
+                        {
+                            "cantidad": 10.0,
+                            "codigo_insumo": "0157",
+                            "costo_unitario": 4565.0,
+                            "iva": 8674.0
+                        }
+                    ],
+                    "proveedor": "Clientes Varios"
+                },
+                {
+                    "fecha": "2026-08-03",
+                    "numero_entrada": "EA-9280",
+                    "numero_factura": "22618",
+                    "productos": [
+                        {
+                            "cantidad": 40.0,
+                            "codigo_insumo": "1850",
+                            "costo_unitario": 5462.0,
+                            "iva": 41513.0
+                        },
+                        {
+                            "cantidad": 24.0,
+                            "codigo_insumo": "4223",
+                            "costo_unitario": 588.0,
+                            "iva": 2682.0
+                        },
+                        {
+                            "cantidad": 36.0,
+                            "codigo_insumo": "1843",
+                            "costo_unitario": 2773.0,
+                            "iva": 18968.0
+                        },
+                        {
+                            "cantidad": 150.0,
+                            "codigo_insumo": "0663",
+                            "costo_unitario": 4958.0,
+                            "iva": 141303.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "1115",
+                            "costo_unitario": 5798.0,
+                            "iva": 13220.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "4206",
+                            "costo_unitario": 5420.0,
+                            "iva": 12358.0
+                        },
+                        {
+                            "cantidad": 100.0,
+                            "codigo_insumo": "1517",
+                            "costo_unitario": 13866.0,
+                            "iva": 263445.0
+                        }
+                    ],
+                    "proveedor": "MEGA DISTRIBUCIONES AMERICA SAS"
+                },
+                {
+                    "fecha": "2026-08-04",
+                    "numero_entrada": "EA-9281",
+                    "numero_factura": "41142",
+                    "productos": [
+                        {
+                            "cantidad": 400.0,
+                            "codigo_insumo": "4815",
+                            "costo_unitario": 485.0,
+                            "iva": 36860.0
+                        }
+                    ],
+                    "proveedor": "Clientes Varios"
+                },
+                {
+                    "fecha": "2026-08-04",
+                    "numero_entrada": "EA-9282",
+                    "numero_factura": "90042",
+                    "productos": [
+                        {
+                            "cantidad": 300.0,
+                            "codigo_insumo": "2256",
+                            "costo_unitario": 787.0,
+                            "iva": 44882.0
+                        }
+                    ],
+                    "proveedor": "DISDECOL SAS"
+                },
+                {
+                    "fecha": "2026-08-04",
+                    "numero_entrada": "EA-9283",
+                    "numero_factura": "25260",
+                    "productos": [
+                        {
+                            "cantidad": 3.0,
+                            "codigo_insumo": "1230",
+                            "costo_unitario": 27731.0,
+                            "iva": 15807.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "0462",
+                            "costo_unitario": 15408.0,
+                            "iva": 35130.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "0457",
+                            "costo_unitario": 6060.0,
+                            "iva": 13817.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "0458",
+                            "costo_unitario": 7579.0,
+                            "iva": 17280.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "0459",
+                            "costo_unitario": 11026.0,
+                            "iva": 25139.0
+                        }
+                    ],
+                    "proveedor": "FOAMTECK SAS"
+                },
+                {
+                    "fecha": "2026-08-05",
+                    "numero_entrada": "EA-9284",
+                    "numero_factura": "68829",
+                    "productos": [
+                        {
+                            "cantidad": 90.0,
+                            "codigo_insumo": "0024",
+                            "costo_unitario": 6133.0,
+                            "iva": 104870.0
+                        }
+                    ],
+                    "proveedor": "ARIAS Y CIA SAS"
+                },
+                {
+                    "fecha": "2026-08-05",
+                    "numero_entrada": "EA-9285",
+                    "numero_factura": "90196",
+                    "productos": [
+                        {
+                            "cantidad": 25.0,
+                            "codigo_insumo": "0817",
+                            "costo_unitario": 2857.0,
+                            "iva": 13571.0
+                        },
+                        {
+                            "cantidad": 20.0,
+                            "codigo_insumo": "2258",
+                            "costo_unitario": 3315.0,
+                            "iva": 12597.0
+                        }
+                    ],
+                    "proveedor": "DISDECOL SAS"
+                },
+                {
+                    "fecha": "2026-08-05",
+                    "numero_entrada": "EA-9286",
+                    "numero_factura": "15400",
+                    "productos": [],
+                    "proveedor": "BONNIPLAST SAS"
+                }
+            ]
+        },
+        "3": {
+            "id": 3,
+            "fecha": "2026-08-17",
+            "pagina": 3,
+            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
+            "archivo": "pdfs_locales\\compra_2026-08-17_pag_3.pdf",
+            "estado": "Procesado con éxito",
+            "datos_extraidos": [
+                {
+                    "numero_entrada": "EA-9286",
+                    "numero_factura": "15400",
+                    "proveedor": "BONNIPLAST SAS塑造/BONNIPLAST SAS/BONNIPLAST SAS"
+                }
+            ]
+        }
+    }
+}
+````
+
+## File: cargas_locales.json
+````json
+{
+    "2026-08-17_Factura POS": {
+        "1": {
+            "id": 1,
+            "pagina": 1,
+            "tipo": "Factura POS",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Factura_POS_Pag_1.pdf",
+            "estado": "Guardado",
+            "datos_extraidos": [
+                {
+                    "numero_factura": "26396",
+                    "productos": [
+                        {
+                            "cantidad": 50,
+                            "codigo_item": "2151",
+                            "costo_total": 95000,
+                            "iva": 0,
+                            "subtotal": 95000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26397",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0105",
+                            "costo_total": 400,
+                            "iva": 0,
+                            "subtotal": 400
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26398",
+                    "productos": [
+                        {
+                            "cantidad": 100,
+                            "codigo_item": "0573",
+                            "costo_total": 41500,
+                            "iva": 0,
+                            "subtotal": 41500
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0174",
+                            "costo_total": 2100,
+                            "iva": 0,
+                            "subtotal": 2100
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26399",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0615",
+                            "costo_total": 14600,
+                            "iva": 0,
+                            "subtotal": 14600
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26400",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "2333",
+                            "costo_total": 3500,
+                            "iva": 0,
+                            "subtotal": 3500
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26401",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0022",
+                            "costo_total": 2200,
+                            "iva": 0,
+                            "subtotal": 2200
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26402",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "2036",
+                            "costo_total": 4000,
+                            "iva": 0,
+                            "subtotal": 4000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26403",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0726",
+                            "costo_total": 12500,
+                            "iva": 0,
+                            "subtotal": 12500
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26404",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0483",
+                            "costo_total": 21900,
+                            "iva": 0,
+                            "subtotal": 21900
+                        },
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0108",
+                            "costo_total": 17000,
+                            "iva": 0,
+                            "subtotal": 17000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26405",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0165",
+                            "costo_total": 7800,
+                            "iva": 0,
+                            "subtotal": 7800
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26406",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1591",
+                            "costo_total": 4600,
+                            "iva": 0,
+                            "subtotal": 4600
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0024",
+                            "costo_total": 8850,
+                            "iva": 0,
+                            "subtotal": 8850
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0644",
+                            "costo_total": 7600,
+                            "iva": 0,
+                            "subtotal": 7600
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1664",
+                            "costo_total": 2600,
+                            "iva": 0,
+                            "subtotal": 2600
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0655",
+                            "costo_total": 11200,
+                            "iva": 0,
+                            "subtotal": 11200
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0178",
+                            "costo_total": 2800,
+                            "iva": 0,
+                            "subtotal": 2800
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1639",
+                            "costo_total": 5600,
+                            "iva": 0,
+                            "subtotal": 5600
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26407",
+                    "productos": [
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0573",
+                            "costo_total": 8800,
+                            "iva": 0,
+                            "subtotal": 8800
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26408",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1176",
+                            "costo_total": 15900,
+                            "iva": 0,
+                            "subtotal": 15900
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26409",
+                    "productos": [
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0355",
+                            "costo_total": 19600,
+                            "iva": 0,
+                            "subtotal": 19600
+                        }
+                    ]
+                }
+            ]
+        },
+        "2": {
+            "id": 2,
+            "pagina": 2,
+            "tipo": "Factura POS",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Factura_POS_Pag_2.pdf",
+            "estado": "Procesado con \u00e9xito",
+            "datos_extraidos": [
+                {
+                    "numero_factura": "26410",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0074",
+                            "costo_total": 8000,
+                            "iva": 0,
+                            "subtotal": 8000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26411",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1639",
+                            "costo_total": 6500,
+                            "iva": 0,
+                            "subtotal": 6500
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26412",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1079",
+                            "costo_total": 5600,
+                            "iva": 0,
+                            "subtotal": 5600
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26413",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0043",
+                            "costo_total": 5000,
+                            "iva": 0,
+                            "subtotal": 5000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26414",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1080",
+                            "costo_total": 21000,
+                            "iva": 0,
+                            "subtotal": 21000
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0234",
+                            "costo_total": 5950,
+                            "iva": 0,
+                            "subtotal": 5950
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26415",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0425",
+                            "costo_total": 4000,
+                            "iva": 0,
+                            "subtotal": 4000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26416",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1847",
+                            "costo_total": 5200,
+                            "iva": 0,
+                            "subtotal": 5200
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26417",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1478",
+                            "costo_total": 5600,
+                            "iva": 0,
+                            "subtotal": 5600
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1009",
+                            "costo_total": 2200,
+                            "iva": 0,
+                            "subtotal": 2200
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26418",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0663",
+                            "costo_total": 6000,
+                            "iva": 0,
+                            "subtotal": 6000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26419",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0347",
+                            "costo_total": 8500,
+                            "iva": 0,
+                            "subtotal": 8500
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26420",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1472",
+                            "costo_total": 1700,
+                            "iva": 0,
+                            "subtotal": 1700
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26421",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0416",
+                            "costo_total": 9600,
+                            "iva": 0,
+                            "subtotal": 9600
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26422",
+                    "productos": [
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "1281",
+                            "costo_total": 2400,
+                            "iva": 0,
+                            "subtotal": 2400
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1009",
+                            "costo_total": 2000,
+                            "iva": 0,
+                            "subtotal": 2000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26423",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1478",
+                            "costo_total": 2200,
+                            "iva": 0,
+                            "subtotal": 2200
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26424",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0425",
+                            "costo_total": 2000,
+                            "iva": 0,
+                            "subtotal": 2000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26425",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1478",
+                            "costo_total": 2500,
+                            "iva": 0,
+                            "subtotal": 2500
+                        }
+                    ]
+                }
+            ]
+        }
+    },
+    "2026-08-17_Remisi\u00f3n": {
+        "1": {
+            "id": 3,
+            "pagina": 1,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_1.pdf",
+            "estado": "Nuevo"
+        },
+        "2": {
+            "id": 4,
+            "pagina": 2,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_2.pdf",
+            "estado": "Nuevo"
+        },
+        "3": {
+            "id": 5,
+            "pagina": 3,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_3.pdf",
+            "estado": "Nuevo"
+        },
+        "4": {
+            "id": 6,
+            "pagina": 4,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_4.pdf",
+            "estado": "Nuevo"
+        },
+        "5": {
+            "id": 7,
+            "pagina": 5,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_5.pdf",
+            "estado": "Nuevo"
+        },
+        "6": {
+            "id": 8,
+            "pagina": 6,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_6.pdf",
+            "estado": "Nuevo"
+        },
+        "7": {
+            "id": 9,
+            "pagina": 7,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_7.pdf",
+            "estado": "Nuevo"
+        },
+        "8": {
+            "id": 10,
+            "pagina": 8,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_8.pdf",
+            "estado": "Nuevo"
+        },
+        "9": {
+            "id": 11,
+            "pagina": 9,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_9.pdf",
+            "estado": "Nuevo"
+        },
+        "10": {
+            "id": 12,
+            "pagina": 10,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_10.pdf",
+            "estado": "Nuevo"
+        },
+        "11": {
+            "id": 13,
+            "pagina": 11,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_11.pdf",
+            "estado": "Nuevo"
+        },
+        "12": {
+            "id": 14,
+            "pagina": 12,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_12.pdf",
+            "estado": "Nuevo"
+        },
+        "13": {
+            "id": 15,
+            "pagina": 13,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_13.pdf",
+            "estado": "Nuevo"
+        },
+        "14": {
+            "id": 16,
+            "pagina": 14,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_14.pdf",
+            "estado": "Nuevo"
+        },
+        "15": {
+            "id": 17,
+            "pagina": 15,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_15.pdf",
+            "estado": "Nuevo"
+        },
+        "16": {
+            "id": 18,
+            "pagina": 16,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_16.pdf",
+            "estado": "Nuevo"
+        },
+        "17": {
+            "id": 19,
+            "pagina": 17,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_17.pdf",
+            "estado": "Nuevo"
+        },
+        "18": {
+            "id": 20,
+            "pagina": 18,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_18.pdf",
+            "estado": "Nuevo"
+        },
+        "19": {
+            "id": 21,
+            "pagina": 19,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_19.pdf",
+            "estado": "Nuevo"
+        },
+        "20": {
+            "id": 22,
+            "pagina": 20,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_20.pdf",
+            "estado": "Nuevo"
+        },
+        "21": {
+            "id": 23,
+            "pagina": 21,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_21.pdf",
+            "estado": "Nuevo"
+        }
+    }
+}
 ````
 
 ## File: ui/views/cierre_inventario.py

@@ -457,5 +457,175 @@
                 }
             ]
         }
+    },
+    "2026-08-17_Remisi\u00f3n": {
+        "1": {
+            "id": 3,
+            "pagina": 1,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_1.pdf",
+            "estado": "Nuevo"
+        },
+        "2": {
+            "id": 4,
+            "pagina": 2,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_2.pdf",
+            "estado": "Nuevo"
+        },
+        "3": {
+            "id": 5,
+            "pagina": 3,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_3.pdf",
+            "estado": "Nuevo"
+        },
+        "4": {
+            "id": 6,
+            "pagina": 4,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_4.pdf",
+            "estado": "Nuevo"
+        },
+        "5": {
+            "id": 7,
+            "pagina": 5,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_5.pdf",
+            "estado": "Nuevo"
+        },
+        "6": {
+            "id": 8,
+            "pagina": 6,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_6.pdf",
+            "estado": "Nuevo"
+        },
+        "7": {
+            "id": 9,
+            "pagina": 7,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_7.pdf",
+            "estado": "Nuevo"
+        },
+        "8": {
+            "id": 10,
+            "pagina": 8,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_8.pdf",
+            "estado": "Nuevo"
+        },
+        "9": {
+            "id": 11,
+            "pagina": 9,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_9.pdf",
+            "estado": "Nuevo"
+        },
+        "10": {
+            "id": 12,
+            "pagina": 10,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_10.pdf",
+            "estado": "Nuevo"
+        },
+        "11": {
+            "id": 13,
+            "pagina": 11,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_11.pdf",
+            "estado": "Nuevo"
+        },
+        "12": {
+            "id": 14,
+            "pagina": 12,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_12.pdf",
+            "estado": "Nuevo"
+        },
+        "13": {
+            "id": 15,
+            "pagina": 13,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_13.pdf",
+            "estado": "Nuevo"
+        },
+        "14": {
+            "id": 16,
+            "pagina": 14,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_14.pdf",
+            "estado": "Nuevo"
+        },
+        "15": {
+            "id": 17,
+            "pagina": 15,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_15.pdf",
+            "estado": "Nuevo"
+        },
+        "16": {
+            "id": 18,
+            "pagina": 16,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_16.pdf",
+            "estado": "Nuevo"
+        },
+        "17": {
+            "id": 19,
+            "pagina": 17,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_17.pdf",
+            "estado": "Nuevo"
+        },
+        "18": {
+            "id": 20,
+            "pagina": 18,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_18.pdf",
+            "estado": "Nuevo"
+        },
+        "19": {
+            "id": 21,
+            "pagina": 19,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_19.pdf",
+            "estado": "Nuevo"
+        },
+        "20": {
+            "id": 22,
+            "pagina": 20,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_20.pdf",
+            "estado": "Nuevo"
+        },
+        "21": {
+            "id": 23,
+            "pagina": 21,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_21.pdf",
+            "estado": "Nuevo"
+        }
     }
 }

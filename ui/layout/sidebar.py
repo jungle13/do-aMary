@@ -57,6 +57,7 @@ class Sidebar(ft.Container):
                 self._create_menu_item("Ventas", ft.icons.POINT_OF_SALE, "ventas"),
                 self._create_menu_item("Ajustes de Inventario", ft.icons.TUNE, "ajustes_inventario"),
                 self._create_menu_item("Cierre de Mes", ft.icons.FACT_CHECK, "cierre_mes"),
+                self._create_menu_item("Informes", ft.icons.PIE_CHART, "informes"),
                 
                 ft.Container(expand=True), # Spacer
                 

@@ -154,7 +154,7 @@ class SupabaseClient:
             return False
 
     def get_compras(self, page=1, page_size=20, search="", fecha_corte=None):
-        url = f"{self.url}/registro_compras?select=*,catalogo_insumos(nombre)"
+        url = f"{self.url}/registro_compras?select=*,catalogo_insumos(nombre,categoria)"
         
         filtros = []
         if search:
@@ -309,7 +309,7 @@ class SupabaseClient:
         Obtiene el historial de ventas con paginación y búsqueda.
         Cruza con catalogo_insumos para obtener el nombre real del producto.
         """
-        url = f"{self.url}/registro_ventas?select=*,catalogo_insumos(nombre)"
+        url = f"{self.url}/registro_ventas?select=*,catalogo_insumos(nombre,categoria)"
         
         filtros = []
         if search:
@@ -789,7 +789,7 @@ class SupabaseClient:
 
     def get_ajustes_inventario(self) -> list:
         """Obtiene el historial de ajustes cruzado con el catálogo para extraer el nombre."""
-        url = f"{self.url}/registro_ajustes_inventario?select=*,catalogo_insumos(nombre)&order=fecha_ajuste.desc"
+        url = f"{self.url}/registro_ajustes_inventario?select=*,catalogo_insumos(nombre,categoria)&order=fecha_ajuste.desc"
         try:
             res = self.session.get(url, headers=self.headers, timeout=10)
             if res.status_code == 200:

@@ -7,6 +7,8 @@ from ui.views.compras import ComprasView
 from ui.views.ventas import VentasView
 from ui.views.cierre_inventario import CierreInventarioView
 from ui.views.ajustes_inventario import AjustesInventarioView
+from ui.views.informes import InformesView
+
 class AppLayout(ft.Row):
     def __init__(self, page: ft.Page):
         super().__init__()
@@ -22,6 +24,7 @@ class AppLayout(ft.Row):
             "ventas": VentasView(),
             "ajustes_inventario": AjustesInventarioView(),
             "cierre_mes": CierreInventarioView(),
+            "informes": InformesView(),
         }
         
         # Contenedor principal de la vista activa
