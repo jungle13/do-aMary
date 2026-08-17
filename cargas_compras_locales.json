@@ -215,7 +215,14 @@
             "pagina": 3,
             "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
             "archivo": "pdfs_locales\\compra_2026-08-17_pag_3.pdf",
-            "estado": "Nuevo"
+            "estado": "Procesado con éxito",
+            "datos_extraidos": [
+                {
+                    "numero_entrada": "EA-9286",
+                    "numero_factura": "15400",
+                    "proveedor": "BONNIPLAST SAS塑造/BONNIPLAST SAS/BONNIPLAST SAS"
+                }
+            ]
         }
     }
 }

@@ -227,11 +227,22 @@ class ComprasView(ft.Container):
         )
         
         # 2. Contenido Tab 2: Gestión de Cargas
+        self.btn_extraer_todo = ft.ElevatedButton(
+            text="Extraer Todo",
+            icon=ft.icons.AUTO_MODE,
+            bgcolor="purple700",
+            color="white",
+            height=40,
+            on_click=self.on_extraer_todo_masivo,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+        
         row_filtros_tab_cargas = ft.Row([
             self.btn_filtro_fecha_cargas,
             self.btn_clear_filtro_cargas,
             self.drop_filtro_estado_cargas,
             ft.Container(expand=True),
+            self.btn_extraer_todo,
             ft.ElevatedButton(
                 text="Subir PDF de Compras", icon=ft.icons.CLOUD_UPLOAD, bgcolor=Config.COLOR_SECONDARY, color="white", height=40,
                 on_click=self.on_agregar_click, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
@@ -1046,3 +1057,120 @@ class ComprasView(ft.Container):
         if self.current_page < self.total_pages:
             self.current_page += 1
             self.load_data()
+
+    def on_extraer_todo_masivo(self, e):
+        if getattr(self, "is_extraccion_activa", False):
+            self.page.snack_bar = ft.SnackBar(ft.Text("Ya hay una extracción en curso."), bgcolor="orange")
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+
+        import threading
+        threading.Thread(target=self._worker_extraccion_masiva, daemon=True).start()
+
+    def _worker_extraccion_masiva(self):
+        self.is_extraccion_activa = True
+
+        # 1. Recopilar pendientes
+        pendientes = []
+        for grupo_key, paginas in self.cargas_data.items():
+            for num_pag, data in paginas.items():
+                if data.get("estado") in ["Nuevo", "Falló", "Sobreescrito"]:
+                    pendientes.append(data)
+
+        if not pendientes:
+            self.is_extraccion_activa = False
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text("No hay páginas pendientes por extraer."), bgcolor="orange")
+                self.page.snack_bar.open = True
+                self.page.update()
+            return
+
+        # 2. Calcular Tiempos
+        total_items = len(pendientes)
+        # Estimado: 5 seg proceso + 20 seg enfriamiento por página (salvo la última)
+        tiempo_estimado_segundos = (total_items * 25) - 20 
+
+        # 3. Interfaz de Progreso Inmersiva
+        lbl_estado_progreso = ft.Text(f"Páginas en cola: {total_items}", weight="bold", size=16)
+        lbl_tiempo = ft.Text(f"Tiempo estimado total: ~{tiempo_estimado_segundos // 60} min {tiempo_estimado_segundos % 60} seg", color="grey")
+        lbl_enfriamiento = ft.Text("", size=12, color="orange", weight="bold")
+        barra_progreso = ft.ProgressBar(width=400, color="purple700", bgcolor="#eeeeee", value=0)
+
+        dlg_progreso = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Procesamiento Masivo IA", color="purple700"),
+            content=ft.Column([
+                lbl_estado_progreso,
+                lbl_tiempo,
+                barra_progreso,
+                lbl_enfriamiento,
+                ft.Text("Por favor NO cierres esta ventana ni la aplicación.", size=11, color="red")
+            ], tight=True, spacing=10)
+        )
+
+        if self.page:
+            self.page.overlay.append(dlg_progreso)
+            dlg_progreso.open = True
+            self.page.update()
+
+        exitos = 0
+        fallos = 0
+        import time
+
+        # 4. Bucle de Procesamiento
+        for idx, data in enumerate(pendientes):
+            try:
+                if self.page:
+                    lbl_estado_progreso.value = f"Extrayendo página {idx + 1} de {total_items}..."
+                    lbl_tiempo.value = f"Analizando estructura de {data.get('archivo', '')}..."
+                    barra_progreso.value = idx / total_items
+                    self.page.update()
+
+                # Resolución dinámica según el módulo
+                if hasattr(self.ai_parser, "parse_ventas_pdf_page") and "ventas" in str(self.__class__).lower():
+                    extracted = self.ai_parser.parse_ventas_pdf_page(data["archivo"], 0, data.get("tipo", "Remisión"))
+                else:
+                    extracted = self.ai_parser.parse_compras_pdf_page(data["archivo"], 0)
+
+                if extracted and isinstance(extracted, list) and len(extracted) > 0:
+                    data["estado"] = "Procesado con éxito"
+                    data["datos_extraidos"] = extracted
+                    exitos += 1
+                else:
+                    data["estado"] = "Falló"
+                    data["datos_extraidos"] = []
+                    fallos += 1
+
+                self._save_cargas()
+
+                if self.page:
+                    self._render_tabla_cargas()
+
+                # 5. Enfriamiento de seguridad API (No se aplica al último registro)
+                if idx < total_items - 1:
+                    for i in range(20, 0, -1):
+                        if self.page and dlg_progreso.open:
+                            lbl_enfriamiento.value = f"Pausa anti-saturación de API: {i}s..."
+                            self.page.update()
+                        time.sleep(1)
+                    if self.page:
+                        lbl_enfriamiento.value = ""
+
+            except Exception as ex:
+                data["estado"] = "Falló"
+                self._save_cargas()
+                fallos += 1
+
+        # 6. Finalización
+        self.is_extraccion_activa = False
+        if self.page:
+            dlg_progreso.open = False
+            self.page.snack_bar = ft.SnackBar(
+                ft.Text(f"Proceso masivo completado. Éxitos: {exitos}, Fallos: {fallos}"), 
+                bgcolor="green" if fallos == 0 else "orange"
+            )
+            self.page.snack_bar.open = True
+            barra_progreso.value = 1
+            self.page.update()
+            self._render_tabla_cargas()
