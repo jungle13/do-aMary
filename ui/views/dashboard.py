@@ -10,40 +10,66 @@ class DashboardView(ft.Container):
         self.expand = True
         self.db = SupabaseClient()
         
+        self.lbl_periodo_dash = ft.Text("Periodo: ...", size=13, weight="bold", color=Config.COLOR_PRIMARY)
+        self.lbl_estado_dash = ft.Text("Estado: ...", size=13, weight="bold")
+        self.lbl_fecha_hora = ft.Text("...", size=12, color="grey")
+
+        badge_info = ft.Container(
+            content=ft.Column([
+                ft.Row([self.lbl_periodo_dash, ft.Text("|", color="grey", size=13), self.lbl_estado_dash], spacing=5),
+                ft.Row([ft.Icon(ft.icons.ACCESS_TIME, size=14, color="grey"), self.lbl_fecha_hora], spacing=5)
+            ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=2),
+            padding=ft.padding.symmetric(horizontal=15, vertical=10),
+            bgcolor="white",
+            border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+        )
+
         header_row = ft.Row([
             ft.Column([
                 ft.Text("Dashboard General", size=28, weight="bold", color=Config.COLOR_PRIMARY),
                 ft.Text("Resumen ejecutivo del sistema", size=14, color="grey"),
-            ], spacing=2)
-        ], alignment=ft.MainAxisAlignment.START)
+            ], spacing=2),
+            badge_info
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
         
         # Tarjetas de KPIs (Valores Iniciales) - SECCIÓN COSTOS
         self.val_inventario = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
         self.val_compras = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_rotacion = ft.Text("N/D", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_rotacion = ft.Text("N/D", size=14, weight="bold", color=Config.COLOR_PRIMARY)
         self.val_compras_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        
-        self.kpi_costos_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("Costo Inventario Actual", self.val_inventario, ft.icons.INVENTORY_2), col={"xs": 12, "sm": 6, "md": 3}),
-            ft.Container(content=self._build_kpi_card("Total Compras (Mes)", self.val_compras, ft.icons.SHOPPING_BAG), col={"xs": 12, "sm": 6, "md": 3}),
-            ft.Container(content=self._build_kpi_card("Rotación Inventario", self.val_rotacion, ft.icons.SYNC), col={"xs": 12, "sm": 6, "md": 3}),
-            ft.Container(content=self._build_kpi_card("Costos de Compras (Hoy)", self.val_compras_hoy, ft.icons.MONEY_OFF), col={"xs": 12, "sm": 6, "md": 3}),
-        ], spacing=15, run_spacing=15)
         
         # SECCIÓN VENTAS
         self.val_ingresos = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
         self.val_ventas_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_rentabilidad = ft.Text("0.0%", size=24, weight="bold", color="#2ecca0")
-        self.val_proyeccion_ventas = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_proyeccion_rentabilidad = ft.Text("0.0%", size=24, weight="bold", color="#2ecca0")
+        self.val_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
+        self.val_proyeccion_ventas = ft.Text("$ 0", size=14, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_proyeccion_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
         
+        self.kpi_costos_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("Costo Inv. Actual", self.val_inventario, ft.icons.INVENTORY_2), col={"xs": 12, "sm": 6, "md": 4}),
+            ft.Container(content=self._build_kpi_card("Total Compras (Mes)", self.val_compras, ft.icons.SHOPPING_BAG), col={"xs": 12, "sm": 6, "md": 4}),
+            ft.Container(content=self._build_kpi_card("Compras (Hoy)", self.val_compras_hoy, ft.icons.MONEY_OFF), col={"xs": 12, "sm": 6, "md": 4}),
+        ], spacing=10, run_spacing=10)
+
         self.kpi_ventas_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("Total Ventas (Mes)", self.val_ingresos, ft.icons.TRENDING_UP), col={"xs": 12, "sm": 6, "md": 2.4}),
-            ft.Container(content=self._build_kpi_card("Total Ventas (Hoy)", self.val_ventas_hoy, ft.icons.ATTACH_MONEY), col={"xs": 12, "sm": 6, "md": 2.4}),
-            ft.Container(content=self._build_kpi_card("Rentabilidad Bruta", self.val_rentabilidad, ft.icons.PIE_CHART_OUTLINE), col={"xs": 12, "sm": 6, "md": 2.4}),
-            ft.Container(content=self._build_kpi_card("Proyección de Ventas", self.val_proyeccion_ventas, ft.icons.SHOW_CHART), col={"xs": 12, "sm": 6, "md": 2.4}),
-            ft.Container(content=self._build_kpi_card("Proy. de Rentabilidad", self.val_proyeccion_rentabilidad, ft.icons.STAR_BORDER), col={"xs": 12, "sm": 6, "md": 2.4}),
-        ], spacing=15, run_spacing=15)
+            ft.Container(content=self._build_kpi_card("Total Ventas (Mes)", self.val_ingresos, ft.icons.TRENDING_UP), col={"xs": 12, "sm": 6, "md": 6}),
+            ft.Container(content=self._build_kpi_card("Ventas (Hoy)", self.val_ventas_hoy, ft.icons.ATTACH_MONEY), col={"xs": 12, "sm": 6, "md": 6}),
+        ], spacing=10, run_spacing=10)
+        
+        # Paso 3: Crear la Barra de Métricas Secundarias
+        self.kpi_secundarios = ft.Container(
+            content=ft.Row([
+                ft.Text("Métricas Secundarias:", weight="bold", color="grey", size=12),
+                ft.Text("Rotación:", size=12, color="grey"), self.val_rotacion,
+                ft.Text(" | Rentabilidad:", size=12, color="grey"), self.val_rentabilidad,
+                ft.Text(" | Proy. Ventas:", size=12, color="grey"), self.val_proyeccion_ventas,
+                ft.Text(" | Proy. Rentabilidad:", size=12, color="grey"), self.val_proyeccion_rentabilidad,
+            ], spacing=5, wrap=True),
+            padding=ft.padding.symmetric(horizontal=15, vertical=8),
+            bgcolor="#f8f9fa", border_radius=8, border=ft.border.all(1, "#e0e0e0")
+        )
 
         # SECCIÓN AJUSTES
         self.col_ajustes_salida = ft.Column(spacing=5)
@@ -63,10 +89,12 @@ class DashboardView(ft.Container):
                     ft.Divider(height=1),
                     self.col_ajustes_salida
                 ]),
-                bgcolor="#fff3f3",
+                bgcolor="white",
                 padding=15,
                 border_radius=8,
-                expand=True
+                expand=True,
+                border=ft.border.all(1, "#f0f0f0"),
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
             ),
             # Panel Entrada
             ft.Container(
@@ -75,21 +103,21 @@ class DashboardView(ft.Container):
                     ft.Divider(height=1),
                     self.col_ajustes_entrada
                 ]),
-                bgcolor="#f3fff4",
+                bgcolor="white",
                 padding=15,
                 border_radius=8,
-                expand=True
+                expand=True,
+                border=ft.border.all(1, "#f0f0f0"),
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
             )
         ], spacing=15)
 
-        self.seccion_costos = ft.Column([
-            ft.Text("Costos y Valorización", size=20, weight="bold", color=Config.COLOR_PRIMARY),
-            self.kpi_costos_row
-        ], spacing=10)
-
-        self.seccion_ventas = ft.Column([
-            ft.Text("Ingresos y Proyecciones", size=20, weight="bold", color=Config.COLOR_PRIMARY),
-            self.kpi_ventas_row
+        # Ensamblaje del Layout
+        self.seccion_kpis = ft.Column([
+            ft.Text("Resumen Financiero y Operativo", size=20, weight="bold", color=Config.COLOR_PRIMARY),
+            self.kpi_costos_row,
+            self.kpi_ventas_row,
+            self.kpi_secundarios
         ], spacing=10)
 
         self.seccion_ajustes = ft.Column([
@@ -225,9 +253,7 @@ class DashboardView(ft.Container):
             self.progress_bar, 
             header_row,
             ft.Divider(height=10, color="transparent"),
-            self.seccion_costos,
-            ft.Divider(height=10, color="transparent"),
-            self.seccion_ventas,
+            self.seccion_kpis,
             ft.Divider(height=10, color="transparent"),
             self.seccion_ajustes,
             ft.Divider(height=10, color="transparent"),
@@ -259,6 +285,24 @@ class DashboardView(ft.Container):
 
     def _fetch_data_worker(self):
         """Ejecuta todas las llamadas HTTP síncronas sin congelar la ventana."""
+        # Cargar contexto temporal
+        mes_actual = datetime.date.today().strftime("%Y-%m")
+        datos_cierre = self.db.obtener_estado_cierre(mes_actual)
+        estado_periodo = datos_cierre.get('periodo', {}).get('estado', 'ABIERTO') if datos_cierre and datos_cierre.get('periodo') else 'ABIERTO'
+
+        meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+        partes = mes_actual.split('-')
+        nombre_mes = f"{meses[int(partes[1]) - 1]} {partes[0]}"
+
+        self.lbl_periodo_dash.value = f"Periodo: {nombre_mes}"
+        self.lbl_estado_dash.value = f"Estado: {estado_periodo}"
+
+        colores_estado = {'ABIERTO': 'green', 'PRELIMINAR': 'orange', 'EN_AUDITORIA': 'blue', 'CERRADO': 'red'}
+        self.lbl_estado_dash.color = colores_estado.get(estado_periodo, 'black')
+
+        ahora = datetime.datetime.now()
+        self.lbl_fecha_hora.value = ahora.strftime("%d/%m/%Y - %I:%M %p")
+
         # 1. Load KPIs
         res_cat = self.db.get_catalogo_summary()
         res_ven = self.db.get_ventas_summary()

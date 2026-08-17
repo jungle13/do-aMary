@@ -13,6 +13,12 @@ import math
 class ComprasView(ft.Container):
     def __init__(self):
         super().__init__()
+        self.is_fullscreen = False
+        self.btn_fullscreen = ft.IconButton(
+            icon=ft.icons.FULLSCREEN,
+            tooltip="Expandir Tabla (Modo Enfoque)",
+            on_click=self.toggle_fullscreen
+        )
         self.expand = True
         
         self.db = SupabaseClient()
@@ -253,9 +259,10 @@ class ComprasView(ft.Container):
             expand=True
         )
 
+        self.lbl_titulo = ft.Text("Módulo de Compras", size=24, weight="bold", color=Config.COLOR_PRIMARY)
         self.content = ft.Column([
             self.progress_bar,
-            ft.Text("Módulo de Compras", size=24, weight="bold", color=Config.COLOR_PRIMARY),
+            self.lbl_titulo,
             self.summary_container,
             self.tabs
         ], expand=True, spacing=10)
@@ -446,6 +453,24 @@ class ComprasView(ft.Container):
         finally:
             self.is_extraccion_activa = False
             self._render_tabla_cargas()
+    def toggle_fullscreen(self, e):
+        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
+        visibilidad = not self.is_fullscreen
+
+        # Ocultar o mostrar elementos superiores si existen en la vista
+        if hasattr(self, "lbl_titulo"): self.lbl_titulo.visible = visibilidad
+        if hasattr(self, "summary_container"): self.summary_container.visible = visibilidad
+        if hasattr(self, "kpi_bar"): self.kpi_bar.visible = visibilidad
+
+        # Cambiar icono y tooltip
+        self.btn_fullscreen.icon = ft.icons.FULLSCREEN_EXIT if self.is_fullscreen else ft.icons.FULLSCREEN
+        self.btn_fullscreen.tooltip = "Contraer Vista" if self.is_fullscreen else "Expandir Tabla (Modo Enfoque)"
+
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        elif self.page:
+            self.page.update()
+
     def did_mount(self):
         # Agregar los overlays a la página principal
         if self.file_picker not in self.page.overlay:
@@ -673,7 +698,7 @@ class ComprasView(ft.Container):
                 "total_factura_ctl": total_factura_ctl,
                 "row_ctl": ft.Container(
                     content=ft.Row([
-                        ft.Text(f"EA: {ea} | Factura: {factura} | Fecha: {fecha}", weight="bold", color=Config.COLOR_PRIMARY),
+                        ft.Text(f"EA: {ea} | Factura: {factura} | Proveedor: {proveedor} | Fecha: {fecha}", weight="bold", color=Config.COLOR_PRIMARY),
                         ft.Container(expand=True),
                         total_factura_ctl
                     ]),

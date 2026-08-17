@@ -6,6 +6,12 @@ from core.supabase_client import SupabaseClient
 class AjustesInventarioView(ft.Container):
     def __init__(self):
         super().__init__()
+        self.is_fullscreen = False
+        self.btn_fullscreen = ft.IconButton(
+            icon=ft.icons.FULLSCREEN,
+            tooltip="Expandir Tabla (Modo Enfoque)",
+            on_click=self.toggle_fullscreen
+        )
         self.expand = True
         self.db = SupabaseClient()
         self.tipo_ajuste_actual = "ENTRADA"
@@ -145,29 +151,46 @@ class AjustesInventarioView(ft.Container):
             try:
                 nuevo_costo = float(self.form_costo.value.replace(',', '.') or 0)
                 valor_inv = nuevo_costo * getattr(self, 'current_stock_modal', 0)
-                self.lbl_valor_inv_modal.value = f"Valor del Inventario Actual con este costo: ${valor_inv:,.0f}"
+                self.lbl_valor_inv_modal.value = f"Valor del Inv: ${valor_inv:,.0f}"
             except ValueError:
-                self.lbl_valor_inv_modal.value = "Valor del Inventario Actual con este costo: $0"
+                self.lbl_valor_inv_modal.value = "Valor del Inv: $0"
             self.safe_update()
 
-        self.form_tipo_ajuste = ft.Dropdown(label="Tipo de Movimiento", options=[ft.dropdown.Option("ENTRADA"), ft.dropdown.Option("SALIDA")], dense=True, expand=True, content_padding=10, border_radius=8, on_change=on_tipo_change)
-        
-        self.form_codigo = ft.TextField(label="Código Insumo", width=120, dense=True, content_padding=10, border_radius=8, on_blur=self.buscar_detalle_insumo)
-        self.form_nombre = ft.Text("Nombre del Insumo...", color="grey", italic=True)
-        self.form_motivo = ft.Dropdown(label="Motivo del Ajuste", dense=True, expand=True, content_padding=10, border_radius=8)
-        self.form_cant = ft.TextField(label="Cantidad", expand=True, dense=True, content_padding=10, border_radius=8)
-        self.form_costo = ft.TextField(label="Costo Unitario", expand=True, dense=True, content_padding=10, border_radius=8, on_change=on_costo_change)
-        self.lbl_valor_inv_modal = ft.Text("Valor del Inventario Actual con este costo: $0", size=11, color="grey")
-        self.form_obs = ft.TextField(label="Observación (Opcional)", expand=True, dense=True, multiline=True, min_lines=2, content_padding=10, border_radius=8)
-        
+        self.form_tipo_ajuste = ft.Dropdown(label="Tipo de Movimiento", options=[ft.dropdown.Option("ENTRADA"), ft.dropdown.Option("SALIDA")], dense=True, expand=True, border_radius=8, on_change=on_tipo_change)
+
+        self.form_codigo = ft.TextField(label="Código Insumo", width=120, dense=True, border_radius=8, on_blur=self.buscar_detalle_insumo)
+        self.form_nombre = ft.Text("Nombre del Insumo...", color="grey", italic=True, size=13)
+        self.lbl_stock_actual = ft.Text("Stock Sist: 0", weight="bold", color=Config.COLOR_PRIMARY, size=12)
+
+        self.form_motivo = ft.Dropdown(label="Motivo del Ajuste", dense=True, expand=True, border_radius=8)
+        self.form_cant = ft.TextField(label="Cantidad", expand=True, dense=True, border_radius=8)
+
+        # Eliminamos el expand=True para evitar el desbordamiento vertical en la columna
+        self.form_costo = ft.TextField(label="Costo Unitario ($)", dense=True, border_radius=8, on_change=on_costo_change)
+        self.lbl_valor_inv_modal = ft.Text("Valor del Inv: $0", size=11, color="grey")
+
+        self.form_obs = ft.TextField(label="Observación (Opcional)", expand=True, dense=True, multiline=True, min_lines=2, border_radius=8)
+
         return ft.AlertDialog(
-            title=ft.Text("Registrar Ajuste"),
+            title=ft.Text("Registrar Ajuste de Inventario"),
             content=ft.Container(
                 width=500,
                 content=ft.Column([
-                    ft.Row([self.form_codigo, ft.Container(content=self.form_nombre, expand=True, padding=10, bgcolor="#f5f5f5", border_radius=8)]),
+                    ft.Row([
+                        self.form_codigo, 
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Icon(ft.icons.INVENTORY_2, size=16, color="grey"),
+                                ft.Column([self.form_nombre, self.lbl_stock_actual], spacing=0, expand=True)
+                            ]), 
+                            expand=True, padding=10, bgcolor="#f5f5f5", border_radius=8
+                        )
+                    ]),
                     ft.Row([self.form_tipo_ajuste, self.form_motivo]),
-                    ft.Row([self.form_cant, ft.Column([self.form_costo, self.lbl_valor_inv_modal], expand=True, spacing=2)]),
+                    ft.Row([
+                        self.form_cant, 
+                        ft.Column([self.form_costo, self.lbl_valor_inv_modal], expand=True, spacing=2)
+                    ]),
                     ft.Row([self.form_obs])
                 ], tight=True, spacing=15)
             ),
@@ -186,6 +209,24 @@ class AjustesInventarioView(ft.Container):
         except Exception:
             pass
 
+    def toggle_fullscreen(self, e):
+        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
+        visibilidad = not self.is_fullscreen
+
+        # Ocultar o mostrar elementos superiores si existen en la vista
+        if hasattr(self, "lbl_titulo"): self.lbl_titulo.visible = visibilidad
+        if hasattr(self, "summary_container"): self.summary_container.visible = visibilidad
+        if hasattr(self, "kpi_bar"): self.kpi_bar.visible = visibilidad
+
+        # Cambiar icono y tooltip
+        self.btn_fullscreen.icon = ft.icons.FULLSCREEN_EXIT if self.is_fullscreen else ft.icons.FULLSCREEN
+        self.btn_fullscreen.tooltip = "Contraer Vista" if self.is_fullscreen else "Expandir Tabla (Modo Enfoque)"
+
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        elif self.page:
+            self.page.update()
+
     def did_mount(self):
         if self.modal_ajuste not in self.page.overlay:
             self.page.overlay.append(self.modal_ajuste)
@@ -201,7 +242,8 @@ class AjustesInventarioView(ft.Container):
             self.form_nombre.value = detalle.get("nombre", "")
             self.form_nombre.color = "black"
             self.current_stock_modal = float(detalle.get('stock_actual') or 0)
-            
+            self.lbl_stock_actual.value = f"Stock Sist: {self.current_stock_modal:g} unds"
+
             tipo = self.form_tipo_ajuste.value
             nuevo_costo = 0
             if tipo == "ENTRADA":
@@ -213,14 +255,15 @@ class AjustesInventarioView(ft.Container):
             else:
                 nuevo_costo = float(detalle.get("costo_unitario") or 0)
                 self.form_costo.value = str(nuevo_costo)
-                
+
             valor_inv = nuevo_costo * self.current_stock_modal
-            self.lbl_valor_inv_modal.value = f"Valor del Inventario Actual con este costo: ${valor_inv:,.0f}"
+            self.lbl_valor_inv_modal.value = f"Valor del Inv: ${valor_inv:,.0f}"
         else:
             self.form_nombre.value = "Insumo no encontrado."
             self.form_nombre.color = "red"
             self.current_stock_modal = 0
-            self.lbl_valor_inv_modal.value = "Valor del Inventario Actual con este costo: $0"
+            self.lbl_stock_actual.value = "Stock Sist: 0"
+            self.lbl_valor_inv_modal.value = "Valor del Inv: $0"
         self.safe_update()
 
     def abrir_modal_ajuste(self):

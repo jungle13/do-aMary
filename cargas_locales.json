@@ -1,0 +1,246 @@
+{
+    "2026-08-17_Factura POS": {
+        "1": {
+            "id": 1,
+            "pagina": 1,
+            "tipo": "Factura POS",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Factura_POS_Pag_1.pdf",
+            "estado": "Guardado",
+            "datos_extraidos": [
+                {
+                    "numero_factura": "26396",
+                    "productos": [
+                        {
+                            "cantidad": 50,
+                            "codigo_item": "2151",
+                            "costo_total": 95000,
+                            "iva": 0,
+                            "subtotal": 95000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26397",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0105",
+                            "costo_total": 400,
+                            "iva": 0,
+                            "subtotal": 400
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26398",
+                    "productos": [
+                        {
+                            "cantidad": 100,
+                            "codigo_item": "0573",
+                            "costo_total": 41500,
+                            "iva": 0,
+                            "subtotal": 41500
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0174",
+                            "costo_total": 2100,
+                            "iva": 0,
+                            "subtotal": 2100
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26399",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0615",
+                            "costo_total": 14600,
+                            "iva": 0,
+                            "subtotal": 14600
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26400",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "2333",
+                            "costo_total": 3500,
+                            "iva": 0,
+                            "subtotal": 3500
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26401",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0022",
+                            "costo_total": 2200,
+                            "iva": 0,
+                            "subtotal": 2200
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26402",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "2036",
+                            "costo_total": 4000,
+                            "iva": 0,
+                            "subtotal": 4000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26403",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0726",
+                            "costo_total": 12500,
+                            "iva": 0,
+                            "subtotal": 12500
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26404",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0483",
+                            "costo_total": 21900,
+                            "iva": 0,
+                            "subtotal": 21900
+                        },
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0108",
+                            "costo_total": 17000,
+                            "iva": 0,
+                            "subtotal": 17000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26405",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0165",
+                            "costo_total": 7800,
+                            "iva": 0,
+                            "subtotal": 7800
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26406",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1591",
+                            "costo_total": 4600,
+                            "iva": 0,
+                            "subtotal": 4600
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0024",
+                            "costo_total": 8850,
+                            "iva": 0,
+                            "subtotal": 8850
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0644",
+                            "costo_total": 7600,
+                            "iva": 0,
+                            "subtotal": 7600
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1664",
+                            "costo_total": 2600,
+                            "iva": 0,
+                            "subtotal": 2600
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0655",
+                            "costo_total": 11200,
+                            "iva": 0,
+                            "subtotal": 11200
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0178",
+                            "costo_total": 2800,
+                            "iva": 0,
+                            "subtotal": 2800
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1639",
+                            "costo_total": 5600,
+                            "iva": 0,
+                            "subtotal": 5600
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26407",
+                    "productos": [
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0573",
+                            "costo_total": 8800,
+                            "iva": 0,
+                            "subtotal": 8800
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26408",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1176",
+                            "costo_total": 15900,
+                            "iva": 0,
+                            "subtotal": 15900
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26409",
+                    "productos": [
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0355",
+                            "costo_total": 19600,
+                            "iva": 0,
+                            "subtotal": 19600
+                        }
+                    ]
+                }
+            ]
+        },
+        "2": {
+            "id": 2,
+            "pagina": 2,
+            "tipo": "Factura POS",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Factura_POS_Pag_2.pdf",
+            "estado": "Nuevo"
+        }
+    }
+}

@@ -8,6 +8,12 @@ from datetime import datetime
 class InventarioView(ft.Container):
     def __init__(self):
         super().__init__()
+        self.is_fullscreen = False
+        self.btn_fullscreen = ft.IconButton(
+            icon=ft.icons.FULLSCREEN,
+            tooltip="Expandir Tabla (Modo Enfoque)",
+            on_click=self.toggle_fullscreen
+        )
         self.expand = True
         
         self.db = SupabaseClient()
@@ -167,10 +173,32 @@ class InventarioView(ft.Container):
         
         self.edit_stock_minimo = ft.TextField(width=120, **input_style)
         self.edit_costo = ft.TextField(width=120, **input_style)
+        self.edit_margen = ft.Dropdown(
+            width=100, 
+            options=[ft.dropdown.Option(f"{p}%") for p in [10, 15, 20, 25, 30, 35]],
+            **input_style
+        )
         self.edit_precio = ft.TextField(width=120, **input_style)
         
-        self.edit_categoria = ft.Dropdown(width=200, bgcolor="white", color="black", border_color=ft.colors.with_opacity(0.3, "white"), height=40, text_size=13)
+        self.edit_categoria = ft.Dropdown(
+            width=200, 
+            **input_style
+        )
         
+        def calcular_precio(e):
+            try:
+                costo = float(self.edit_costo.value.replace(',', '.') or 0)
+                if self.edit_margen.value:
+                    margen_str = self.edit_margen.value.replace('%', '')
+                    margen_dec = float(margen_str) / 100.0
+                    if margen_dec < 1 and costo > 0:
+                        # Fórmula financiera de margen sobre precio de venta
+                        precio_calculado = costo / (1 - margen_dec)
+                        self.edit_precio.value = f"{precio_calculado:.2f}"
+            except ValueError:
+                pass
+            verificar_cambios_panel(e)
+
         def verificar_cambios_panel(e):
             if not self.current_edit_context: return
             item = self.current_edit_context['item']
@@ -186,9 +214,10 @@ class InventarioView(ft.Container):
             self.btn_guardar_edicion.disabled = not cambiado
             self.action_bar.update()
 
-        self.edit_stock_minimo.on_change = verificar_cambios_panel
-        self.edit_costo.on_change = verificar_cambios_panel
+        self.edit_margen.on_change = calcular_precio
+        self.edit_costo.on_change = calcular_precio
         self.edit_precio.on_change = verificar_cambios_panel
+        self.edit_stock_minimo.on_change = verificar_cambios_panel
         self.edit_categoria.on_change = verificar_cambios_panel
         
         self.btn_guardar_edicion = ft.ElevatedButton(
@@ -220,6 +249,10 @@ class InventarioView(ft.Container):
                     ft.Column([
                         ft.Text("Costo Unit.", color="white70", size=11, weight="bold"),
                         self.edit_costo
+                    ], spacing=4),
+                    ft.Column([
+                        ft.Text("Ganancia", color="white70", size=11, weight="bold"),
+                        self.edit_margen
                     ], spacing=4),
                     ft.Column([
                         ft.Text("Precio Venta", color="white70", size=11, weight="bold"),
@@ -308,9 +341,10 @@ class InventarioView(ft.Container):
         
         self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
         
+        self.lbl_titulo = ft.Text("Catálogo de Insumos", size=24, weight="bold", color=Config.COLOR_PRIMARY)
         self.content = ft.Column([
             self.progress_bar,
-            ft.Text("Catálogo de Insumos", size=24, weight="bold", color=Config.COLOR_PRIMARY),
+            self.lbl_titulo,
             self.summary_container,
             
             # Toolbar de Filtros
@@ -330,7 +364,8 @@ class InventarioView(ft.Container):
                         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
                     ),
                     self.btn_toggle_view,
-                    self.btn_columns
+                    self.btn_columns,
+                    self.btn_fullscreen
                 ]),
                 bgcolor="white",
                 padding=10,
@@ -358,6 +393,24 @@ class InventarioView(ft.Container):
         
         # No llamamos a los métodos aquí porque el control no está en la página todavía
         
+    def toggle_fullscreen(self, e):
+        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
+        visibilidad = not self.is_fullscreen
+
+        # Ocultar o mostrar elementos superiores si existen en la vista
+        if hasattr(self, "lbl_titulo"): self.lbl_titulo.visible = visibilidad
+        if hasattr(self, "summary_container"): self.summary_container.visible = visibilidad
+        if hasattr(self, "kpi_bar"): self.kpi_bar.visible = visibilidad
+
+        # Cambiar icono y tooltip
+        self.btn_fullscreen.icon = ft.icons.FULLSCREEN_EXIT if self.is_fullscreen else ft.icons.FULLSCREEN
+        self.btn_fullscreen.tooltip = "Contraer Vista" if self.is_fullscreen else "Expandir Tabla (Modo Enfoque)"
+
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        elif self.page:
+            self.page.update()
+
     def did_mount(self):
         """Se ejecuta cuando la vista se agrega a la pantalla."""
         if self.date_picker not in self.page.overlay:
@@ -619,11 +672,22 @@ class InventarioView(ft.Container):
         self.edit_costo.value = str(float(item.get('costo_unitario') or 0))
         self.edit_precio.value = str(float(item.get('precio_venta') or 0))
         
-        opts = [ft.dropdown.Option(c) for c in self.db.get_categorias()] if hasattr(self.db, 'get_categorias') else []
+        # Recargar opciones frescas
+        categorias_bd = self.db.get_categorias() if hasattr(self.db, 'get_categorias') else []
+        opts = [ft.dropdown.Option(c) for c in categorias_bd if c]
         self.edit_categoria.options = opts
-        
-        cat_val = item.get('categoria', '')
-        self.edit_categoria.value = cat_val if any(o.key == cat_val or getattr(o, 'text', '') == cat_val for o in opts) else (opts[0].key if opts else "")
+
+        # Limpiar dropdowns
+        self.edit_margen.value = None
+
+        # Asignar categoría exacta
+        cat_val = str(item.get('categoria') or '').strip()
+        if any(o.key == cat_val for o in opts):
+            self.edit_categoria.value = cat_val
+        elif opts:
+            self.edit_categoria.value = opts[0].key
+        else:
+            self.edit_categoria.value = None
         
         self.btn_guardar_edicion.disabled = True
         self.action_bar.visible = True

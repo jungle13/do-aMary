@@ -167,7 +167,7 @@ class SupabaseClient:
             url += "&" + "&".join(filtros)
             
         offset = (page - 1) * page_size
-        url += f"&order=fecha.desc&offset={offset}&limit={page_size}"
+        url += f"&order=fecha.desc,numero_entrada.desc&offset={offset}&limit={page_size}"
         
         headers = self.headers.copy()
         headers["Prefer"] = "count=exact"
@@ -322,7 +322,7 @@ class SupabaseClient:
             url += "&" + "&".join(filtros)
             
         offset = (page - 1) * page_size
-        url += f"&order=fecha.desc&offset={offset}&limit={page_size}"
+        url += f"&order=fecha.desc,factura_no.desc&offset={offset}&limit={page_size}"
         
         headers = self.headers.copy()
         headers["Prefer"] = "count=exact"
@@ -777,15 +777,13 @@ class SupabaseClient:
         return {}
 
     def get_insumo_detalle(self, codigo: str) -> dict:
-        """Recupera el nombre y costo de un insumo específico para el autocompletado."""
-        url = f"{self.url}/catalogo_insumos?codigo_insumo=eq.{codigo}&select=nombre,costo_unitario"
+        """Recupera el nombre, costo, precio y stock de un insumo específico para el autocompletado."""
+        url = f"{self.url}/catalogo_insumos?codigo_insumo=eq.{codigo}&select=nombre,costo_unitario,precio_venta,stock_actual"
         try:
             res = self.session.get(url, headers=self.headers, timeout=10)
             if res.status_code == 200 and len(res.json()) > 0:
                 return res.json()[0]
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_insumo_detalle: el servidor no responde")
-        except Exception as e:
+        except Exception:
             pass
         return {}
 
