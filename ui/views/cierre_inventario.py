@@ -59,7 +59,7 @@ class CierreInventarioView(ft.Container):
 
         # Tabla de Auditoría
         self.data_table = ft.DataTable(
-            column_spacing=15,
+            column_spacing=20,
             data_row_min_height=50,
             data_row_max_height=50,
             heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
@@ -72,9 +72,9 @@ class CierreInventarioView(ft.Container):
                 ft.DataColumn(ft.Text('Inicial', weight='bold'), numeric=True),
                 ft.DataColumn(ft.Text('Entradas', weight='bold'), numeric=True),
                 ft.DataColumn(ft.Text('Salidas', weight='bold'), numeric=True),
-                ft.DataColumn(ft.Text('Ajustes', weight='bold'), numeric=True),
-                ft.DataColumn(ft.Text('Stock Actual', weight='bold'), numeric=True),
-                ft.DataColumn(ft.Text('Físico', weight='bold')),
+                ft.DataColumn(ft.Container(content=ft.Text('Ajustes', weight='bold'), width=60), numeric=True),
+                ft.DataColumn(ft.Container(content=ft.Text('Stock Actual', weight='bold'), width=80), numeric=True),
+                ft.DataColumn(ft.Container(content=ft.Text('Físico', weight='bold'), width=80)),
                 ft.DataColumn(ft.Text('Diferencia', weight='bold'), numeric=True),
                 ft.DataColumn(ft.Text('Costo Ajuste', weight='bold'), numeric=True),
                 ft.DataColumn(ft.Text('Observación', weight='bold')),
@@ -84,6 +84,8 @@ class CierreInventarioView(ft.Container):
             rows=[]
         )
 
+        self.table_wrapper = ft.Container(content=ft.Row([ft.Column([self.data_table], scroll=ft.ScrollMode.ALWAYS, expand=True)], scroll=ft.ScrollMode.ALWAYS, expand=True), expand=True)
+        self.card_list_view = ft.ListView(expand=True, spacing=10, visible=False)
         self.current_auditoria_id = None
         self.current_fisico = 0
         
@@ -132,17 +134,24 @@ class CierreInventarioView(ft.Container):
         self.lbl_neto_ajustes = ft.Text('$0.00', size=16, weight='bold')
         self.lbl_valor_fisico = ft.Text('$0.00', size=18, weight='bold', color=Config.COLOR_SECONDARY)
         
-        self.summary_container = ft.Row([
-            self._crear_kpi_card('Valor Sist.', self.lbl_valor_sistema, ft.icons.COMPUTER),
-            self._crear_kpi_card('Sobrantes (+)', self.lbl_ajustes_entrada, ft.icons.ADD_CIRCLE_OUTLINE, self.lbl_cant_entrada),
-            self._crear_kpi_card('Faltantes (-)', self.lbl_ajustes_salida, ft.icons.REMOVE_CIRCLE_OUTLINE, self.lbl_cant_salida),
-            self._crear_kpi_card('Neto Ajustes', self.lbl_neto_ajustes, ft.icons.ACCOUNT_BALANCE_WALLET),
-            self._crear_kpi_card('Valor Físico Proyectado', self.lbl_valor_fisico, ft.icons.FACT_CHECK)
-        ], spacing=10)
+        self.kpi_compacto = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Text("Valor del Sistema:", weight="bold", color="grey"), self.lbl_valor_sistema,
+                    ft.Text(" | Valor Físico Proyectado:", weight="bold", color="grey"), self.lbl_valor_fisico,
+                ]),
+                ft.Row([
+                    ft.Text("Sobrantes (+):", weight="bold", color="grey"), self.lbl_ajustes_entrada,
+                    ft.Text(" | Faltantes (-):", weight="bold", color="grey"), self.lbl_ajustes_salida,
+                    ft.Text(" | Neto Ajustes:", weight="bold", color="grey"), self.lbl_neto_ajustes,
+                ])
+            ], spacing=2),
+            bgcolor="#f8f9fa", padding=10, border_radius=8, border=ft.border.all(1, "#e0e0e0")
+        )
 
         # Controles vista_lista (Maestro)
         self.dt_periodos = ft.DataTable(
-            column_spacing=15,
+            column_spacing=20,
             heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
             border=ft.border.all(1, ft.colors.with_opacity(0.1, 'black')),
             border_radius=8,
@@ -164,30 +173,49 @@ class CierreInventarioView(ft.Container):
         ], visible=True, expand=True)
 
         # Controles vista_detalle (Detalle)
+        self.view_mode = "table"
+        self.btn_toggle_view = ft.IconButton(icon=ft.icons.GRID_VIEW, tooltip="Cambiar a Tarjetas", on_click=self.toggle_view)
+        
+        self.is_fullscreen = False
+        self.btn_fullscreen = ft.IconButton(
+            icon=ft.icons.FULLSCREEN,
+            tooltip="Expandir Tabla (Modo Enfoque)",
+            on_click=self.toggle_fullscreen
+        )
+        
+        self.filtro_container = ft.Container(
+            content=ft.Row([self.input_search, self.drop_categoria, self.drop_estado, self.btn_toggle_view, self.btn_fullscreen]),
+            bgcolor="white", padding=10, border_radius=8,
+            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black"))
+        )
         self.btn_volver = ft.IconButton(icon=ft.icons.ARROW_BACK, on_click=self.on_volver_lista)
         self.lbl_titulo_detalle = ft.Text('Auditoría: ...', size=24, weight='bold', color=Config.COLOR_PRIMARY)
         
-        self.row_pasos_cierre = ft.Row([
-            self._crear_tarjeta_paso(1, "Generar Preliminar", "Congela el inventario y calcula el stock actual del sistema para compararlo con el físico.", self.btn_iniciar_snapshot),
-            self._crear_tarjeta_paso(2, "Auditoría Física", "Revisa la tabla inferior. Ingresa ajustes (faltantes/sobrantes) o acepta el stock del sistema masivamente.", ft.Text("Se realiza en la tabla ↓", size=11, color="blue", weight="bold")),
-            self._crear_tarjeta_paso(3, "Cierre Definitivo", "Consolida los ajustes y finaliza el mes. Requiere que todos los insumos estén auditados.", self.btn_aprobar_cierre)
+        self.btn_aceptar_stock_masivo = ft.ElevatedButton("Aceptar Stock de Cierre", bgcolor="green", color="white", on_click=self.abrir_modal_masivo)
+        
+        self.row_pasos_cierre = ft.ResponsiveRow([
+            self._crear_tarjeta_paso(1, "Generar Preliminar", "Congela el stock actual para compararlo con el físico.", self.btn_iniciar_snapshot),
+            self._crear_tarjeta_paso(2, "Ajustar y Aceptar", "Ingresa ajustes o acepta el stock del sistema.", self.btn_aceptar_stock_masivo),
+            self._crear_tarjeta_paso(3, "Aprobar Cierre", "Consolida ajustes y finaliza el mes.", self.btn_aprobar_cierre)
         ], spacing=15)
         
+        self.row_filtros = self.filtro_container
+        
+        self.header_row = ft.Row([
+            self.btn_volver, 
+            self.lbl_titulo_detalle, 
+            ft.Container(expand=True), 
+            self.txt_estado_periodo, 
+            self.txt_progreso
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+
         self.vista_detalle = ft.Column([
-            ft.Row([self.btn_volver, self.lbl_titulo_detalle]),
-            self.summary_container,
-            ft.Row([self.input_search, self.drop_categoria, self.drop_estado]),
-            self.action_bar_masiva,
+            self.header_row,
             self.row_pasos_cierre,
-            ft.Row([self.txt_estado_periodo, self.txt_progreso], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Container(
-                content=ft.Column([self.data_table], scroll=ft.ScrollMode.ALWAYS, expand=True),
-                bgcolor='white',
-                padding=5,
-                border_radius=10,
-                expand=True,
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=ft.colors.with_opacity(0.05, 'black'))
-            ),
+            self.kpi_compacto,
+            self.row_filtros,
+            self.table_wrapper,
+            self.card_list_view,
             ft.Container(
                 content=ft.Row([
                     ft.Container(expand=True),
@@ -204,31 +232,19 @@ class CierreInventarioView(ft.Container):
 
     def _crear_tarjeta_paso(self, numero, titulo, descripcion, control_accion):
         return ft.Container(
+            col={"xs": 12, "md": 4},
             content=ft.Column([
                 ft.Row([
-                    ft.Container(content=ft.Text(str(numero), color="white", weight="bold"), bgcolor=Config.COLOR_PRIMARY, width=24, height=24, border_radius=12, alignment=ft.alignment.center),
+                    ft.Container(content=ft.Text(str(numero), color="white", weight="bold", size=12), bgcolor=Config.COLOR_PRIMARY, width=22, height=22, border_radius=11, alignment=ft.alignment.center),
                     ft.Text(titulo, weight="bold", size=14, color=Config.COLOR_PRIMARY)
                 ]),
                 ft.Text(descripcion, size=11, color="grey"),
                 ft.Container(content=control_accion, alignment=ft.alignment.center_right)
-            ], spacing=8),
-            bgcolor="white", padding=15, border_radius=8, expand=True,
-            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))
+            ], spacing=5),
+            bgcolor="white", padding=12, border_radius=10,
+            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black"))
         )
 
-    def _crear_kpi_card(self, title, lbl_val, icon, lbl_sub=None):
-        col_controls = [ft.Text(title, size=11, color='grey', weight='bold'), lbl_val]
-        if lbl_sub: col_controls.append(lbl_sub)
-        return ft.Container(
-            content=ft.Row([
-                ft.Icon(icon, color=Config.COLOR_SECONDARY, size=24),
-                ft.Column(col_controls, spacing=0)
-            ], alignment=ft.MainAxisAlignment.START),
-            bgcolor='white', padding=15, border_radius=8, expand=True,
-            border=ft.border.all(1, ft.colors.with_opacity(0.1, 'black')),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, 'black'))
-        )
 
     def safe_update(self):
         """Actualiza la UI solo si el control sigue montado en la página."""
@@ -237,6 +253,12 @@ class CierreInventarioView(ft.Container):
                 self.page.update()
         except Exception:
             pass
+
+    def mostrar_alerta(self, msj, color="red"):
+        if self.page:
+            self.page.snack_bar = ft.SnackBar(ft.Text(msj, color="white"), bgcolor=color)
+            self.page.snack_bar.open = True
+            self.safe_update()
 
     def did_mount(self):
         if self.modal_ajuste not in self.page.overlay:
@@ -253,6 +275,14 @@ class CierreInventarioView(ft.Container):
         self.render_view()
         self.safe_update()
 
+    def actualizar_boton_masivo(self):
+        cantidad = len(self.selected_items)
+        if cantidad > 0:
+            self.btn_aceptar_stock_masivo.text = f"Aceptar Stock Seleccionado ({cantidad})"
+        else:
+            self.btn_aceptar_stock_masivo.text = "Aceptar Stock de Cierre"
+        self.safe_update()
+
     def on_select_all_change(self, e):
         is_checked = e.control.value
         estado_periodo = self.datos_cierre.get('estado', '')
@@ -262,6 +292,7 @@ class CierreInventarioView(ft.Container):
                     self.selected_items.add(item.get('id_auditoria'))
         else:
             self.selected_items.clear()
+        self.actualizar_boton_masivo()
         self.render_view()
         self.safe_update()
 
@@ -270,13 +301,22 @@ class CierreInventarioView(ft.Container):
             self.selected_items.add(id_auditoria)
         else:
             self.selected_items.discard(id_auditoria)
-        self.action_bar_masiva.visible = len(self.selected_items) > 0
+        self.actualizar_boton_masivo()
         self.safe_update()
 
     def abrir_modal_masivo(self, e):
-        if not self.selected_items:
-            self.mostrar_alerta("No hay ítems seleccionados", "red")
-            return
+        ids_a_procesar = []
+        is_global = False
+        if len(self.selected_items) > 0:
+            ids_a_procesar = list(self.selected_items)
+            mensaje_principal = f"¿Deseas aceptar el stock del sistema para los {len(ids_a_procesar)} insumos seleccionados?"
+        else:
+            ids_a_procesar = [i['id_auditoria'] for i in self.insumos_lista if i.get('estado') == 'PENDIENTE']
+            if not ids_a_procesar:
+                self.mostrar_alerta("No hay insumos PENDIENTES para aceptar globalmente.", "orange")
+                return
+            is_global = True
+            mensaje_principal = f"¿Deseas aceptar globalmente el stock para TODOS los {len(ids_a_procesar)} insumos pendientes?"
             
         try:
             val_sist = self.lbl_valor_sistema.value
@@ -294,11 +334,11 @@ class CierreInventarioView(ft.Container):
             if hasattr(self, 'progress_bar'): self.progress_bar.visible = True
             self.safe_update()
             
-            res = self.db.aceptar_stock_sistema_masivo(list(self.selected_items))
+            res = self.db.aceptar_stock_sistema_masivo(ids_a_procesar)
             if res.get("exito"):
                 self.mostrar_alerta("Aceptación masiva completada con éxito.", "green")
                 self.selected_items.clear()
-                self.action_bar_masiva.visible = False
+                self.actualizar_boton_masivo()
                 self.mostrar_detalle(self.mes_seleccionado) # Reload
             else:
                 self.mostrar_alerta(f"Error masivo: {res.get('error')}", "red")
@@ -306,8 +346,8 @@ class CierreInventarioView(ft.Container):
                 self.safe_update()
 
         resumen_ui = ft.Column([
-            ft.Text(f"¿Deseas aceptar el stock del sistema para {len(self.selected_items)} insumos seleccionados?", weight="bold"),
-            ft.Text("Esto significa que declaras que la cantidad física de estos insumos coincide exactamente con la del sistema (Ajuste de $0).", size=11, color="grey"),
+            ft.Text(mensaje_principal, weight="bold", color="red" if is_global else "black"),
+            ft.Text("Esto significa que declaras que la cantidad física coincide exactamente con la del sistema (Ajuste de $0).", size=11, color="grey"),
             ft.Divider(height=10),
             ft.Text("Estado Global de la Auditoría:", size=12, weight="bold", color=Config.COLOR_PRIMARY),
             ft.Row([ft.Text("Valor del Sistema:", size=12), ft.Text(val_sist, size=12, weight="bold")]),
@@ -318,7 +358,7 @@ class CierreInventarioView(ft.Container):
         ], spacing=5, tight=True)
 
         dialog = ft.AlertDialog(
-            title=ft.Text("Confirmación Masiva"),
+            title=ft.Text("Confirmación Global" if is_global else "Confirmación Masiva"),
             content=ft.Container(width=450, content=resumen_ui),
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda e: setattr(dialog, 'open', False) or self.safe_update()),
@@ -390,7 +430,12 @@ class CierreInventarioView(ft.Container):
         self.vista_lista.visible = False
         self.vista_detalle.visible = True
         self.mes_seleccionado = mes
-        self.lbl_titulo_detalle.value = f'Auditoría: {mes}'
+        
+        meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+        partes = mes.split('-')
+        nombre_mes = meses[int(partes[1]) - 1]
+        self.lbl_titulo_detalle.value = f"Auditoría: {nombre_mes} {partes[0]}"
+        
         self.current_page = 1
         self.load_data_detalle()
 
@@ -549,7 +594,7 @@ class CierreInventarioView(ft.Container):
                 self.page.update()
             return
 
-        self.txt_estado_periodo.value = f'Estado: {estado_periodo}'
+        self.txt_estado_periodo.value = f'Estado: {estado_periodo} | '
         color_estado = {'ABIERTO': 'green', 'PRELIMINAR': 'orange', 'EN_AUDITORIA': 'blue', 'CERRADO': 'red'}
         self.txt_estado_periodo.color = color_estado.get(estado_periodo, 'black')
         
@@ -557,7 +602,18 @@ class CierreInventarioView(ft.Container):
         listos = resumen.get('auditados', 0) + resumen.get('ajustados', 0)
         self.txt_progreso.value = f'Pendientes: {pendientes} | Listos: {listos}'
 
-        self.btn_aprobar_cierre.disabled = estado_periodo == 'CERRADO' or pendientes > 0
+        if estado_periodo == "CERRADO":
+            self.btn_aceptar_stock_masivo.disabled = True
+            self.btn_aprobar_cierre.text = "3. Cierre Exitoso"
+            self.btn_aprobar_cierre.icon = ft.icons.VERIFIED
+            self.btn_aprobar_cierre.disabled = True
+            self.btn_aprobar_cierre.bgcolor = "green900"
+        else:
+            self.btn_aceptar_stock_masivo.disabled = False
+            self.btn_aprobar_cierre.text = "3. Aprobar Cierre"
+            self.btn_aprobar_cierre.icon = ft.icons.CHECK_CIRCLE
+            self.btn_aprobar_cierre.disabled = (pendientes > 0)
+            self.btn_aprobar_cierre.bgcolor = "green" 
 
         # Update category options
         categorias = set([item.get('categoria', 'Sin Categoría') for item in self.insumos_lista])
@@ -622,21 +678,181 @@ class CierreInventarioView(ft.Container):
         end_idx = start_idx + self.page_size
         page_data = filtered_data[start_idx:end_idx]
 
+        self.card_list_view.controls.clear()
         for insumo in page_data:
             self.data_table.rows.append(self.crear_fila_auditoria(insumo, estado_periodo))
+            self.card_list_view.controls.append(self._crear_tarjeta_auditoria(insumo, estado_periodo))
 
         self.lbl_page_info.value = f'Página {self.current_page} de {self.total_pages}'
         self.btn_prev.disabled = (self.current_page <= 1)
         self.btn_next.disabled = (self.current_page >= self.total_pages)
         
-        self.action_bar_masiva.visible = len(self.selected_items) > 0
+        self.actualizar_boton_masivo()
 
         if self.page:
             self.page.update()
 
+
+
+    def toggle_fullscreen(self, e):
+        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
+
+        # Ocultar o mostrar las secciones superiores
+        visibilidad = not self.is_fullscreen
+        if hasattr(self, "header_row"): self.header_row.visible = visibilidad
+        if hasattr(self, "row_pasos_cierre"): self.row_pasos_cierre.visible = visibilidad
+        if hasattr(self, "kpi_compacto"): self.kpi_compacto.visible = visibilidad
+
+        # Cambiar el icono y el tooltip del botón
+        self.btn_fullscreen.icon = ft.icons.FULLSCREEN_EXIT if self.is_fullscreen else ft.icons.FULLSCREEN
+        self.btn_fullscreen.tooltip = "Contraer Vista" if self.is_fullscreen else "Expandir Tabla (Modo Enfoque)"
+
+        self.safe_update()
+
+    def toggle_view(self, e):
+        if self.view_mode == "table":
+            self.view_mode = "cards"
+            self.table_wrapper.visible = False
+            self.card_list_view.visible = True
+            self.btn_toggle_view.icon = ft.icons.TABLE_ROWS
+            self.btn_toggle_view.tooltip = "Cambiar a Tabla"
+        else:
+            self.view_mode = "table"
+            self.table_wrapper.visible = True
+            self.card_list_view.visible = False
+            self.btn_toggle_view.icon = ft.icons.GRID_VIEW
+            self.btn_toggle_view.tooltip = "Cambiar a Tarjetas"
+        self.safe_update()
+
+    def _crear_tarjeta_auditoria(self, insumo, estado_periodo):
+        id_auditoria = insumo.get('id_auditoria')
+        estado_insumo = insumo.get('estado', 'PENDIENTE')
+        observacion = insumo.get('observacion') or ''
+        cant_sistema = insumo.get('cantidad_sistema')
+        cant_fisica = insumo.get('cantidad_fisica')
+        diferencia = insumo.get('diferencia')
+        
+        stock_inicial = insumo.get('stock_inicial', 0)
+        entradas = insumo.get('entradas', 0)
+        salidas = insumo.get('salidas', 0)
+        ajustes = insumo.get('ajustes', 0)
+        stock_actual = insumo.get('stock_actual', 0)
+        
+        habilitar_txt_ajuste = estado_periodo == "PRELIMINAR" and estado_insumo != "APROBADO"
+        
+        check_row = ft.Checkbox(
+            value=id_auditoria in self.selected_items,
+            disabled=(estado_periodo == 'CERRADO' or estado_insumo == 'APROBADO'),
+            on_change=lambda e: self.on_item_select(e, id_auditoria)
+        )
+        
+        def on_txt_conteo_change(e):
+            try:
+                if e.control.value.strip() == "":
+                    btn_ajuste.disabled = True
+                else:
+                    val = float(e.control.value.replace(',', '.'))
+                    btn_ajuste.disabled = (val == cant_sistema)
+            except ValueError:
+                btn_ajuste.disabled = True
+            self.safe_update()
+
+        txt_conteo = ft.TextField(
+            value=str(cant_fisica) if cant_fisica is not None else '',
+            dense=True, width=80, text_size=13, content_padding=10, label="Conteo",
+            disabled=not habilitar_txt_ajuste,
+            on_change=on_txt_conteo_change
+        )
+        
+        colores_estado = {"PENDIENTE": "grey", "AUDITADO": "green", "AJUSTADO": "orange", "APROBADO": "blue"}
+        color_badge = colores_estado.get(estado_insumo, "black")
+        badge_estado = ft.Container(
+            content=ft.Text(estado_insumo, size=10, weight="bold", color="white"),
+            bgcolor=color_badge, padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=10
+        )
+        
+        txt_obs = ft.Container(
+            content=ft.Text(f"Obs: {observacion}" if observacion else "Sin observaciones", size=11, color="grey", italic=True, no_wrap=True, tooltip=observacion),
+            expand=True, padding=ft.padding.only(left=10)
+        )
+        
+        botones_accion = []
+        if estado_insumo == "PENDIENTE":
+            botones_accion.append(ft.ElevatedButton("Aceptar", icon=ft.icons.CHECK, bgcolor="green50", color="green900", on_click=lambda e, i_id=id_auditoria: self.procesar_aceptar_sistema(i_id), scale=0.85, disabled=(estado_periodo == 'CERRADO' or estado_insumo == 'APROBADO')))
+            btn_ajuste_pendiente = ft.OutlinedButton("Ingresar Ajuste", icon=ft.icons.TUNE, on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value), scale=0.85, disabled=True)
+            botones_accion.append(btn_ajuste_pendiente)
+            if txt_conteo.value:
+                try:
+                    if float(txt_conteo.value.replace(',', '.')) != cant_sistema:
+                        btn_ajuste_pendiente.disabled = False
+                except ValueError:
+                    pass
+            # Update the original btn_ajuste reference used by on_txt_conteo_change closure
+            btn_ajuste = btn_ajuste_pendiente
+        elif estado_insumo == "AUDITADO":
+            btn_ajuste = ft.OutlinedButton("Editar Ajuste", icon=ft.icons.EDIT, on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value), scale=0.85, disabled=(estado_periodo == 'CERRADO'))
+            botones_accion.append(btn_ajuste)
+            btn_ajuste.disabled = False if txt_conteo.value else True
+        elif estado_insumo == "AJUSTADO":
+            btn_ajuste = ft.OutlinedButton("Editar Ajuste", icon=ft.icons.EDIT, on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value), scale=0.85, disabled=(estado_periodo == 'CERRADO'))
+            botones_accion.append(btn_ajuste)
+            botones_accion.append(ft.OutlinedButton("Eliminar Ajuste", icon=ft.icons.DELETE, icon_color="red", style=ft.ButtonStyle(color="red"), on_click=lambda e, i_id=id_auditoria: self.procesar_eliminar_ajuste(i_id), scale=0.85, disabled=(estado_periodo == 'CERRADO')))
+            btn_ajuste.disabled = False if txt_conteo.value else True
+        else:
+            # Fallback (e.g., APROBADO) - disabled buttons or none
+            btn_ajuste = ft.OutlinedButton("Bloqueado", disabled=True, scale=0.85)
+            botones_accion.append(btn_ajuste)
+
+        cant_final = float(insumo.get("cantidad_fisica") if insumo.get("cantidad_fisica") is not None else insumo.get("cantidad_sistema", 0))
+        costo_u = float(insumo.get("costo_unitario_snapshot") or 0)
+        valor_total = cant_final * costo_u
+
+        column_controls = [
+            ft.Row([check_row, ft.Text(insumo.get('codigo_insumo', ''), weight="bold", color=Config.COLOR_PRIMARY), ft.Text(insumo.get('nombre', ''), expand=True, weight="bold")], alignment=ft.MainAxisAlignment.START),
+            ft.Row([
+                ft.Text(f"Inicial: {stock_inicial}", size=12),
+                ft.Text(f"Entradas: {entradas}", size=12, color="green"),
+                ft.Text(f"Salidas: {salidas}", size=12, color="red"),
+                ft.Text(f"Ajustes: {ajustes}", size=12, color="orange"),
+                ft.Text(f"Stock Sist: {stock_actual}", size=12, weight="bold", color="blue"),
+            ], wrap=True),
+            ft.Divider(height=1, color="#f0f0f0")
+        ]
+
+        if estado_periodo == "CERRADO":
+            for btn in botones_accion:
+                btn.disabled = True
+            check_row.disabled = True
+            
+            label_cierre = ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.LOCK, size=16, color="green900"),
+                    ft.Text(f"Stock Cierre: {cant_final:g} unds", size=14, weight="bold", color="green900"),
+                    ft.Text(f" | Costo Total: ${valor_total:,.2f}", size=14, weight="bold", color="green900")
+                ]),
+                bgcolor="#e8f5e9", padding=10, border_radius=8, margin=ft.padding.only(bottom=10, top=5)
+            )
+            column_controls.append(label_cierre)
+
+        column_controls.append(
+            ft.Row([
+                txt_conteo,
+                badge_estado,
+                txt_obs,
+                *botones_accion
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        )
+
+        return ft.Container(
+            content=ft.Column(column_controls),
+            bgcolor="#f8f9fa", padding=15, border_radius=8,
+            border=ft.border.all(1, "#e9ecef")
+        )
+
     def crear_fila_auditoria(self, insumo, estado_periodo):
         id_auditoria = insumo.get('id_auditoria')
         estado_insumo = insumo.get('estado', 'PENDIENTE')
+        observacion = insumo.get('observacion') or ''
         cant_sistema = insumo.get('cantidad_sistema')
         cant_fisica = insumo.get('cantidad_fisica')
         diferencia = insumo.get('diferencia')
