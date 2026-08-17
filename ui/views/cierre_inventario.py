@@ -589,7 +589,9 @@ class CierreInventarioView(ft.Container):
             self.txt_estado_periodo.value = 'Estado: NO INICIALIZADO'
             self.txt_estado_periodo.color = 'grey'
             self.txt_progreso.value = 'Requiere generar preliminar'
+            self.btn_aceptar_stock_masivo.disabled = True
             self.btn_aprobar_cierre.disabled = True
+            self.btn_aprobar_cierre.bgcolor = "grey"
             if self.page:
                 self.page.update()
             return
@@ -608,12 +610,19 @@ class CierreInventarioView(ft.Container):
             self.btn_aprobar_cierre.icon = ft.icons.VERIFIED
             self.btn_aprobar_cierre.disabled = True
             self.btn_aprobar_cierre.bgcolor = "green900"
+        elif estado_periodo == "ABIERTO":
+            self.btn_aceptar_stock_masivo.disabled = True
+            self.btn_aprobar_cierre.text = "3. Aprobar Cierre"
+            self.btn_aprobar_cierre.icon = ft.icons.CHECK_CIRCLE
+            self.btn_aprobar_cierre.disabled = True
+            self.btn_aprobar_cierre.bgcolor = "grey"
         else:
+            # PRELIMINAR o EN_AUDITORIA
             self.btn_aceptar_stock_masivo.disabled = False
             self.btn_aprobar_cierre.text = "3. Aprobar Cierre"
             self.btn_aprobar_cierre.icon = ft.icons.CHECK_CIRCLE
             self.btn_aprobar_cierre.disabled = (pendientes > 0)
-            self.btn_aprobar_cierre.bgcolor = "green" 
+            self.btn_aprobar_cierre.bgcolor = "grey" if pendientes > 0 else "green" 
 
         # Update category options
         categorias = set([item.get('categoria', 'Sin Categoría') for item in self.insumos_lista])
