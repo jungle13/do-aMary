@@ -151,15 +151,19 @@ class GeminiParser:
             
             REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
             1. BLOQUES: Cada compra inicia en el extremo izquierdo con un código "EA-" (ej. EA-9273). Procesa TODOS los que encuentres.
-            2. FECHA Y FACTURA: La "fecha" suele estar bajo el código EA (conviértela a YYYY-MM-DD). El "numero_factura" está junto a la palabra "Factura No.". Si no hay, pon null.
-            3. PROVEEDOR: Extrae el nombre del proveedor, que usualmente está al lado del número de la factura o en la misma cabecera. Si no está, pon cadena vacía.
-            4. PRODUCTOS: Extrae cada línea de insumo hasta llegar a la frase "Totales de Entrada:".
-            5. CAMPOS POR PRODUCTO:
+            2. CABECERA DEL BLOQUE (Fecha, Factura y Proveedor): 
+               En la misma línea que el "EA-" (o en la línea inmediatamente inferior):
+               - La "fecha" suele estar a continuación del EA (conviértela a YYYY-MM-DD).
+               - El "numero_factura" está precedido por la palabra "Factura No." o "Factura". Si no hay número, pon null.
+               - El "proveedor" se encuentra AL LADO DERECHO de la palabra "Factura" o del número de factura. Extrae SOLO el nombre comercial (ej. "DISTRIBUCIONES PUNTO CHEVERE SAS", "AJOVER SAS"). 
+               - REGLA ESTRICTA PARA PROVEEDOR: ESTÁ TOTALMENTE PROHIBIDO incluir explicaciones, razonamientos internos, notas de OCR o caracteres asiáticos en este campo. El valor debe ser ÚNICAMENTE el nombre de la empresa.
+            3. PRODUCTOS: Extrae cada línea de insumo hasta llegar a la frase "Totales de Entrada:".
+            4. CAMPOS POR PRODUCTO:
                - "codigo_insumo": Código de 4 dígitos al extremo izquierdo.
                - "cantidad": Dato bajo la columna 'Cant.'
                - "costo_unitario": Dato bajo la columna 'Costo'.
                - "iva": Dato bajo la columna 'IVA' (Si está vacía, pon 0.0).
-            6. FORMATO NUMÉRICO ESTRICTO: Convierte puntos a miles y comas a decimales (ej. "13.100" -> 13100.0 y "16,50" -> 16.5).
+            5. FORMATO NUMÉRICO ESTRICTO: Convierte puntos a miles y comas a decimales (ej. "13.100" -> 13100.0 y "16,50" -> 16.5).
             
             ESTRUCTURA EXACTA REQUERIDA (Sigue este patrón para todos los bloques e insumos):
             [

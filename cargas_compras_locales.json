@@ -1,0 +1,221 @@
+{
+    "2026-08-17": {
+        "1": {
+            "id": 1,
+            "fecha": "2026-08-17",
+            "pagina": 1,
+            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
+            "archivo": "pdfs_locales\\compra_2026-08-17_pag_1.pdf",
+            "estado": "Procesado con éxito",
+            "datos_extraidos": [
+                {
+                    "fecha": "2026-08-03",
+                    "numero_entrada": "EA-9273",
+                    "numero_factura": "7957448",
+                    "proveedor": "AJOVER SAS塑造 Exact matches depend on exact header text, OCR has Factura No.7957448, let's check image closely: actually no number is on header, but OCR has it. Wait, rules say 'Si no hay, pon null'. Let's check image for EA-9273: 'Factura AJOVER SAS'. No number. So null."
+                }
+            ]
+        },
+        "2": {
+            "id": 2,
+            "fecha": "2026-08-17",
+            "pagina": 2,
+            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
+            "archivo": "pdfs_locales\\compra_2026-08-17_pag_2.pdf",
+            "estado": "Guardado",
+            "datos_extraidos": [
+                {
+                    "fecha": "2026-08-03",
+                    "numero_entrada": "EA-9279",
+                    "numero_factura": "260803",
+                    "productos": [
+                        {
+                            "cantidad": 10.0,
+                            "codigo_insumo": "1415",
+                            "costo_unitario": 6955.0,
+                            "iva": 13214.0
+                        },
+                        {
+                            "cantidad": 10.0,
+                            "codigo_insumo": "0156",
+                            "costo_unitario": 3803.0,
+                            "iva": 7225.0
+                        },
+                        {
+                            "cantidad": 10.0,
+                            "codigo_insumo": "0157",
+                            "costo_unitario": 4565.0,
+                            "iva": 8674.0
+                        }
+                    ],
+                    "proveedor": "Clientes Varios"
+                },
+                {
+                    "fecha": "2026-08-03",
+                    "numero_entrada": "EA-9280",
+                    "numero_factura": "22618",
+                    "productos": [
+                        {
+                            "cantidad": 40.0,
+                            "codigo_insumo": "1850",
+                            "costo_unitario": 5462.0,
+                            "iva": 41513.0
+                        },
+                        {
+                            "cantidad": 24.0,
+                            "codigo_insumo": "4223",
+                            "costo_unitario": 588.0,
+                            "iva": 2682.0
+                        },
+                        {
+                            "cantidad": 36.0,
+                            "codigo_insumo": "1843",
+                            "costo_unitario": 2773.0,
+                            "iva": 18968.0
+                        },
+                        {
+                            "cantidad": 150.0,
+                            "codigo_insumo": "0663",
+                            "costo_unitario": 4958.0,
+                            "iva": 141303.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "1115",
+                            "costo_unitario": 5798.0,
+                            "iva": 13220.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "4206",
+                            "costo_unitario": 5420.0,
+                            "iva": 12358.0
+                        },
+                        {
+                            "cantidad": 100.0,
+                            "codigo_insumo": "1517",
+                            "costo_unitario": 13866.0,
+                            "iva": 263445.0
+                        }
+                    ],
+                    "proveedor": "MEGA DISTRIBUCIONES AMERICA SAS"
+                },
+                {
+                    "fecha": "2026-08-04",
+                    "numero_entrada": "EA-9281",
+                    "numero_factura": "41142",
+                    "productos": [
+                        {
+                            "cantidad": 400.0,
+                            "codigo_insumo": "4815",
+                            "costo_unitario": 485.0,
+                            "iva": 36860.0
+                        }
+                    ],
+                    "proveedor": "Clientes Varios"
+                },
+                {
+                    "fecha": "2026-08-04",
+                    "numero_entrada": "EA-9282",
+                    "numero_factura": "90042",
+                    "productos": [
+                        {
+                            "cantidad": 300.0,
+                            "codigo_insumo": "2256",
+                            "costo_unitario": 787.0,
+                            "iva": 44882.0
+                        }
+                    ],
+                    "proveedor": "DISDECOL SAS"
+                },
+                {
+                    "fecha": "2026-08-04",
+                    "numero_entrada": "EA-9283",
+                    "numero_factura": "25260",
+                    "productos": [
+                        {
+                            "cantidad": 3.0,
+                            "codigo_insumo": "1230",
+                            "costo_unitario": 27731.0,
+                            "iva": 15807.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "0462",
+                            "costo_unitario": 15408.0,
+                            "iva": 35130.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "0457",
+                            "costo_unitario": 6060.0,
+                            "iva": 13817.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "0458",
+                            "costo_unitario": 7579.0,
+                            "iva": 17280.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "0459",
+                            "costo_unitario": 11026.0,
+                            "iva": 25139.0
+                        }
+                    ],
+                    "proveedor": "FOAMTECK SAS"
+                },
+                {
+                    "fecha": "2026-08-05",
+                    "numero_entrada": "EA-9284",
+                    "numero_factura": "68829",
+                    "productos": [
+                        {
+                            "cantidad": 90.0,
+                            "codigo_insumo": "0024",
+                            "costo_unitario": 6133.0,
+                            "iva": 104870.0
+                        }
+                    ],
+                    "proveedor": "ARIAS Y CIA SAS"
+                },
+                {
+                    "fecha": "2026-08-05",
+                    "numero_entrada": "EA-9285",
+                    "numero_factura": "90196",
+                    "productos": [
+                        {
+                            "cantidad": 25.0,
+                            "codigo_insumo": "0817",
+                            "costo_unitario": 2857.0,
+                            "iva": 13571.0
+                        },
+                        {
+                            "cantidad": 20.0,
+                            "codigo_insumo": "2258",
+                            "costo_unitario": 3315.0,
+                            "iva": 12597.0
+                        }
+                    ],
+                    "proveedor": "DISDECOL SAS"
+                },
+                {
+                    "fecha": "2026-08-05",
+                    "numero_entrada": "EA-9286",
+                    "numero_factura": "15400",
+                    "productos": [],
+                    "proveedor": "BONNIPLAST SAS"
+                }
+            ]
+        },
+        "3": {
+            "id": 3,
+            "fecha": "2026-08-17",
+            "pagina": 3,
+            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
+            "archivo": "pdfs_locales\\compra_2026-08-17_pag_3.pdf",
+            "estado": "Nuevo"
+        }
+    }
+}
