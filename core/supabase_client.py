@@ -668,35 +668,34 @@ class SupabaseClient:
             return False
 
 
-    def get_top_costo_inventario(self, limit=10) -> list:
-        # Cross reference with vista_inventario_completo to get rotacion (salidas)
-        url = f"{self.url}/vista_inventario_completo?select=codigo_insumo,nombre,stock_actual,costo_unitario,salidas"
-        resultado = []
+    def get_top_costo_inventario(self, limit=10, fecha_corte=None) -> list:
+        """
+        Obtiene los insumos con mayor costo total de inventario acumulado hasta 'fecha_corte'.
+        """
         try:
-            res = self.session.get(url, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                for row in res.json():
-                    stock = int(row.get("stock_actual", 0) or 0)
-                    costo = float(row.get("costo_unitario", 0) or 0)
-                    salidas = int(row.get("salidas", 0) or 0)
-                    valor = stock * costo
-                    
-                    rotacion = f"{(salidas / stock):.1f}x" if stock > 0 else ("Alta" if salidas > 0 else "0.0x")
-                    
-                    resultado.append({
-                        "codigo": row.get("codigo_insumo"),
-                        "producto": row.get("nombre"),
-                        "valor_inventario": valor,
-                        "rotacion": rotacion
-                    })
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_top_costo_inventario: el servidor no responde")
+            insumos, _ = self.get_insumos(
+                page=1, 
+                page_size=limit, 
+                fecha_corte=fecha_corte, 
+                sort_col="Stock Real", 
+                sort_asc=False
+            )
+            top = []
+            for item in insumos:
+                costo_tot = float(item.get("costo_total_insumo") or 0)
+                ventas_tot = float(item.get("valor_ventas") or 0)
+                rotacion = (ventas_tot / costo_tot) if costo_tot > 0 else 0.0
+                
+                top.append({
+                    "codigo": item.get("codigo_insumo") or "S/C",
+                    "producto": item.get("nombre") or "Desconocido",
+                    "valor_inventario": costo_tot,
+                    "rotacion": f"{rotacion:.2f}x"
+                })
+            return top
         except Exception as e:
-            print(f"Error get_top_costo: {e}")
+            print(f"Error en get_top_costo_inventario: {e}")
             return []
-            
-        resultado.sort(key=lambda x: x["valor_inventario"], reverse=True)
-        return resultado[:limit]
         
 
     def get_compras_summary(self, fecha_corte=None) -> dict:
@@ -808,18 +807,21 @@ class SupabaseClient:
         return tendencia
 
     def get_inventario_kpis(self, fecha_corte=None) -> dict:
-        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
-        mes_actual = hoy[:7]
-        url = f"{self.url}/rpc/get_inventario_kpis_rpc"
+        """
+        Obtiene los KPIs generales de valorización de inventario.
+        """
         try:
-            res = self.session.post(url, json={"mes_actual": mes_actual, "fecha_corte": fecha_corte} if fecha_corte else {"mes_actual": mes_actual}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_inventario_kpis: el servidor no responde")
+            insumos, _ = self.get_insumos(page=1, page_size=99999, fecha_corte=fecha_corte)
+            val_inv = sum([float(i.get("costo_total_insumo") or 0) for i in insumos])
+            alertas = sum([1 for i in insumos if float(i.get("stock_actual") or i.get("stock_real") or 0) <= float(i.get("stock_minimo") or 5)])
+            
+            return {
+                "valor_inventario": val_inv,
+                "alertas_criticas": alertas
+            }
         except Exception as e:
-            print(f"Error RPC inventario_kpis: {e}")
-        return {"valor_inventario": 0.0, "alertas_criticas": 0}
+            print(f"Excepción controlada en get_inventario_kpis: {e}")
+            return {"valor_inventario": 0, "alertas_criticas": 0}
 
     def get_kpis_por_categoria(self, fecha_corte=None) -> list:
         """Invoca RPC para extraer rendimiento y rotación agrupada por categoría."""

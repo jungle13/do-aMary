@@ -11,6 +11,7 @@ class InformesView(ft.Container):
         self.expand = True
         self.db = SupabaseClient()
         self.save_pdf_picker = ft.FilePicker(on_result=self._save_pdf_result)
+        self.save_excel_picker = ft.FilePicker(on_result=self._save_excel_result)
         
         # --- PANEL IZQUIERDO: CONSTRUCTOR DE INFORMES ---
         self.drop_tipo_informe = ft.Dropdown(
@@ -122,6 +123,8 @@ class InformesView(ft.Container):
     def did_mount(self):
         if self.save_pdf_picker not in self.page.overlay:
             self.page.overlay.append(self.save_pdf_picker)
+        if self.save_excel_picker not in self.page.overlay:
+            self.page.overlay.append(self.save_excel_picker)
 
     def generar_informe(self, e):
         self.doc_cuerpo.controls.clear()
@@ -157,7 +160,7 @@ class InformesView(ft.Container):
 
         # 3. Enrutador según el tipo de informe
         if tipo_informe == "Valorización de Inventario":
-            self._generar_valorizacion(detalle)
+            self._generar_valorizacion(detalle, fecha_corte=fecha_fin if periodo_filtro != "Histórico Completo" else None)
         elif tipo_informe == "Informe de Compras":
             self._generar_compras(fecha_inicio, fecha_fin, detalle)
         elif tipo_informe == "Informe de Ventas":
@@ -170,9 +173,9 @@ class InformesView(ft.Container):
         if self.page:
             self.page.update()
 
-    def _generar_valorizacion(self, detalle):
-        # Obtener Datos
-        data, _ = self.db.get_insumos(page=1, page_size=10000)
+    def _generar_valorizacion(self, detalle, fecha_corte=None):
+        # Obtener datos calculados desde la base de datos
+        data, _ = self.db.get_insumos(page=1, page_size=100000, fecha_corte=fecha_corte)
 
         if not data:
             self.doc_cuerpo.controls.append(
@@ -182,34 +185,38 @@ class InformesView(ft.Container):
             self.current_total = 0
             return
 
-        # Agrupar Datos
         agrupacion = {}
         gran_total_costo = 0.0
         gran_total_cant = 0.0
 
         for item in data:
-            cat = item.get("categoria") or "SIN CATEGORIA"
-            stock = float(item.get("stock_actual") or item.get("stock_real") or 0)
-            costo = float(item.get("costo_unitario") or 0)
+            cat = (item.get("categoria") or "SIN CATEGORIA").strip().upper()
+            stock_real = float(item.get("stock_actual") or item.get("stock_real") or 0)
+            costo_u = float(item.get("costo_unitario") or 0)
+            
+            # REGLA DE NEGOCIO: Un informe de valorización evalúa existencias reales.
+            # Saldos negativos (ventas sin compra ingresada) se evalúan en 0 para evitar cantidades negativas y '$-0.00'.
+            stock_val = max(0.0, stock_real)
+            costo_total = stock_val * costo_u
 
-            if stock > 0:
-                costo_total = stock * costo
+            # Solo se valoran ítems con existencia disponible real
+            if stock_val > 0 and costo_total > 0:
                 if cat not in agrupacion:
                     agrupacion[cat] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
 
                 agrupacion[cat]["items"].append({
                     "codigo": item.get("codigo_insumo"),
                     "nombre": item.get("nombre"),
-                    "stock": stock,
-                    "costo_u": costo,
+                    "stock": stock_val,
+                    "costo_u": costo_u,
                     "total": costo_total
                 })
                 agrupacion[cat]["subtotal"] += costo_total
-                agrupacion[cat]["cant_total"] += stock
+                agrupacion[cat]["cant_total"] += stock_val
                 gran_total_costo += costo_total
-                gran_total_cant += stock
+                gran_total_cant += stock_val
 
-        # Guardar en memoria para exportación
+        # Guardar en memoria para exportación PDF/Excel
         self.current_data = agrupacion
         self.current_total = gran_total_costo
         self.current_periodo = self.doc_header_periodo.value
@@ -217,7 +224,6 @@ class InformesView(ft.Container):
         if detalle == "Resumido":
             self._dibujar_resumido(agrupacion, "CATEGORÍA", gran_total_costo, gran_total_cant, "GRAN TOTAL VALORIZACIÓN")
         else:
-            # Construcción Visual en el Lienzo Completo
             self.doc_cuerpo.controls.append(
                 ft.Row([
                     ft.Text("CÓDIGO", weight="bold", size=11, width=60),
@@ -650,6 +656,201 @@ class InformesView(ft.Container):
             self.page.update()
 
     def exportar_excel(self, e):
-        self.page.snack_bar = ft.SnackBar(ft.Text("Generando Excel... (Módulo de exportación pendiente)"), bgcolor="green")
+        nombre_sugerido = f"Inventario_Consolidado_Dona_Mary_{datetime.date.today().strftime('%Y%m%d')}.xlsx"
+        self.save_excel_picker.save_file(
+            dialog_title="Guardar Consolidado Excel",
+            file_name=nombre_sugerido,
+            allowed_extensions=["xlsx"]
+        )
+
+    def _save_excel_result(self, e: ft.FilePickerResultEvent):
+        if not e.path:
+            return
+            
+        self.page.snack_bar = ft.SnackBar(ft.Text("Generando consolidado Excel en segundo plano..."), bgcolor="blue")
         self.page.snack_bar.open = True
         self.page.update()
+        
+        threading.Thread(target=self._worker_generar_excel, args=(e.path,), daemon=True).start()
+
+    def _worker_generar_excel(self, file_path):
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+
+            # 1. Obtener datos completos de la base de datos sin filtros
+            raw_inv, _ = self.db.get_insumos(page=1, page_size=999999)
+            raw_compras, _ = self.db.get_compras(page=1, page_size=999999)
+            raw_ventas, _ = self.db.get_ventas(page=1, page_size=999999)
+            raw_ajustes = self.db.get_ajustes_inventario() or []
+
+            wb = openpyxl.Workbook()
+            wb.remove(wb.active) # Eliminar hoja por defecto
+
+            # Estilos generales
+            fill_header = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
+            font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            font_title = Font(name="Calibri", size=14, bold=True, color="1B365D")
+            font_sub = Font(name="Calibri", size=10, italic=True, color="555555")
+            border_thin = Border(
+                left=Side(style='thin', color='CCCCCC'), right=Side(style='thin', color='CCCCCC'),
+                top=Side(style='thin', color='CCCCCC'), bottom=Side(style='thin', color='CCCCCC')
+            )
+            num_fmt_curr = '"$"#,##0.00'
+            num_fmt_qty = '#,##0'
+
+            fecha_emision = datetime.datetime.now().strftime("%d/%m/%Y %I:%M %p")
+            nombre_empresa = "TIENDA Y ABARROTES LOS DESECHABLES DE DOÑA MARY SAS"
+
+            def agregar_encabezado(ws, titulo):
+                ws['A1'] = nombre_empresa
+                ws['A1'].font = font_title
+                ws['A2'] = f"CONSOLIDADO SISTEMA: {titulo.upper()}"
+                ws['A2'].font = Font(name="Calibri", size=12, bold=True)
+                ws['A3'] = f"Fecha de emisión: {fecha_emision} | Datos acumulados sin filtros"
+                ws['A3'].font = font_sub
+
+            # ----------------------------------------------------
+            # HOJA 1: COMPRAS
+            # ----------------------------------------------------
+            ws_c = wb.create_sheet(title="Compras")
+            agregar_encabezado(ws_c, "Detalle de Registro de Compras")
+            ws_c.append([])
+            ws_c.append(["Fecha", "Código Insumo", "Nombre Insumo", "Factura / Documento", "Cantidad", "Costo Total"])
+
+            for r_idx, c in enumerate(raw_compras, start=6):
+                cat_i = c.get("catalogo_insumos") or {}
+                ws_c.cell(row=r_idx, column=1, value=str(c.get("fecha", ""))[:10])
+                ws_c.cell(row=r_idx, column=2, value=str(c.get("codigo_insumo", "")))
+                ws_c.cell(row=r_idx, column=3, value=cat_i.get("nombre", "Desconocido"))
+                ws_c.cell(row=r_idx, column=4, value=str(c.get("numero_factura") or c.get("numero_entrada") or ""))
+                ws_c.cell(row=r_idx, column=5, value=float(c.get("cantidad") or 0))
+                ws_c.cell(row=r_idx, column=6, value=float(c.get("costo_total") or 0))
+
+            # ----------------------------------------------------
+            # HOJA 2: VENTAS
+            # ----------------------------------------------------
+            ws_v = wb.create_sheet(title="Ventas")
+            agregar_encabezado(ws_v, "Detalle de Registro de Ventas")
+            ws_v.append([])
+            ws_v.append(["Fecha", "Código Insumo", "Nombre Insumo", "Comprobante / Pedido", "Cantidad", "Ingreso Total"])
+
+            for r_idx, v in enumerate(raw_ventas, start=6):
+                cat_i = v.get("catalogo_insumos") or {}
+                ws_v.cell(row=r_idx, column=1, value=str(v.get("fecha", ""))[:10])
+                ws_v.cell(row=r_idx, column=2, value=str(v.get("codigo_insumo", "")))
+                ws_v.cell(row=r_idx, column=3, value=cat_i.get("nombre") or v.get("descripcion") or "Desconocido")
+                ws_v.cell(row=r_idx, column=4, value=str(v.get("factura_no", "")))
+                ws_v.cell(row=r_idx, column=5, value=float(v.get("cantidad") or 0))
+                ws_v.cell(row=r_idx, column=6, value=float(v.get("total") or 0))
+
+            # ----------------------------------------------------
+            # HOJA 3: AJUSTES
+            # ----------------------------------------------------
+            ws_a = wb.create_sheet(title="Ajustes")
+            agregar_encabezado(ws_a, "Detalle de Ajustes de Inventario")
+            ws_a.append([])
+            ws_a.append(["Fecha", "Código Insumo", "Nombre Insumo", "Tipo", "Cantidad", "Motivo"])
+
+            for r_idx, a in enumerate(raw_ajustes, start=6):
+                if a.get("estado_registro") != "VÁLIDO": continue
+                cat_i = a.get("catalogo_insumos") or {}
+                es_ent = a.get("tipo_ajuste") in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
+                
+                ws_a.cell(row=r_idx, column=1, value=str(a.get("fecha_ajuste", ""))[:10])
+                ws_a.cell(row=r_idx, column=2, value=str(a.get("codigo_insumo", "")))
+                ws_a.cell(row=r_idx, column=3, value=cat_i.get("nombre", "Desconocido"))
+                ws_a.cell(row=r_idx, column=4, value="Entrada" if es_ent else "Salida")
+                ws_a.cell(row=r_idx, column=5, value=float(a.get("cantidad") or 0))
+                ws_a.cell(row=r_idx, column=6, value=str(a.get("motivo_observacion", "")))
+
+            # ----------------------------------------------------
+            # HOJA 4: INVENTARIO (HOJA MAESTRA CON FÓRMULAS)
+            # ----------------------------------------------------
+            ws_inv = wb.create_sheet(title="Inventario")
+            agregar_encabezado(ws_inv, "Catálogo General de Inventario y Valorización Formulado")
+            ws_inv.append([])
+            
+            headers_inv = [
+                "Código", "Nombre", "Categoría", "Ubicación", "Stock Inicial",
+                "Entradas", "Costo Entradas", "Salidas", "Ingresos por Salidas",
+                "Stock Actual", "Costo del Stock Actual", "Proyección Ingresos Stock Actual",
+                "Precio de Venta del Sistema", "Costo Unitario del Sistema",
+                "Ajustes Entradas", "Ajustes Salidas", "Costo Ajustes Entradas", "Ingresos Ajustes Salidas"
+            ]
+            ws_inv.append(headers_inv)
+
+            for idx, i in enumerate(raw_inv, start=6):
+                code = str(i.get("codigo_insumo", ""))
+                
+                # Datos estáticos base
+                ws_inv.cell(row=idx, column=1, value=code) # A
+                ws_inv.cell(row=idx, column=2, value=str(i.get("nombre", ""))) # B
+                ws_inv.cell(row=idx, column=3, value=str(i.get("categoria", ""))) # C
+                ws_inv.cell(row=idx, column=4, value=str(i.get("ubicacion") or "N/A")) # D
+                ws_inv.cell(row=idx, column=5, value=float(i.get("stock_inicial") or 0)) # E
+
+                # Fórmulas SUMIF sobre Compras y Ventas
+                ws_inv.cell(row=idx, column=6, value=f'=SUMIF(Compras!B:B, A{idx}, Compras!E:E)') # F: Entradas
+                ws_inv.cell(row=idx, column=7, value=f'=SUMIF(Compras!B:B, A{idx}, Compras!F:F)') # G: Costo Entradas
+                ws_inv.cell(row=idx, column=8, value=f'=SUMIF(Ventas!B:B, A{idx}, Ventas!E:E)') # H: Salidas
+                ws_inv.cell(row=idx, column=9, value=f'=SUMIF(Ventas!B:B, A{idx}, Ventas!F:F)') # I: Ingresos Salidas
+
+                # Precios/Costos Unitarios Maestros
+                ws_inv.cell(row=idx, column=13, value=float(i.get("precio_venta") or 0)) # M: Precio Venta
+                ws_inv.cell(row=idx, column=14, value=float(i.get("costo_unitario") or 0)) # N: Costo Unitario
+
+                # Fórmulas SUMIFS sobre Ajustes
+                ws_inv.cell(row=idx, column=15, value=f'=SUMIFS(Ajustes!E:E, Ajustes!B:B, A{idx}, Ajustes!D:D, "Entrada")') # O: Ajustes Entradas
+                ws_inv.cell(row=idx, column=16, value=f'=SUMIFS(Ajustes!E:E, Ajustes!B:B, A{idx}, Ajustes!D:D, "Salida")') # P: Ajustes Salidas
+
+                # Fórmulas de Totales en Inventario
+                ws_inv.cell(row=idx, column=10, value=f'=E{idx}+F{idx}-H{idx}+O{idx}-P{idx}') # J: Stock Actual
+                ws_inv.cell(row=idx, column=11, value=f'=J{idx}*N{idx}') # K: Costo Stock Actual
+                ws_inv.cell(row=idx, column=12, value=f'=J{idx}*M{idx}') # L: Proyección Ingresos
+                ws_inv.cell(row=idx, column=17, value=f'=O{idx}*N{idx}') # Q: Costo Ajustes Entradas
+                ws_inv.cell(row=idx, column=18, value=f'=P{idx}*M{idx}') # R: Ingresos Ajustes Salidas
+
+            # ----------------------------------------------------
+            # APLICAR FORMATOS Y AUTOFIT A TODAS LAS HOJAS
+            # ----------------------------------------------------
+            for sheet in wb.worksheets:
+                for cell in sheet[5]:
+                    cell.fill = fill_header
+                    cell.font = font_header
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+                for col in sheet.columns:
+                    max_len = 0
+                    col_letter = get_column_letter(col[0].column)
+                    for cell in col:
+                        if cell.row >= 5 and cell.value is not None:
+                            max_len = max(max_len, len(str(cell.value)))
+                            cell.border = border_thin
+
+                        # Formatear números en la hoja Inventario
+                        if sheet.title == "Inventario" and cell.row >= 6:
+                            if col_letter in ["G", "I", "K", "L", "M", "N", "Q", "R"]:
+                                cell.number_format = num_fmt_curr
+                            elif col_letter in ["E", "F", "H", "J", "O", "P"]:
+                                cell.number_format = num_fmt_qty
+                        elif sheet.title in ["Compras", "Ventas"] and cell.row >= 6:
+                            if col_letter == "F": cell.number_format = num_fmt_curr
+                            elif col_letter == "E": cell.number_format = num_fmt_qty
+
+                    sheet.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
+            wb.save(file_path)
+
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text("¡Consolidado Excel generado y formulado con éxito!"), bgcolor="green")
+                self.page.snack_bar.open = True
+                self.page.update()
+
+        except Exception as ex:
+            print(f"Error generando Excel: {ex}")
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error al generar Excel: {ex}"), bgcolor="red")
+                self.page.snack_bar.open = True
+                self.page.update()
