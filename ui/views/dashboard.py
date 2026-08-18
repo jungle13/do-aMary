@@ -137,9 +137,23 @@ class DashboardView(ft.Container):
             )
         ], spacing=15)
 
+        # Botón para copiar resumen al portapapeles
+        self.btn_copiar_resumen = ft.IconButton(
+            icon=ft.icons.COPY_ROUNDED,
+            icon_size=18,
+            icon_color=Config.COLOR_PRIMARY,
+            tooltip="Copiar Resumen Financiero al Portapapeles",
+            on_click=self.copiar_resumen_kpis
+        )
+        
+        header_kpis_row = ft.Row([
+            ft.Text("Resumen Financiero y Operativo", size=20, weight="bold", color=Config.COLOR_PRIMARY),
+            self.btn_copiar_resumen
+        ], tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
         # Ensamblaje del Layout
         self.seccion_kpis = ft.Column([
-            ft.Text("Resumen Financiero y Operativo", size=20, weight="bold", color=Config.COLOR_PRIMARY),
+            header_kpis_row,
             self.kpi_costos_row,
             self.kpi_ventas_row,
             self.kpi_secundarios
@@ -736,3 +750,43 @@ class DashboardView(ft.Container):
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.03, "black")),
             col={"sm": 12, "md": 6, "lg": 4}
         )
+
+    def copiar_resumen_kpis(self, e):
+        """
+        Construye un texto formateado con todos los indicadores actuales
+        del resumen financiero y lo guarda en el portapapeles del sistema.
+        """
+        periodo = self.lbl_periodo_dash.value.replace("Periodo: ", "").strip()
+        fecha_hora = self.lbl_fecha_hora.value
+        
+        texto_copia = (
+            f"📊 RESUMEN FINANCIERO Y OPERATIVO ({periodo.upper()})\n"
+            f"📅 Generado el: {fecha_hora}\n"
+            f"-----------------------------------------\n"
+            f"💰 COSTOS E INVENTARIO:\n"
+            f"  • Costo Inv. Actual: {self.val_inventario.value}\n"
+            f"  • Total Compras (Mes): {self.val_compras.value}\n"
+            f"  • Compras (Hoy): {self.val_compras_hoy.value}\n\n"
+            f"📈 VENTAS E INGRESOS:\n"
+            f"  • Total Ventas (Mes): {self.val_ingresos.value}\n"
+            f"  • Ventas (Hoy): {self.val_ventas_hoy.value}\n"
+            f"  • Margen Rentabilidad: {self.val_rentabilidad.value}\n\n"
+            f"🎯 OBJETIVOS Y PROYECCIONES:\n"
+            f"  • Proy. Ventas Stock: {self.val_proyeccion_ventas.value}\n"
+            f"  • Proy. Rentabilidad: {self.val_proyeccion_rentabilidad.value}\n"
+            f"  • Meta Venta Diaria: {self.val_meta_diaria.value}\n"
+            f"  • Rotación Global: {self.val_rotacion.value}\n"
+            f"-----------------------------------------"
+        )
+
+        if self.page:
+            self.page.set_clipboard(texto_copia)
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Row([
+                    ft.Icon(ft.icons.CHECK_CIRCLE, color="white", size=18),
+                    ft.Text("Resumen financiero copiado al portapapeles exitosamente", color="white")
+                ]),
+                bgcolor="green700"
+            )
+            self.page.snack_bar.open = True
+            self.safe_update()

@@ -311,16 +311,26 @@ class ComprasView(ft.Container):
 
         self.panel_compras_list = ft.ListView(expand=True, spacing=6)
 
+        # Botón para copiar histórico de compras
+        self.btn_copiar_compras_panel = ft.IconButton(
+            icon=ft.icons.COPY_ROUNDED,
+            icon_size=16,
+            icon_color=Config.COLOR_PRIMARY,
+            tooltip="Copiar Histórico de Compras al Portapapeles",
+            on_click=self.copiar_historial_compras
+        )
+
         self.right_panel = ft.Container(
             width=0, visible=False, bgcolor="white", border_radius=8,
             border=ft.border.all(1, "#e0e0e0"),
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color=ft.colors.with_opacity(0.05, "black")),
             animate=ft.animation.Animation(250, ft.AnimationCurve.EASE_OUT),
             content=ft.Column([
-                # Cabecera Panel
+                # Cabecera Panel con el botón de copiar
                 ft.Container(
                     content=ft.Row([
                         ft.Text("Histórico de Entradas", weight="bold", size=13, color=Config.COLOR_PRIMARY, expand=True),
+                        self.btn_copiar_compras_panel,
                         self.btn_fecha_compras_panel,
                         ft.IconButton(ft.icons.CLOSE, icon_size=16, on_click=self.toggle_right_panel)
                     ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -1403,3 +1413,55 @@ class ComprasView(ft.Container):
             barra_progreso.value = 1
             self.page.update()
             self._render_tabla_cargas()
+
+    def copiar_historial_compras(self, e):
+        """
+        Obtiene las compras del día agrupadas por proveedor y construye
+        un texto limpio formateado para el portapapeles del sistema.
+        """
+        if not self.page: return
+
+        def worker():
+            # Consultar desglose exacto por proveedor para la fecha activa
+            items_prov = self.db.get_historial_compras_dia(self.fecha_historial_activa, "PROVEEDOR")
+
+            tot_pesos = self.lbl_tot_compras_panel.value
+            tot_unds = self.lbl_cant_compras_panel.value
+
+            lineas_prov = []
+            for item in items_prov:
+                prov = item.get("proveedor", "Clientes Varios")
+                total = item.get("total", 0)
+                unds = item.get("unidades", 0)
+                fact_cant = item.get("facturas_cant", 1)
+                lineas_prov.append(f"  • {prov}: ${total:,.0f} COP ({unds:g} unds | {fact_cant} fact.)")
+
+            prov_text = "\n".join(lineas_prov) if lineas_prov else "  (Sin registros de proveedores)"
+
+            texto_copia = (
+                f"🛍️ HISTÓRICO DE ENTRADAS / COMPRAS\n"
+                f"📅 Fecha: {self.fecha_historial_activa}\n"
+                f"💵 Total Compras del Día: {tot_pesos} ({tot_unds})\n"
+                f"-----------------------------------------\n"
+                f"🏢 DESGLOSE POR PROVEEDOR:\n"
+                f"{prov_text}\n"
+                f"-----------------------------------------"
+            )
+
+            self.page.set_clipboard(texto_copia)
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Row([
+                    ft.Icon(ft.icons.CHECK_CIRCLE, color="white", size=18),
+                    ft.Text("Histórico de compras copiado al portapapeles exitosamente", color="white")
+                ]),
+                bgcolor="teal700"
+            )
+            self.page.snack_bar.open = True
+
+            if hasattr(self, "safe_update"):
+                self.safe_update()
+            else:
+                self.page.update()
+
+        import threading
+        threading.Thread(target=worker, daemon=True).start()

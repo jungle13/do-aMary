@@ -353,15 +353,26 @@ class VentasView(ft.Container):
 
         self.panel_ventas_list = ft.ListView(expand=True, spacing=6)
 
+        # Botón para copiar histórico de ventas
+        self.btn_copiar_ventas_panel = ft.IconButton(
+            icon=ft.icons.COPY_ROUNDED,
+            icon_size=16,
+            icon_color=Config.COLOR_PRIMARY,
+            tooltip="Copiar Histórico de Ventas al Portapapeles",
+            on_click=self.copiar_historial_ventas
+        )
+
         self.right_panel = ft.Container(
             width=0, visible=False, bgcolor="white", border_radius=8,
             border=ft.border.all(1, "#e0e0e0"),
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color=ft.colors.with_opacity(0.05, "black")),
             animate=ft.animation.Animation(250, ft.AnimationCurve.EASE_OUT),
             content=ft.Column([
+                # Cabecera Panel con el botón de copiar
                 ft.Container(
                     content=ft.Row([
                         ft.Text("Histórico de Ventas", weight="bold", size=13, color=Config.COLOR_PRIMARY, expand=True),
+                        self.btn_copiar_ventas_panel,
                         self.btn_fecha_ventas_panel,
                         ft.IconButton(ft.icons.CLOSE, icon_size=16, on_click=self.toggle_right_panel)
                     ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -1515,3 +1526,55 @@ class VentasView(ft.Container):
             barra_progreso.value = 1
             self.page.update()
             self._render_tabla_cargas()
+
+    def copiar_historial_ventas(self, e):
+        """
+        Obtiene las ventas del día agrupadas por categoría y construye
+        un texto formateado para el portapapeles del sistema.
+        """
+        if not self.page: return
+
+        def worker():
+            # Consultar desglose por categoría para la fecha activa
+            items_cat = self.db.get_historial_ventas_dia(self.fecha_historial_activa, "CATEGORIA")
+
+            tot_pesos = self.lbl_tot_ventas_panel.value
+            tot_unds = self.lbl_cant_ventas_panel.value
+
+            lineas_cat = []
+            for item in items_cat:
+                cat = item.get("categoria", "SIN CATEGORÍA")
+                total = item.get("total", 0)
+                unds = item.get("unidades", 0)
+                items_cant = item.get("items_count", 0)
+                lineas_cat.append(f"  • {cat}: ${total:,.0f} COP ({unds:g} unds | {items_cant} ítems)")
+
+            cat_text = "\n".join(lineas_cat) if lineas_cat else "  (Sin ventas registradas por categoría)"
+
+            texto_copia = (
+                f"📊 HISTÓRICO DE VENTAS / SALIDAS\n"
+                f"📅 Fecha: {self.fecha_historial_activa}\n"
+                f"💵 Total Ventas del Día: {tot_pesos} ({tot_unds})\n"
+                f"-----------------------------------------\n"
+                f"🏷️ DESGLOSE POR CATEGORÍA:\n"
+                f"{cat_text}\n"
+                f"-----------------------------------------"
+            )
+
+            self.page.set_clipboard(texto_copia)
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Row([
+                    ft.Icon(ft.icons.CHECK_CIRCLE, color="white", size=18),
+                    ft.Text("Histórico de ventas copiado al portapapeles exitosamente", color="white")
+                ]),
+                bgcolor="blue800"
+            )
+            self.page.snack_bar.open = True
+
+            if hasattr(self, "safe_update"):
+                self.safe_update()
+            else:
+                self.page.update()
+
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
