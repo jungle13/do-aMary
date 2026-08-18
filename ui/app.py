@@ -10,41 +10,51 @@ from ui.views.ajustes_inventario import AjustesInventarioView
 from ui.views.informes import InformesView
 
 class AppLayout(ft.Row):
-    def __init__(self, page: ft.Page):
+    def __init__(self, page: ft.Page, usuario_data=None, on_logout=None):
         super().__init__()
         self.page = page
+        self.usuario_data = usuario_data or {}
+        self.on_logout = on_logout
         self.expand = True
         self.spacing = 0
+
+        # Ruta por defecto
+        username = str(self.usuario_data.get("usuario", "")).lower()
+        rol = str(self.usuario_data.get("rol", "OPERADOR")).upper()
+        es_admin = username in ["eliana", "cesar", "mary"] or rol == "ADMINISTRADOR"
         
-        # Vistas cacheadas
-        self.views = {"dashboard": DashboardView()}
-        
-        # Contenedor principal de la vista activa
+        self.initial_route = "dashboard" if es_admin else "inventario"
+
+        # Instanciar vista inicial
+        self.views = {}
+        if self.initial_route == "dashboard":
+            self.views["dashboard"] = DashboardView()
+        else:
+            self.views["inventario"] = InventarioView()
+
         self.active_view = ft.Container(
-            content=self.views["dashboard"],
+            content=self.views[self.initial_route],
             expand=True,
             bgcolor="#F4F6F7",
             padding=15,
             alignment=ft.alignment.top_left
         )
-        
-        # Sidebar
-        self.sidebar = Sidebar(self.on_route_change)
-        
-        # Componentes del Row
+
+        self.sidebar = Sidebar(self.on_route_change, usuario_data=self.usuario_data, on_logout=self.on_logout)
+
         self.controls = [
             self.sidebar,
             self.active_view
         ]
-        
+
     def did_mount(self):
         # Actualizar estado activo en el sidebar para la vista inicial
         if hasattr(self.sidebar, "actualizar_estado_activo"):
-            self.sidebar.actualizar_estado_activo("dashboard")
+            self.sidebar.actualizar_estado_activo(self.initial_route)
             
         # Iniciar carga de datos
         def load_data_bg():
-            vista = self.views["dashboard"]
+            vista = self.views[self.initial_route]
             if hasattr(vista, 'load_data'):
                 try: vista.load_data()
                 except Exception as e: pass

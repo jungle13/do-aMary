@@ -1,9 +1,9 @@
 import flet as ft
 from ui.app import AppLayout
+from ui.views.login import LoginView
 from config import Config
 
 def main(page: ft.Page):
-    # Configuración de la página principal
     page.title = "Abarrotes y Desechables Doña Mary"
     page.padding = 0
     page.theme_mode = ft.ThemeMode.LIGHT
@@ -12,11 +12,7 @@ def main(page: ft.Page):
     page.window_min_width = 800
     page.window_min_height = 600
     page.window_maximized = True
-    page.fonts = {
-        "Inter": "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter%5Bslnt%2Cwght%5D.ttf"
-    }
-    
-    # Sistema de Diseño Responsivo y Tema Global
+
     page.theme = ft.Theme(
         font_family="Inter",
         color_scheme=ft.ColorScheme(
@@ -30,12 +26,26 @@ def main(page: ft.Page):
         visual_density=ft.ThemeVisualDensity.COMFORTABLE,
     )
 
-    # Inicializar el layout de la app
-    app_layout = AppLayout(page)
-    
-    # Agregar a la página
-    page.add(app_layout)
-    page.update()
+    def cerrar_sesion():
+        page.overlay.clear()  # Purga diálogos flotantes residuales
+        page.clean()
+        mostrar_login()
+
+    def on_login_success(usuario_data):
+        page.overlay.clear()  # Asegura que el modal de bienvenida sea destruido
+        page.clean()
+        # Instanciar el layout e iniciar la carga inmediata
+        app_layout = AppLayout(page, usuario_data=usuario_data, on_logout=cerrar_sesion)
+        page.add(app_layout)
+        page.update()
+
+    def mostrar_login():
+        login_view = LoginView(on_login_success=on_login_success)
+        page.add(login_view)
+        page.update()
+
+    # Iniciar en pantalla de Login
+    mostrar_login()
 
 if __name__ == "__main__":
     ft.app(target=main, assets_dir="assets")

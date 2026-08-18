@@ -157,10 +157,59 @@ class AjustesInventarioView(ft.Container):
                 self.lbl_valor_inv_modal.value = "Valor del Inv: $0"
             self.safe_update()
 
+        self.sug_list = ft.ListView(expand=True, spacing=0, height=150)
+        self.sug_container = ft.Container(
+            content=self.sug_list,
+            visible=False,
+            bgcolor="white",
+            border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.1, "black"))
+        )
+
+        def on_search_change(e):
+            query = e.control.value.lower()
+            self.sug_list.controls.clear()
+            if query:
+                for i in getattr(self, 'catalogo_cache', {}).values():
+                    texto_busqueda = f"[{i['codigo_insumo']}] {i['nombre']}"
+                    if query in texto_busqueda.lower():
+                        self.sug_list.controls.append(
+                            ft.ListTile(
+                                title=ft.Text(texto_busqueda, size=12),
+                                on_click=lambda e, code=i['codigo_insumo']: on_seleccionar_insumo_manual(code),
+                                dense=True,
+                            )
+                        )
+                self.sug_container.visible = len(self.sug_list.controls) > 0
+            else:
+                self.sug_container.visible = False
+            self.safe_update()
+
+        def on_seleccionar_insumo_manual(codigo):
+            self.form_codigo.value = codigo
+            self.buscar_detalle_insumo(None)
+            self.txt_buscador_insumo.value = f"[{codigo}] {self.catalogo_cache[codigo]['nombre']}"
+            self.sug_container.visible = False
+            self.safe_update()
+
         self.form_tipo_ajuste = ft.Dropdown(label="Tipo de Movimiento", options=[ft.dropdown.Option("ENTRADA"), ft.dropdown.Option("SALIDA")], dense=True, expand=True, border_radius=8, on_change=on_tipo_change)
 
-        self.form_codigo = ft.TextField(label="Código Insumo", width=120, dense=True, border_radius=8, on_blur=self.buscar_detalle_insumo)
-        self.form_nombre = ft.Text("Nombre del Insumo...", color="grey", italic=True, size=13)
+        self.form_codigo = ft.TextField(visible=False) # Guard de código en segundo plano
+
+        # Envolver en TextField embebido con diseño estilizado
+        self.txt_buscador_insumo = ft.TextField(
+            label="Buscar por Código o Nombre...",
+            prefix_icon=ft.icons.SEARCH_ROUNDED,
+            dense=True,
+            border_radius=8,
+            height=40,
+            text_size=12,
+            expand=True,
+            on_change=on_search_change
+        )
+
+        self.form_nombre = ft.Text("Selecciona o busca un insumo...", color="grey", italic=True, size=13)
         self.lbl_stock_actual = ft.Text("Stock Sist: 0", weight="bold", color=Config.COLOR_PRIMARY, size=12)
 
         self.form_motivo = ft.Dropdown(label="Motivo del Ajuste", dense=True, expand=True, border_radius=8)
@@ -175,25 +224,34 @@ class AjustesInventarioView(ft.Container):
         return ft.AlertDialog(
             title=ft.Text("Registrar Ajuste de Inventario"),
             content=ft.Container(
-                width=500,
+                width=520,
                 content=ft.Column([
-                    ft.Row([
-                        self.form_codigo, 
-                        ft.Container(
-                            content=ft.Row([
-                                ft.Icon(ft.icons.INVENTORY_2, size=16, color="grey"),
-                                ft.Column([self.form_nombre, self.lbl_stock_actual], spacing=0, expand=True)
-                            ]), 
-                            expand=True, padding=10, bgcolor="#f5f5f5", border_radius=8
-                        )
-                    ]),
+                    # Buscador Inteligente
+                    ft.Column([
+                        ft.Row([self.txt_buscador_insumo]),
+                        self.sug_container
+                    ], spacing=0),
+                    # Tarjeta de Insumo Seleccionado
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.icons.INVENTORY_2, size=18, color=Config.COLOR_PRIMARY),
+                            ft.Column([
+                                self.form_nombre,
+                                self.lbl_stock_actual
+                            ], spacing=1, expand=True)
+                        ]), 
+                        padding=10, 
+                        bgcolor="#f8f9fa", 
+                        border_radius=8,
+                        border=ft.border.all(1, "#e0e0e0")
+                    ),
                     ft.Row([self.form_tipo_ajuste, self.form_motivo]),
                     ft.Row([
                         self.form_cant, 
                         ft.Column([self.form_costo, self.lbl_valor_inv_modal], expand=True, spacing=2)
                     ]),
                     ft.Row([self.form_obs])
-                ], tight=True, spacing=15)
+                ], tight=True, spacing=12)
             ),
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda e: self.cerrar_modal()),
@@ -270,7 +328,11 @@ class AjustesInventarioView(ft.Container):
     def abrir_modal_ajuste(self):
         self.modal_ajuste.title.value = "Registrar Ajuste de Inventario"
         
-        # Limpiar valores y errores visuales
+        # Cargar catálogo para sugerencias inteligentes
+        insumos, _ = self.db.get_insumos(page=1, page_size=99999)
+        self.catalogo_cache = {i["codigo_insumo"]: i for i in insumos}
+
+        # Limpiar valores del formulario
         self.form_tipo_ajuste.value = None
         self.form_tipo_ajuste.error_text = None
         
@@ -281,7 +343,7 @@ class AjustesInventarioView(ft.Container):
         self.form_codigo.value = ""
         self.form_codigo.error_text = None
         
-        self.form_nombre.value = "Nombre del Insumo..."
+        self.form_nombre.value = "Selecciona o busca un insumo..."
         self.form_nombre.color = "grey"
         
         self.form_cant.value = ""
@@ -293,8 +355,11 @@ class AjustesInventarioView(ft.Container):
         self.form_obs.value = ""
         self.form_obs.error_text = None
         
+        self.txt_buscador_insumo.value = ""
+        
         self.modal_ajuste.open = True
-        self.page.update()
+        if self.page:
+            self.page.update()
 
     def cerrar_modal(self):
         self.modal_ajuste.open = False

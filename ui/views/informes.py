@@ -59,8 +59,38 @@ class InformesView(ft.Container):
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
         )
         
-        self.btn_pdf = ft.OutlinedButton("Exportar a PDF", icon=ft.icons.PICTURE_AS_PDF, icon_color="red", on_click=self.exportar_pdf)
-        self.btn_excel = ft.OutlinedButton("Exportar a Excel", icon=ft.icons.TABLE_VIEW, icon_color="green", on_click=self.exportar_excel)
+        self.btn_pdf = ft.OutlinedButton(
+            "Exportar a PDF", 
+            icon=ft.icons.PICTURE_AS_PDF, 
+            icon_color="red", 
+            on_click=self.exportar_pdf,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+        
+        self.btn_excel = ft.OutlinedButton(
+            "Exportar a Excel", 
+            icon=ft.icons.TABLE_VIEW, 
+            icon_color="green", 
+            on_click=self.exportar_excel,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+        
+        # Tarjeta informativa corta para la exportación a Excel
+        info_excel_box = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.INFO_OUTLINED, size=15, color="blue700"),
+                ft.Text(
+                    "Excel genera el consolidado general completo (Inventario, Compras, Ventas y Ajustes) acumulado a la fecha, sin aplicar los filtros seleccionados.",
+                    size=10,
+                    color="blue900",
+                    expand=True
+                )
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
+            padding=8,
+            bgcolor="#e3f2fd",
+            border_radius=6,
+            border=ft.border.all(1, "#bbdefb")
+        )
         
         panel_controles = ft.Container(
             content=ft.Column([
@@ -72,12 +102,14 @@ class InformesView(ft.Container):
                 self.opcion_detalle,
                 ft.Container(height=10),
                 self.btn_generar,
-                ft.Divider(height=20, color="transparent"),
+                ft.Divider(height=15, color="transparent"),
                 ft.Text("Exportación", weight="bold", color=Config.COLOR_PRIMARY),
                 ft.Divider(height=1, color="#eeeeee"),
                 self.btn_pdf,
+                ft.Divider(height=8, color="#f0f0f0"), # Separador suave entre PDF y Excel
+                info_excel_box,
                 self.btn_excel
-            ], spacing=15),
+            ], spacing=12),
             bgcolor="white", padding=20, border_radius=8, width=300,
             border=ft.border.all(1, "#e0e0e0"),
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))
@@ -121,10 +153,12 @@ class InformesView(ft.Container):
         ], expand=True, spacing=20, vertical_alignment=ft.CrossAxisAlignment.START)
 
     def did_mount(self):
-        if self.save_pdf_picker not in self.page.overlay:
-            self.page.overlay.append(self.save_pdf_picker)
-        if self.save_excel_picker not in self.page.overlay:
-            self.page.overlay.append(self.save_excel_picker)
+        if self.page:
+            if self.save_pdf_picker not in self.page.overlay:
+                self.page.overlay.append(self.save_pdf_picker)
+            if self.save_excel_picker not in self.page.overlay:
+                self.page.overlay.append(self.save_excel_picker)
+            self.page.update()
 
     def generar_informe(self, e):
         self.doc_cuerpo.controls.clear()
@@ -523,6 +557,12 @@ class InformesView(ft.Container):
             self.page.update()
             return
 
+        # Garantizar registración en overlay antes de invocar el diálogo
+        if self.page:
+            if self.save_pdf_picker not in self.page.overlay:
+                self.page.overlay.append(self.save_pdf_picker)
+                self.page.update()
+
         nombre_sugerido = f"{self.drop_tipo_informe.value.replace(' ', '_')}_{datetime.date.today().strftime('%Y%m%d')}.pdf"
         self.save_pdf_picker.save_file(
             dialog_title="Guardar Informe PDF",
@@ -656,6 +696,12 @@ class InformesView(ft.Container):
             self.page.update()
 
     def exportar_excel(self, e):
+        # Garantizar registración en overlay antes de invocar el diálogo
+        if self.page:
+            if self.save_excel_picker not in self.page.overlay:
+                self.page.overlay.append(self.save_excel_picker)
+                self.page.update()
+
         nombre_sugerido = f"Inventario_Consolidado_Dona_Mary_{datetime.date.today().strftime('%Y%m%d')}.xlsx"
         self.save_excel_picker.save_file(
             dialog_title="Guardar Consolidado Excel",

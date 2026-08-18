@@ -3623,8 +3623,247 @@
             "tipo": "Remisi\u00f3n",
             "fecha": "2026-08-17",
             "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_13.pdf",
-            "estado": "Fall\u00f3",
-            "datos_extraidos": []
+            "estado": "Procesado con \u00e9xito",
+            "datos_extraidos": [
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37973",
+                    "productos": [
+                        {
+                            "cantidad": 200,
+                            "codigo_item": "2278",
+                            "costo_total": 92000,
+                            "iva": 14689,
+                            "subtotal": 77311
+                        }
+                    ]
+                },
+                {
+                    "fecha": "05/08/2026",
+                    "numero_factura": "37974",
+                    "productos": [
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "1338",
+                            "costo_total": 71200,
+                            "iva": 11368,
+                            "subtotal": 59832
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1503",
+                            "costo_total": 13500,
+                            "iva": 2155,
+                            "subtotal": 11345
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0725",
+                            "costo_total": 11000,
+                            "iva": 1756,
+                            "subtotal": 9244
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0484",
+                            "costo_total": 21400,
+                            "iva": 3417,
+                            "subtotal": 17983
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0307",
+                            "costo_total": 16000,
+                            "iva": 2555,
+                            "subtotal": 13445
+                        }
+                    ]
+                },
+                {
+                    "fecha": "05/08/2026",
+                    "numero_factura": "37975",
+                    "productos": [
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "1722",
+                            "costo_total": 22500,
+                            "iva": 3592,
+                            "subtotal": 18908
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "4127",
+                            "costo_total": 28000,
+                            "iva": 4471,
+                            "subtotal": 23529
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "1004",
+                            "costo_total": 53500,
+                            "iva": 8542,
+                            "subtotal": 44958
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "1005",
+                            "costo_total": 47500,
+                            "iva": 7584,
+                            "subtotal": 39916
+                        },
+                        {
+                            "cantidad": 15,
+                            "codigo_item": "0644",
+                            "costo_total": 54495,
+                            "iva": 8701,
+                            "subtotal": 45794
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "0024",
+                            "costo_total": 94000,
+                            "iva": 15008,
+                            "subtotal": 78992
+                        }
+                    ]
+                },
+                {
+                    "fecha": "05/08/2026",
+                    "numero_factura": "37976",
+                    "productos": [
+                        {
+                            "cantidad": 200,
+                            "codigo_item": "0570",
+                            "costo_total": 82800,
+                            "iva": 13220,
+                            "subtotal": 69580
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0629",
+                            "costo_total": 18650,
+                            "iva": 2978,
+                            "subtotal": 15672
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1770",
+                            "costo_total": 23500,
+                            "iva": 3752,
+                            "subtotal": 19748
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0074",
+                            "costo_total": 17250,
+                            "iva": 2754,
+                            "subtotal": 14496
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1004",
+                            "costo_total": 10900,
+                            "iva": 1740,
+                            "subtotal": 9160
+                        },
+                        {
+                            "cantidad": 50,
+                            "codigo_item": "4860",
+                            "costo_total": 26500,
+                            "iva": 4231,
+                            "subtotal": 22269
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0670",
+                            "costo_total": 4850,
+                            "iva": 774,
+                            "subtotal": 4076
+                        }
+                    ]
+                },
+                {
+                    "fecha": "05/08/2026",
+                    "numero_factura": "37977",
+                    "productos": [
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0463",
+                            "costo_total": 119000,
+                            "iva": 19000,
+                            "subtotal": 100000
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0460",
+                            "costo_total": 31000,
+                            "iva": 4950,
+                            "subtotal": 26050
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0457",
+                            "costo_total": 44500,
+                            "iva": 7105,
+                            "subtotal": 37395
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0458",
+                            "costo_total": 52500,
+                            "iva": 8382,
+                            "subtotal": 44118
+                        }
+                    ]
+                },
+                {
+                    "fecha": "05/08/2026",
+                    "numero_factura": "37978",
+                    "productos": [
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "7589",
+                            "costo_total": 13500,
+                            "iva": 2155,
+                            "subtotal": 11345
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "1180",
+                            "costo_total": 34620,
+                            "iva": 5528,
+                            "subtotal": 29092
+                        },
+                        {
+                            "cantidad": 15,
+                            "codigo_item": "0342",
+                            "costo_total": 17700,
+                            "iva": 2826,
+                            "subtotal": 14874
+                        },
+                        {
+                            "cantidad": 15,
+                            "codigo_item": "0644",
+                            "costo_total": 54500,
+                            "iva": 8702,
+                            "subtotal": 45798
+                        }
+                    ]
+                },
+                {
+                    "fecha": "05/08/2026",
+                    "numero_factura": "37979",
+                    "productos": [
+                        {
+                            "cantidad": 15,
+                            "codigo_item": "4902",
+                            "costo_total": 96000,
+                            "iva": 15328,
+                            "subtotal": 80672
+                        }
+                    ]
+                }
+            ]
         },
         "14": {
             "id": 16,

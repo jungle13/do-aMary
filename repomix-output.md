@@ -58,6 +58,7 @@ ui/
     dashboard.py
     informes.py
     inventario.py
+    login.py
     ventas.py
   app.py
 .gitignore
@@ -71,6 +72,195 @@ supabase_schema.sql
 ````
 
 # Files
+
+## File: ui/views/login.py
+````python
+import flet as ft
+from config import Config
+from core.supabase_client import SupabaseClient
+import time
+import threading
+
+class LoginView(ft.Container):
+    def __init__(self, on_login_success):
+        super().__init__()
+        self.on_login_success = on_login_success
+        self.db = SupabaseClient()
+        self.expand = True
+        self.alignment = ft.alignment.center
+        
+        # Fondo Azul Oscuro Institucional
+        self.bgcolor = Config.COLOR_PRIMARY
+
+        # Campos de texto estilizados
+        self.txt_usuario = ft.TextField(
+            label="Usuario",
+            prefix_icon=ft.icons.PERSON_OUTLINED,
+            border_radius=10,
+            height=45,
+            dense=True,
+            text_size=13,
+            bgcolor="#f8f9fa",
+            border_color="#e0e0e0",
+            focused_border_color=Config.COLOR_PRIMARY,
+            focused_bgcolor="white"
+        )
+        self.txt_clave = ft.TextField(
+            label="Contraseña",
+            prefix_icon=ft.icons.LOCK_OUTLINED,
+            password=True,
+            can_reveal_password=True,
+            border_radius=10,
+            height=45,
+            dense=True,
+            text_size=13,
+            bgcolor="#f8f9fa",
+            border_color="#e0e0e0",
+            focused_border_color=Config.COLOR_PRIMARY,
+            focused_bgcolor="white",
+            on_submit=self.autenticar
+        )
+        self.lbl_error = ft.Text("", color="red700", size=12, visible=False, weight="bold")
+        self.progress = ft.ProgressBar(width=300, color=Config.COLOR_PRIMARY, visible=False)
+
+        self.btn_ingresar = ft.ElevatedButton(
+            "Iniciar Sesión",
+            icon=ft.icons.LOGIN_ROUNDED,
+            bgcolor=Config.COLOR_PRIMARY,
+            color="white",
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=10),
+                elevation=2
+            ),
+            width=300,
+            height=45,
+            on_click=self.autenticar
+        )
+
+        # Pie de página solicitado
+        self.lbl_creditos = ft.Text(
+            "Elaborado por Eliana Garces 2026",
+            size=11,
+            color="grey600",
+            italic=True,
+            text_align=ft.TextAlign.CENTER
+        )
+
+        # Panel Flotante Blanco Centrado
+        card_content = ft.Container(
+            width=380,
+            padding=35,
+            bgcolor="white",
+            border_radius=16,
+            shadow=ft.BoxShadow(
+                spread_radius=2,
+                blur_radius=20,
+                color=ft.colors.with_opacity(0.3, "black"),
+                offset=ft.Offset(0, 8)
+            ),
+            content=ft.Column([
+                ft.Container(
+                    content=ft.Icon(ft.icons.STOREFRONT_ROUNDED, size=44, color=Config.COLOR_PRIMARY),
+                    padding=12,
+                    bgcolor=ft.colors.with_opacity(0.08, Config.COLOR_PRIMARY),
+                    border_radius=50
+                ),
+                ft.Text("Abarrotes Doña Mary", size=22, weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Text("Ingreso al Sistema", size=13, color="grey600"),
+                ft.Divider(height=10, color="transparent"),
+                self.txt_usuario,
+                self.txt_clave,
+                self.lbl_error,
+                self.progress,
+                ft.Container(height=5),
+                self.btn_ingresar,
+                ft.Divider(height=10, color="transparent"),
+                self.lbl_creditos
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12)
+        )
+
+        self.content = card_content
+
+    def autenticar(self, e):
+        user = self.txt_usuario.value.strip().lower()
+        pwd = self.txt_clave.value.strip()
+
+        if not user or not pwd:
+            self.lbl_error.value = "Por favor ingresa usuario y contraseña."
+            self.lbl_error.visible = True
+            self.update()
+            return
+
+        self.progress.visible = True
+        self.btn_ingresar.disabled = True
+        self.lbl_error.visible = False
+        self.update()
+
+        threading.Thread(target=self._worker_autenticar, args=(user, pwd), daemon=True).start()
+
+    def _worker_autenticar(self, user, pwd):
+        try:
+            url = f"{self.db.url}/usuarios?usuario=eq.{user}&clave=eq.{pwd}&activo=eq.true"
+            res = self.db.session.get(url, headers=self.db.headers, timeout=5)
+
+            if res.status_code == 200 and len(res.json()) > 0:
+                datos_usuario = res.json()[0]
+                
+                # Mostrar Modal de Bienvenida Estético
+                self._mostrar_modal_bienvenida_y_precargar(datos_usuario)
+            else:
+                self.lbl_error.value = "Credenciales incorrectas o usuario inactivo."
+                self.lbl_error.visible = True
+                self.progress.visible = False
+                self.btn_ingresar.disabled = False
+                if self.page:
+                    self.page.update()
+        except Exception as ex:
+            self.lbl_error.value = f"Error de conexión: {ex}"
+            self.lbl_error.visible = True
+            self.progress.visible = False
+            self.btn_ingresar.disabled = False
+            if self.page:
+                self.page.update()
+
+    def _mostrar_modal_bienvenida_y_precargar(self, datos_usuario):
+        nombre_completo = datos_usuario.get("nombre_completo") or datos_usuario.get("usuario") or "Usuario"
+        primer_nombre = nombre_completo.split()[0]
+
+        # Modal Estético
+        dlg_bienvenida = ft.AlertDialog(
+            modal=True,
+            content=ft.Container(
+                width=320,
+                padding=20,
+                content=ft.Column([
+                    ft.Icon(ft.icons.WAVING_HAND_ROUNDED, size=40, color="orange700"),
+                    ft.Text(f"¡Bienvenido, {primer_nombre}!", size=18, weight="bold", color=Config.COLOR_PRIMARY, text_align=ft.TextAlign.CENTER),
+                    ft.Text("Accediendo al sistema...", size=12, color="grey"),
+                    ft.Container(height=10),
+                    ft.ProgressRing(width=24, height=24, color=Config.COLOR_PRIMARY, stroke_width=2.5)
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True, spacing=10)
+            )
+        )
+
+        if self.page:
+            self.page.overlay.append(dlg_bienvenida)
+            dlg_bienvenida.open = True
+            self.page.update()
+
+        # Tiempo en pantalla del mensaje de bienvenida
+        time.sleep(2.0)
+
+        # Cierre explícito y remoción limpia de la capa overlay
+        if self.page:
+            dlg_bienvenida.open = False
+            if dlg_bienvenida in self.page.overlay:
+                self.page.overlay.remove(dlg_bienvenida)
+            self.page.update()
+
+        # Notificar cambio a la pantalla principal
+        self.on_login_success(datos_usuario)
+````
 
 ## File: core/excel_manager.py
 ````python
@@ -838,10 +1028,10 @@ class Config:
 ````python
 import flet as ft
 from ui.app import AppLayout
+from ui.views.login import LoginView
 from config import Config
 
 def main(page: ft.Page):
-    # Configuración de la página principal
     page.title = "Abarrotes y Desechables Doña Mary"
     page.padding = 0
     page.theme_mode = ft.ThemeMode.LIGHT
@@ -850,11 +1040,7 @@ def main(page: ft.Page):
     page.window_min_width = 800
     page.window_min_height = 600
     page.window_maximized = True
-    page.fonts = {
-        "Inter": "https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter%5Bslnt%2Cwght%5D.ttf"
-    }
-    
-    # Sistema de Diseño Responsivo y Tema Global
+
     page.theme = ft.Theme(
         font_family="Inter",
         color_scheme=ft.ColorScheme(
@@ -868,12 +1054,26 @@ def main(page: ft.Page):
         visual_density=ft.ThemeVisualDensity.COMFORTABLE,
     )
 
-    # Inicializar el layout de la app
-    app_layout = AppLayout(page)
-    
-    # Agregar a la página
-    page.add(app_layout)
-    page.update()
+    def cerrar_sesion():
+        page.overlay.clear()  # Purga diálogos flotantes residuales
+        page.clean()
+        mostrar_login()
+
+    def on_login_success(usuario_data):
+        page.overlay.clear()  # Asegura que el modal de bienvenida sea destruido
+        page.clean()
+        # Instanciar el layout e iniciar la carga inmediata
+        app_layout = AppLayout(page, usuario_data=usuario_data, on_logout=cerrar_sesion)
+        page.add(app_layout)
+        page.update()
+
+    def mostrar_login():
+        login_view = LoginView(on_login_success=on_login_success)
+        page.add(login_view)
+        page.update()
+
+    # Iniciar en pantalla de Login
+    mostrar_login()
 
 if __name__ == "__main__":
     ft.app(target=main, assets_dir="assets")
@@ -2473,745 +2673,253 @@ class AjustesInventarioView(ft.Container):
             self.page.update()
 ````
 
-## File: ui/views/dashboard.py
+## File: ui/app.py
 ````python
 import flet as ft
 import threading
-from config import Config
-from core.supabase_client import SupabaseClient
-import datetime
+from ui.layout.sidebar import Sidebar
+from ui.views.dashboard import DashboardView
+from ui.views.inventario import InventarioView
+from ui.views.compras import ComprasView
+from ui.views.ventas import VentasView
+from ui.views.cierre_inventario import CierreInventarioView
+from ui.views.ajustes_inventario import AjustesInventarioView
+from ui.views.informes import InformesView
 
-class DashboardView(ft.Container):
-    def __init__(self):
+class AppLayout(ft.Row):
+    def __init__(self, page: ft.Page, usuario_data=None, on_logout=None):
         super().__init__()
+        self.page = page
+        self.usuario_data = usuario_data or {}
+        self.on_logout = on_logout
         self.expand = True
-        self.db = SupabaseClient()
+        self.spacing = 0
+
+        # Ruta por defecto
+        username = str(self.usuario_data.get("usuario", "")).lower()
+        rol = str(self.usuario_data.get("rol", "OPERADOR")).upper()
+        es_admin = username in ["eliana", "cesar", "mary"] or rol == "ADMINISTRADOR"
         
-        self.lbl_periodo_dash = ft.Text("Periodo: ...", size=13, weight="bold", color=Config.COLOR_PRIMARY)
-        self.lbl_estado_dash = ft.Text("Estado: ...", size=13, weight="bold")
-        self.lbl_fecha_hora = ft.Text("...", size=12, color="grey")
+        self.initial_route = "dashboard" if es_admin else "inventario"
 
-        self.fecha_filtro_dash = None
-        self.date_picker_dash = ft.DatePicker(on_change=self.on_fecha_dash_change)
+        # Instanciar vista inicial
+        self.views = {}
+        if self.initial_route == "dashboard":
+            self.views["dashboard"] = DashboardView()
+        else:
+            self.views["inventario"] = InventarioView()
 
-        self.btn_fecha_dash = ft.OutlinedButton(
-            text=f"Fecha: {datetime.date.today().strftime('%d/%m/%Y')}",
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=lambda e: self.date_picker_dash.pick_date(),
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=38
-        )
-        self.btn_clear_fecha_dash = ft.IconButton(
-            icon=ft.icons.CLEAR, icon_color="red", tooltip="Restablecer a Hoy",
-            visible=False, on_click=self.limpiar_filtro_fecha_dash
-        )
-
-        badge_info = ft.Container(
-            content=ft.Row([
-                ft.Column([
-                    ft.Row([self.lbl_periodo_dash, ft.Text("|", color="grey", size=13), self.lbl_estado_dash], spacing=5),
-                    ft.Row([ft.Icon(ft.icons.ACCESS_TIME, size=14, color="grey"), self.lbl_fecha_hora], spacing=5)
-                ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=2),
-                ft.Container(width=10),
-                self.btn_fecha_dash,
-                self.btn_clear_fecha_dash
-            ], alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=ft.padding.symmetric(horizontal=15, vertical=10),
-            bgcolor="white",
-            border_radius=8,
-            border=ft.border.all(1, "#e0e0e0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-        )
-
-        header_row = ft.Row([
-            ft.Column([
-                ft.Text("Dashboard General", size=28, weight="bold", color=Config.COLOR_PRIMARY),
-                ft.Text("Resumen ejecutivo del sistema", size=14, color="grey"),
-            ], spacing=2),
-            badge_info
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-        
-        # Tarjetas de KPIs (Valores Iniciales) - SECCIÓN COSTOS
-        self.val_inventario = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_compras = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_rotacion = ft.Text("N/D", size=14, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_compras_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        
-        # SECCIÓN VENTAS
-        self.val_ingresos = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_ventas_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
-        self.val_proyeccion_ventas = ft.Text("$ 0", size=14, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_proyeccion_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
-        
-        self.kpi_costos_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("Costo Inv. Actual", self.val_inventario, ft.icons.INVENTORY_2), col={"xs": 12, "sm": 6, "md": 4}),
-            ft.Container(content=self._build_kpi_card("Total Compras (Mes)", self.val_compras, ft.icons.SHOPPING_BAG), col={"xs": 12, "sm": 6, "md": 4}),
-            ft.Container(content=self._build_kpi_card("Compras (Hoy)", self.val_compras_hoy, ft.icons.MONEY_OFF), col={"xs": 12, "sm": 6, "md": 4}),
-        ], spacing=10, run_spacing=10)
-
-        self.kpi_ventas_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("Total Ventas (Mes)", self.val_ingresos, ft.icons.TRENDING_UP), col={"xs": 12, "sm": 6, "md": 6}),
-            ft.Container(content=self._build_kpi_card("Ventas (Hoy)", self.val_ventas_hoy, ft.icons.ATTACH_MONEY), col={"xs": 12, "sm": 6, "md": 6}),
-        ], spacing=10, run_spacing=10)
-        
-        # Paso 3: Crear la Barra de Métricas Secundarias
-        self.val_meta_diaria = ft.Text("$ 0 / día", size=13, weight="bold", color="teal700")
-
-        self.kpi_secundarios = ft.Container(
-            content=ft.Row([
-                ft.Text("Objetivo Comercial:", weight="bold", color=Config.COLOR_PRIMARY, size=12),
-                ft.Text("Proy. Ventas Stock:", size=12, color="grey"), self.val_proyeccion_ventas,
-                ft.Text(" | Proy. Rentabilidad:", size=12, color="grey"), self.val_proyeccion_rentabilidad,
-                ft.Container(width=1, height=20, bgcolor="#d0d0d0", margin=ft.padding.symmetric(horizontal=8)),
-                ft.Icon(ft.icons.FLAG, size=16, color="teal700"),
-                ft.Text("Meta Venta Diaria:", weight="bold", size=12, color="grey"), self.val_meta_diaria,
-                ft.Container(expand=True),
-                ft.Text("Rotación Global:", size=12, color="grey"), self.val_rotacion,
-            ], spacing=5, alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=ft.padding.symmetric(horizontal=15, vertical=10),
-            bgcolor="#f0f4f8", border_radius=8, border=ft.border.all(1, "#d0d7de")
-        )
-
-        # SECCIÓN AJUSTES
-        self.col_ajustes_salida = ft.Column(spacing=5)
-        self.col_ajustes_entrada = ft.Column(spacing=5)
-        
-        self.lbl_neto_ajustes_header = ft.Text("NETO: $0", weight="bold", size=16)
-        header_ajustes = ft.Row([
-            ft.Text("Impacto de Ajustes de Inventario (Mes Actual)", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-            self.lbl_neto_ajustes_header
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-
-        self.panel_ajustes = ft.Row([
-            # Panel Salida
-            ft.Container(
-                content=ft.Column([
-                    ft.Text("Ajustes de Salida (-)", size=16, weight="bold", color="red"),
-                    ft.Divider(height=1),
-                    self.col_ajustes_salida
-                ]),
-                bgcolor="white",
-                padding=15,
-                border_radius=8,
-                expand=True,
-                border=ft.border.all(1, "#f0f0f0"),
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-            ),
-            # Panel Entrada
-            ft.Container(
-                content=ft.Column([
-                    ft.Text("Ajustes de Entrada (+)", size=16, weight="bold", color="green"),
-                    ft.Divider(height=1),
-                    self.col_ajustes_entrada
-                ]),
-                bgcolor="white",
-                padding=15,
-                border_radius=8,
-                expand=True,
-                border=ft.border.all(1, "#f0f0f0"),
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-            )
-        ], spacing=15)
-
-        # Ensamblaje del Layout
-        self.seccion_kpis = ft.Column([
-            ft.Text("Resumen Financiero y Operativo", size=20, weight="bold", color=Config.COLOR_PRIMARY),
-            self.kpi_costos_row,
-            self.kpi_ventas_row,
-            self.kpi_secundarios
-        ], spacing=10)
-
-        self.seccion_ajustes = ft.Column([
-            header_ajustes,
-            self.panel_ajustes
-        ], spacing=10)
-
-        # Gráficos y Tablas
-        # Series de datos (Grosor y puntas redondeadas)
-        self.chart_ventas = ft.LineChartData(
-            data_points=[], 
-            color=ft.colors.BLUE_400,
-            stroke_width=4, 
-            curved=False,
-            stroke_cap_round=True,
-            below_line_bgcolor=ft.colors.with_opacity(0.1, ft.colors.BLUE_400)
-        )
-        self.chart_compras = ft.LineChartData(
-            data_points=[], 
-            color="#2ecca0", 
-            stroke_width=4, 
-            curved=False,
-            stroke_cap_round=True,
-            below_line_bgcolor=ft.colors.with_opacity(0.1, "#2ecca0")
-        )
-        
-        # Contenedor de Categorías (Grilla Responsiva)
-        self.categorias_row = ft.ResponsiveRow(columns=12, spacing=15, run_spacing=15)
-        self.categorias_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Rendimiento Detallado por Categoría", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                self.categorias_row
-            ]),
-            margin=ft.padding.only(top=10, bottom=10)
-        )
-
-        # Gráfico habilitando los ejes visuales
-        self.line_chart = ft.LineChart(
-            data_series=[self.chart_ventas, self.chart_compras],
-            border=ft.border.all(1, "#f0f0f0"),
-            min_y=0,
-            min_x=0,
+        self.active_view = ft.Container(
+            content=self.views[self.initial_route],
             expand=True,
-            tooltip_bgcolor="white",
-            left_axis=ft.ChartAxis(labels_size=50), 
-            bottom_axis=ft.ChartAxis(labels_size=40), 
-        )
-        
-        # Leyenda adaptada a fondo claro
-        leyenda = ft.Row([
-            ft.Row([ft.Container(width=12, height=12, bgcolor=ft.colors.BLUE_400, border_radius=6), ft.Text("Ingresos", size=12, weight="bold", color="black87")]),
-            ft.Row([ft.Container(width=12, height=12, bgcolor="#2ecca0", border_radius=6), ft.Text("Costos", size=12, weight="bold", color="black87")]),
-        ], spacing=30, alignment=ft.MainAxisAlignment.CENTER)
-        
-        self.chart_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Tendencia Diaria: Ingresos vs Costo de Ventas", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                leyenda,
-                ft.Container(content=self.line_chart, height=320, margin=ft.padding.only(top=10))
-            ]),
-            bgcolor="white",
-            padding=20,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-        )
-        
-        # Tables
-        self.dt_ventas = ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Código", size=12)),
-                ft.DataColumn(ft.Text("Producto", size=12)),
-                ft.DataColumn(ft.Text("Unidades", size=12), numeric=True),
-                ft.DataColumn(ft.Text("Ingreso Total", size=12), numeric=True)
-            ],
-            rows=[],
-            data_row_min_height=30,
-            data_row_max_height=30,
-            heading_row_height=40,
-            column_spacing=15,
-        )
-        
-        self.dt_costos = ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Código", size=12)),
-                ft.DataColumn(ft.Text("Producto", size=12)),
-                ft.DataColumn(ft.Text("Valor Inv.", size=12), numeric=True),
-                ft.DataColumn(ft.Text("Rotación", size=12))
-            ],
-            rows=[],
-            data_row_min_height=30,
-            data_row_max_height=30,
-            heading_row_height=40,
-            column_spacing=15,
-        )
-        
-        table_ventas_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Top 10 Productos con Mayor Ingreso", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                self.dt_ventas
-            ], scroll=ft.ScrollMode.AUTO),
-            bgcolor="white",
+            bgcolor="#F4F6F7",
             padding=15,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
-            col={"xs": 12, "md": 6}
+            alignment=ft.alignment.top_left
         )
-        
-        table_costos_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Top 10 Productos con Mayor Costo", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                self.dt_costos
-            ], scroll=ft.ScrollMode.AUTO),
-            bgcolor="white",
-            padding=15,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
-            col={"xs": 12, "md": 6}
-        )
-        
-        self.tables_row = ft.ResponsiveRow([
-            table_ventas_container,
-            table_costos_container
-        ], spacing=15, run_spacing=15)
-        
-        # Indicador de carga superior
-        self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
 
-        # 2. Main content Column
-        self.content = ft.Column([
-            self.progress_bar, 
-            header_row,
-            ft.Divider(height=10, color="transparent"),
-            self.seccion_kpis,
-            ft.Divider(height=10, color="transparent"),
-            self.seccion_ajustes,
-            ft.Divider(height=10, color="transparent"),
-            self.categorias_container,
-            ft.Divider(height=10, color="transparent"),
-            self.chart_container,
-            ft.Divider(height=10, color="transparent"),
-            self.tables_row,
-            ft.Container(height=30) # Bottom padding
-        ], scroll=ft.ScrollMode.AUTO, expand=True)
+        self.sidebar = Sidebar(self.on_route_change, usuario_data=self.usuario_data, on_logout=self.on_logout)
+
+        self.controls = [
+            self.sidebar,
+            self.active_view
+        ]
 
     def did_mount(self):
-        if not hasattr(self, "overlay_added"):
-            self.page.overlay.append(self.date_picker_dash)
-            self.overlay_added = True
-        self.load_data()
+        # Actualizar estado activo en el sidebar para la vista inicial
+        if hasattr(self.sidebar, "actualizar_estado_activo"):
+            self.sidebar.actualizar_estado_activo(self.initial_route)
+            
+        # Iniciar carga de datos
+        def load_data_bg():
+            vista = self.views[self.initial_route]
+            if hasattr(vista, 'load_data'):
+                try: vista.load_data()
+                except Exception as e: pass
+            if hasattr(vista, 'load_summary'):
+                try: vista.load_summary()
+                except Exception as e: pass
+        threading.Thread(target=load_data_bg, daemon=True).start()
+        
+    def on_route_change(self, route_name):
+        if not route_name: return
+        
+        # Instanciar de forma perezosa (Lazy Loading) para evitar lag inicial
+        if route_name not in self.views:
+            if route_name == "dashboard": self.views[route_name] = DashboardView()
+            elif route_name == "inventario": self.views[route_name] = InventarioView()
+            elif route_name == "compras": self.views[route_name] = ComprasView()
+            elif route_name == "ventas": self.views[route_name] = VentasView()
+            elif route_name == "ajustes_inventario": self.views[route_name] = AjustesInventarioView()
+            elif route_name == "cierre_mes": self.views[route_name] = CierreInventarioView()
+            elif route_name == "informes": self.views[route_name] = InformesView()
+            
+        # Cambiar el contenido del contenedor principal
+        if route_name in self.views:
+            vista = self.views[route_name]
+            self.active_view.content = vista
+            self.active_view.update()
+            
+            # Resaltar la ruta activa en el menú lateral
+            if hasattr(self.sidebar, "actualizar_estado_activo"):
+                self.sidebar.actualizar_estado_activo(route_name)
+            
+            # Forzar recarga de datos al navegar para evitar caché estancada
+            # Se ejecuta en hilo secundario para evitar congelar la interfaz
+            def load_data_bg():
+                if hasattr(vista, 'load_data'):
+                    try:
+                        vista.load_data()
+                    except Exception as e:
+                        print(f"Error reload load_data en {route_name}: {e}")
+                        
+                if hasattr(vista, 'load_summary'):
+                    try:
+                        vista.load_summary()
+                    except Exception as e:
+                        print(f"Error reload load_summary en {route_name}: {e}")
+            
+            threading.Thread(target=load_data_bg, daemon=True).start()
+````
 
-    def safe_update(self):
-        """Actualiza la UI solo si el control sigue montado en la página."""
+## File: ui/layout/sidebar.py
+````python
+import flet as ft
+from config import Config
+
+class Sidebar(ft.Container):
+    def __init__(self, on_route_change, usuario_data=None, on_logout=None):
+        super().__init__()
+        self.on_route_change = on_route_change
+        self.usuario_data = usuario_data or {}
+        self.on_logout = on_logout
+        self.is_expanded = True
+        
+        self.width = 250
+        self.bgcolor = Config.COLOR_PRIMARY
+        self.padding = 15
+        self.border_radius = ft.border_radius.only(top_right=15, bottom_right=15)
+        self.animate = ft.animation.Animation(300, ft.AnimationCurve.DECELERATE)
+
+        # Botón Toggle
+        self.toggle_btn = ft.IconButton(
+            icon=ft.icons.MENU,
+            icon_color="white",
+            on_click=self.toggle_sidebar,
+            tooltip="Ocultar/Mostrar Menú"
+        )
+        self.toggle_row = ft.Row([self.toggle_btn], alignment=ft.MainAxisAlignment.END)
+
+        # Extraer Primer Nombre
+        nombre_completo = self.usuario_data.get("nombre_completo") or self.usuario_data.get("usuario") or "Usuario"
+        primer_nombre = nombre_completo.split()[0]
+        rol_txt = str(self.usuario_data.get("rol", "OPERADOR")).capitalize()
+
+        # Componentes Estéticos del Perfil de Usuario (Compacto)
+        self.user_avatar = ft.Icon(ft.icons.ACCOUNT_CIRCLE_ROUNDED, color="white", size=32)
+        self.lbl_saludo = ft.Text(f"Hola, {primer_nombre}", color="white", size=12, weight="bold", no_wrap=True)
+        self.lbl_rol = ft.Text(rol_txt, color="white54", size=10, no_wrap=True)
+
+        self.user_info_col = ft.Column([
+            self.lbl_saludo,
+            self.lbl_rol
+        ], spacing=0, alignment=ft.MainAxisAlignment.CENTER)
+
+        # Botón Cerrar Sesión
+        self.btn_logout = ft.IconButton(
+            icon=ft.icons.LOGOUT_ROUNDED,
+            icon_color="white54",
+            icon_size=18,
+            tooltip="Cerrar Sesión",
+            on_click=lambda e: self.on_logout() if self.on_logout else None
+        )
+
+        self.user_badge = ft.Container(
+            content=ft.Row([
+                self.user_avatar,
+                self.user_info_col,
+                ft.Container(expand=True),
+                self.btn_logout
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.padding.symmetric(horizontal=8, vertical=6),
+            bgcolor=ft.colors.with_opacity(0.12, "white"),
+            border_radius=8,
+            margin=ft.padding.only(bottom=10)
+        )
+
+        self.menu_items = {}
+        self.footer_text = ft.Text("Elaborado por: Eliana Garces 2026", color="white54", size=10, text_align=ft.TextAlign.CENTER)
+
+        # Permisos
+        username = str(self.usuario_data.get("usuario", "")).lower()
+        rol = str(self.usuario_data.get("rol", "OPERADOR")).upper()
+        es_admin = username in ["eliana", "cesar", "mary"] or rol == "ADMINISTRADOR"
+
+        menu_controls = [
+            self.toggle_row,
+            self.user_badge
+        ]
+
+        if es_admin:
+            menu_controls.append(self._create_menu_item("Dashboard", ft.icons.DASHBOARD, "dashboard"))
+
+        menu_controls.append(self._create_menu_item("Inventario", ft.icons.INVENTORY_2, "inventario"))
+        menu_controls.append(self._create_menu_item("Compras", ft.icons.ADD_SHOPPING_CART, "compras"))
+        menu_controls.append(self._create_menu_item("Ventas", ft.icons.POINT_OF_SALE, "ventas"))
+        menu_controls.append(self._create_menu_item("Ajustes de Inventario", ft.icons.TUNE, "ajustes_inventario"))
+
+        if es_admin or rol == "AUDITOR":
+            menu_controls.append(self._create_menu_item("Cierre de Mes", ft.icons.FACT_CHECK, "cierre_mes"))
+            menu_controls.append(self._create_menu_item("Informes", ft.icons.PIE_CHART, "informes"))
+
+        menu_controls.extend([
+            ft.Container(expand=True),
+            ft.Container(content=self.footer_text, alignment=ft.alignment.center, padding=ft.padding.only(top=5, bottom=5))
+        ])
+
+        self.content = ft.Column(controls=menu_controls, spacing=5)
+
+    def _create_menu_item(self, text, icon, route):
+        item = ft.ListTile(
+            leading=ft.Icon(icon, color="white70", size=22),
+            title=ft.Text(text, color="white70", size=13),
+            hover_color=ft.colors.with_opacity(0.1, "white"),
+            content_padding=ft.padding.only(left=12, right=12),
+            on_click=lambda _, r=route: self.on_route_change(r),
+            tooltip=text
+        )
+        self.menu_items[route] = item
+        return item
+
+    def actualizar_estado_activo(self, ruta_actual):
+        for route, item in self.menu_items.items():
+            is_active = (route == ruta_actual)
+            item.bgcolor = ft.colors.with_opacity(0.2, "white") if is_active else None
+            item.leading.color = "white" if is_active else "white70"
+            item.title.color = "white" if is_active else "white70"
+            item.title.weight = "bold" if is_active else "normal"
         try:
-            if self.page and self.uid:
-                self.page.update()
+            self.update()
         except Exception:
             pass
 
-    def load_data(self):
-        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
-        self.progress_bar.visible = True
-        self.safe_update()
-            
-        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
+    def toggle_sidebar(self, e):
+        self.is_expanded = not self.is_expanded
+        self.width = 250 if self.is_expanded else 70
 
-    def on_fecha_dash_change(self, e):
-        if self.date_picker_dash.value:
-            self.fecha_filtro_dash = self.date_picker_dash.value.strftime("%Y-%m-%d")
-            self.btn_fecha_dash.text = f"Fecha: {self.date_picker_dash.value.strftime('%d/%m/%Y')}"
-            self.btn_clear_fecha_dash.visible = True
-            self.load_data()
+        # Ocultar o mostrar elementos informativos al colapsar
+        self.user_info_col.visible = self.is_expanded
+        self.btn_logout.visible = self.is_expanded
+        self.footer_text.visible = self.is_expanded
 
-    def limpiar_filtro_fecha_dash(self, e):
-        self.fecha_filtro_dash = None
-        self.date_picker_dash.value = None
-        self.btn_fecha_dash.text = f"Fecha: {datetime.date.today().strftime('%d/%m/%Y')}"
-        self.btn_clear_fecha_dash.visible = False
-        self.load_data()
+        self.user_avatar.size = 32 if self.is_expanded else 24
+        self.user_badge.padding = ft.padding.symmetric(horizontal=8, vertical=6) if self.is_expanded else ft.padding.all(4)
 
-    def _fetch_data_worker(self):
-        """Ejecuta todas las llamadas HTTP síncronas sin congelar la ventana."""
-        # Cargar contexto temporal
-        mes_actual = datetime.date.today().strftime("%Y-%m")
-        datos_cierre = self.db.obtener_estado_cierre(mes_actual)
-        estado_periodo = datos_cierre.get('periodo', {}).get('estado', 'ABIERTO') if datos_cierre and datos_cierre.get('periodo') else 'ABIERTO'
+        for control in self.content.controls:
+            if isinstance(control, ft.ListTile):
+                control.title.visible = self.is_expanded
+                control.content_padding = ft.padding.only(left=12 if self.is_expanded else 8, right=12 if self.is_expanded else 8)
 
-        meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-        partes = mes_actual.split('-')
-        nombre_mes = f"{meses[int(partes[1]) - 1]} {partes[0]}"
-
-        self.lbl_periodo_dash.value = f"Periodo: {nombre_mes}"
-        self.lbl_estado_dash.value = f"Estado: {estado_periodo}"
-
-        colores_estado = {'ABIERTO': 'green', 'PRELIMINAR': 'orange', 'EN_AUDITORIA': 'blue', 'CERRADO': 'red'}
-        self.lbl_estado_dash.color = colores_estado.get(estado_periodo, 'black')
-
-        ahora = datetime.datetime.now()
-        self.lbl_fecha_hora.value = ahora.strftime("%d/%m/%Y - %I:%M %p")
-
-        # 1. Load KPIs
-        res_cat = self.db.get_catalogo_summary(fecha_corte=self.fecha_filtro_dash)
-        res_ven = self.db.get_ventas_summary(fecha_corte=self.fecha_filtro_dash)
-        res_com = self.db.get_compras_summary(fecha_corte=self.fecha_filtro_dash)
-        
-        val_inv = float(res_cat.get('total_compras') or 0) - float(res_cat.get('total_ventas') or 0)
-        self.val_inventario.value = f"$ {val_inv:,.0f}"
-        
-        ingresos = float(res_ven.get('total_mes') or 0)
-        compras = float(res_com.get('total_mes') or 0)
-        
-        ventas_hoy = float(res_ven.get('total_hoy') or 0)
-        compras_hoy = float(res_com.get('total_hoy') or 0)
-        
-        self.val_ingresos.value = f"$ {ingresos:,.0f}"
-        self.val_ventas_hoy.value = f"$ {ventas_hoy:,.0f}"
-        self.val_compras.value = f"$ {compras:,.0f}"
-        self.val_compras_hoy.value = f"$ {compras_hoy:,.0f}"
-        
-        rentabilidad = 0
-        if ingresos > 0:
-            rentabilidad = ((ingresos - compras) / ingresos) * 100
-            
-        self.val_rentabilidad.value = f"{rentabilidad:.1f}%"
-        self.val_rentabilidad.color = "#2ecca0" if rentabilidad >= 0 else "#f26c61"
-        
-        # Basic rotacion (Ventas / Inventario)
-        if val_inv > 0:
-            rotacion_global = ingresos / val_inv
-            self.val_rotacion.value = f"{rotacion_global:.2f}x"
-        else:
-            self.val_rotacion.value = "N/D"
-
-        # Nuevos KPIs y Ajustes
-        proyeccion_ventas = self.db.get_proyeccion_ventas(fecha_corte=self.fecha_filtro_dash)
-        self.val_proyeccion_ventas.value = f"$ {proyeccion_ventas:,.0f}"
-        
-        proy_rent = 0
-        if proyeccion_ventas > 0:
-            proy_rent = ((proyeccion_ventas - val_inv) / proyeccion_ventas) * 100
-        
-        self.val_proyeccion_rentabilidad.value = f"{proy_rent:.1f}%"
-        self.val_proyeccion_rentabilidad.color = "#2ecca0" if proy_rent >= 0 else "#f26c61"
-
-        hoy_obj = datetime.datetime.strptime(self.fecha_filtro_dash, "%Y-%m-%d").date() if self.fecha_filtro_dash else datetime.date.today()
-        if hoy_obj.month == 12:
-            ultimo_dia_mes = datetime.date(hoy_obj.year, 12, 31).day
-        else:
-            ultimo_dia_mes = (datetime.date(hoy_obj.year, hoy_obj.month + 1, 1) - datetime.timedelta(days=1)).day
-        dias_restantes = max(1, ultimo_dia_mes - hoy_obj.day + 1)
-        restante_vender = max(0, proyeccion_ventas - ingresos)
-        meta_diaria = restante_vender / dias_restantes
-        self.val_meta_diaria.value = f"$ {meta_diaria:,.0f} / día"
-
-        mes_actual = hoy_obj.strftime("%Y-%m")
-        ajustes_bd = self.db.get_ajustes_mes(mes_actual, fecha_corte=self.fecha_filtro_dash)
-        
-        tipos_salida = {
-            "Daño / Merma": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Vencimiento": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Pérdida": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Consumo Familiar": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Consumo Cliente (Cortesía)": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Donación Saliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Otro (Salida)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
-        }
-
-        tipos_entrada = {
-            "Sobrante de Inventario": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Donación Entrante": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Devolución Cliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Otro (Entrada)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
-        }
-        
-        for fila in ajustes_bd:
-            tipo_bd = fila.get("tipo_ajuste", "")
-            motivo_bd = fila.get("motivo_observacion", "")
-            cant = float(fila.get("cantidad_total") or 0)
-            costo = float(fila.get("costo_total") or 0)
-            conteo = int(fila.get("conteo") or 0)
-            
-            asignado = False
-            if tipo_bd in ("AJUSTE_ENTRADA", "ENTRADA_POR_SOBRANTE"):
-                for key in tipos_entrada.keys():
-                    if key.lower() in motivo_bd.lower():
-                        tipos_entrada[key]["conteo"] += conteo
-                        tipos_entrada[key]["cantidad"] += cant
-                        tipos_entrada[key]["costo"] += costo
-                        asignado = True
-                        break
-                if not asignado:
-                    tipos_entrada["Otro (Entrada)"]["conteo"] += conteo
-                    tipos_entrada["Otro (Entrada)"]["cantidad"] += cant
-                    tipos_entrada["Otro (Entrada)"]["costo"] += costo
-            else:
-                for key in tipos_salida.keys():
-                    if key.lower() in motivo_bd.lower():
-                        tipos_salida[key]["conteo"] += conteo
-                        tipos_salida[key]["cantidad"] += cant
-                        tipos_salida[key]["costo"] += costo
-                        asignado = True
-                        break
-                if not asignado:
-                    # Fallback por tipo
-                    if tipo_bd == "BAJA_VENCIMIENTO": k = "Vencimiento"
-                    elif tipo_bd == "SALIDA_POR_FALTANTE": k = "Pérdida"
-                    else: k = "Otro (Salida)"
-                    tipos_salida[k]["conteo"] += conteo
-                    tipos_salida[k]["cantidad"] += cant
-                    tipos_salida[k]["costo"] += costo
-
-        total_costo_entradas = sum([d["costo"] for d in tipos_entrada.values()])
-        total_costo_salidas = sum([d["costo"] for d in tipos_salida.values()])
-        
-        total_cant_entradas = sum([d["cantidad"] for d in tipos_entrada.values()])
-        total_cant_salidas = sum([d["cantidad"] for d in tipos_salida.values()])
-        
-        neto = total_costo_entradas - total_costo_salidas
-        if neto > 0:
-            self.lbl_neto_ajustes_header.value = f"NETO (POSITIVO): +${neto:,.0f}"
-            self.lbl_neto_ajustes_header.color = "#2ecca0"
-        elif neto < 0:
-            self.lbl_neto_ajustes_header.value = f"NETO (NEGATIVO): -${abs(neto):,.0f}"
-            self.lbl_neto_ajustes_header.color = "#f26c61"
-        else:
-            self.lbl_neto_ajustes_header.value = f"NETO: $0"
-            self.lbl_neto_ajustes_header.color = "grey"
-
-        # Limpiar columnas
-        self.col_ajustes_entrada.controls.clear()
-        self.col_ajustes_salida.controls.clear()
-
-        # Render Entrada
-        for key, datos in tipos_entrada.items():
-            self.col_ajustes_entrada.controls.append(
-                ft.Row([
-                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
-                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
-                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#2ecca0")
-                ])
-            )
-            
-        # Rellenar con espacio invisible para igualar simetría
-        filas_faltantes = len(tipos_salida) - len(tipos_entrada)
-        for _ in range(max(0, filas_faltantes)):
-            self.col_ajustes_entrada.controls.append(
-                ft.Container(height=18, content=ft.Text("")) # Fila transparente de relleno
-            )
-            
-        self.col_ajustes_entrada.controls.append(ft.Divider(color="black12", height=10))
-        self.col_ajustes_entrada.controls.append(
-            ft.Row([
-                ft.Text("TOTAL ENTRADAS", size=12, weight="bold"),
-                ft.Text(f"{total_cant_entradas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
-                ft.Text(f"${total_costo_entradas:,.0f}", size=12, weight="bold", color="#2ecca0")
-            ])
-        )
-        
-        # Render Salida
-        for key, datos in tipos_salida.items():
-            self.col_ajustes_salida.controls.append(
-                ft.Row([
-                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
-                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
-                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#f26c61")
-                ])
-            )
-        self.col_ajustes_salida.controls.append(ft.Divider(color="black12", height=10))
-        self.col_ajustes_salida.controls.append(
-            ft.Row([
-                ft.Text("TOTAL SALIDAS", size=12, weight="bold"),
-                ft.Text(f"{total_cant_salidas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
-                ft.Text(f"${total_costo_salidas:,.0f}", size=12, weight="bold", color="#f26c61")
-            ])
-        )
-
-        # 2. Load Chart Data (Nativo Flet)
-        try:
-            tendencia = self.db.get_tendencia_diaria(fecha_corte=self.fecha_filtro_dash)
-            dias_ordenados = sorted(tendencia.keys())
-            max_val_y = 0
-            
-            pts_ventas = []
-            pts_compras = []
-            etiquetas_x = []
-            
-            for i, dia in enumerate(dias_ordenados):
-                v = float(tendencia[dia]["ventas"])
-                c = float(tendencia[dia]["compras"])
-                if v > max_val_y: max_val_y = v
-                if c > max_val_y: max_val_y = c
-                # Poner la fecha SOLO en el tooltip de arriba (compras) para que Flet no la duplique al apilar
-                tt_compras = f"{dia}\nCostos: ${c:,.0f}"
-                tt_ventas = f"Ingresos: ${v:,.0f}"
-                estilo_tt = ft.TextStyle(size=12, weight="bold", color="black87")
-                
-                pts_ventas.append(ft.LineChartDataPoint(i, v, tooltip=tt_ventas, tooltip_style=estilo_tt))
-                pts_compras.append(ft.LineChartDataPoint(i, c, tooltip=tt_compras, tooltip_style=estilo_tt))
-                
-                # Densidad en Eje X: Mostrar todos los días con la fecha completa rotada
-                etiquetas_x.append(
-                    ft.ChartAxisLabel(
-                        value=i, 
-                        label=ft.Container(
-                            content=ft.Text(dia, size=9, color="grey"),
-                            padding=ft.padding.only(top=10),
-                            rotate=-0.5
-                        )
-                    )
-                )
-                
-            if not pts_ventas:
-                pts_ventas = [ft.LineChartDataPoint(0, 0)]
-                pts_compras = [ft.LineChartDataPoint(0, 0)]
-                
-            self.chart_ventas.data_points = pts_ventas
-            self.chart_compras.data_points = pts_compras
-            
-            self.line_chart.max_x = len(dias_ordenados) - 1 if dias_ordenados else 0
-            max_y_calc = max_val_y * 1.15 if max_val_y > 0 else 1000
-            self.line_chart.max_y = max_y_calc
-            
-            def formato_moneda_corta(valor):
-                if valor >= 1000000: return f"${valor/1000000:.1f}M"
-                if valor >= 1000: return f"${valor/1000:.0f}k"
-                return f"${valor:.0f}"
-                
-            # Mayor densidad en Y: 8 divisiones en lugar de 5
-            intervalo_y = max_y_calc / 8 if max_y_calc > 0 else 100
-            etiquetas_y = [
-                ft.ChartAxisLabel(value=step * intervalo_y, label=ft.Text(formato_moneda_corta(step * intervalo_y), size=11, color="grey"))
-                for step in range(9)
-            ]
-            
-            self.line_chart.left_axis.labels = etiquetas_y
-            self.line_chart.left_axis.labels_interval = intervalo_y
-            self.line_chart.bottom_axis.labels = etiquetas_x
-            self.line_chart.bottom_axis.labels_interval = 1
-            
-            # Cuadrícula visible completa con efecto punteado
-            self.line_chart.horizontal_grid_lines = ft.ChartGridLines(
-                interval=intervalo_y,
-                color=ft.colors.with_opacity(0.05, "black"),
-                width=1,
-                dash_pattern=[4, 4]
-            )
-            self.line_chart.vertical_grid_lines = ft.ChartGridLines(
-                interval=2, # Línea vertical sincronizada con el eje X
-                color=ft.colors.with_opacity(0.05, "black"),
-                width=1,
-                dash_pattern=[4, 4]
-            )
-            
-        except Exception as e:
-            print(f"Error crítico construyendo Chart Flet: {e}")
-        
-        # 3. Load Tables Data (A prueba de fallos)
-        try:
-            top_ventas = self.db.get_top_ventas_mes(limit=10, fecha_corte=self.fecha_filtro_dash)
-            self.dt_ventas.rows.clear()
-            for item in top_ventas:
-                self.dt_ventas.rows.append(
-                    ft.DataRow(cells=[
-                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
-                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
-                        ft.DataCell(ft.Text(str(item.get('unidades_vendidas') or 0), size=11)),
-                        ft.DataCell(ft.Text(f"${float(item.get('ingreso_total') or 0):,.2f}", size=11))
-                    ])
-                )
-        except Exception as e:
-            print(f"Error crítico en tabla ventas: {e}")
-            
-        try:
-            top_costos = self.db.get_top_costo_inventario(limit=10, fecha_corte=self.fecha_filtro_dash)
-            self.dt_costos.rows.clear()
-            for item in top_costos:
-                self.dt_costos.rows.append(
-                    ft.DataRow(cells=[
-                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
-                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
-                        ft.DataCell(ft.Text(f"${float(item.get('valor_inventario') or 0):,.2f}", size=11)),
-                        ft.DataCell(ft.Text(str(item.get('rotacion') or ''), size=11))
-                    ])
-                )
-        except Exception as e:
-            print(f"Error crítico en tabla costos: {e}")
-            
-        try:
-            kpis_cat = self.db.get_rendimiento_categorias_periodo(fecha_inicio=None, fecha_fin=self.fecha_filtro_dash)
-            self.categorias_row.controls.clear()
-            for cat in kpis_cat:
-                self.categorias_row.controls.append(self._crear_card_categoria(cat))
-        except Exception as e:
-            print(f"Error cargando KPIs por categoría: {e}")
-            
-        # Apagar indicador de carga al finalizar todo el trabajo
-        self.progress_bar.visible = False
-        
-        self.safe_update()
-
-    def _build_kpi_card(self, title, value_control, icon, subtext_control=None):
-        column_controls = [
-            ft.Row([
-                ft.Text(title, size=12, color="grey", weight="w500", expand=True),
-                ft.Icon(ft.icons.HELP_OUTLINE, size=12, color="grey")
-            ], spacing=5),
-            value_control,
-        ]
-        if subtext_control:
-            column_controls.append(subtext_control)
-            
-        value_control.size = 20
-            
-        return ft.Container(
-            content=ft.Row([
-                ft.Container(
-                    content=ft.Icon(icon, color=Config.COLOR_SECONDARY, size=24),
-                    bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_SECONDARY),
-                    padding=10,
-                    border_radius=8
-                ),
-                ft.Column(column_controls, spacing=2, expand=True)
-            ], alignment=ft.MainAxisAlignment.START),
-            bgcolor="white",
-            padding=15,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-        )
-
-    def _crear_card_categoria(self, cat_data):
-        nombre = cat_data["categoria"]
-        inv_costo = cat_data["inventario_costo"]
-        ventas = cat_data["ventas_realizadas"]
-        proy_venta = cat_data["proyeccion_venta"]
-        cumplimiento = cat_data["cumplimiento_pct"]
-        rotacion = cat_data["rotacion"]
-        rendimiento = cat_data["rendimiento_pct"]
-    
-        # Color condicional para cumplimiento
-        color_cumplimiento = "green700" if cumplimiento >= 50 else ("orange700" if cumplimiento > 0 else "grey")
-        color_rendimiento = "green700" if rendimiento >= 0 else "red700"
-    
-        return ft.Container(
-            content=ft.Column([
-                # Cabecera Categoría
-                ft.Row([
-                    ft.Icon(ft.icons.CATEGORY_OUTLINED, size=16, color=Config.COLOR_PRIMARY),
-                    ft.Text(nombre.upper(), weight="bold", size=12, color=Config.COLOR_PRIMARY, expand=True)
-                ]),
-                ft.Divider(height=1, color="#eeeeee"),
-                
-                # Fila 1: Inventario Costo vs Ventas
-                ft.Row([
-                    ft.Text("Inventario (Costo):", size=11, color="grey", expand=True),
-                    ft.Text(f"${inv_costo:,.0f}", size=11, weight="bold")
-                ]),
-                ft.Row([
-                    ft.Text("Ventas Realizadas:", size=11, color="grey", expand=True),
-                    ft.Text(f"${ventas:,.0f}", size=11, weight="bold", color="green700")
-                ]),
-                
-                # Fila 2: Proyección Venta vs % Cumplimiento
-                ft.Row([
-                    ft.Text("Proyección Venta:", size=11, color="grey", expand=True),
-                    ft.Text(f"${proy_venta:,.0f}", size=11, weight="bold", color="blue700")
-                ]),
-                ft.Row([
-                    ft.Text("% Cumplimiento:", size=11, color="grey", expand=True),
-                    ft.Text(f"{cumplimiento:.1f}%", size=11, weight="bold", color=color_cumplimiento)
-                ]),
-                
-                ft.Divider(height=1, color="#f0f0f0"),
-                
-                # Fila 3: Rotación y Rendimiento Real
-                ft.Row([
-                    ft.Text("Rotación:", size=11, color="grey"),
-                    ft.Text(f"{rotacion:.2f}x", size=11, weight="bold"),
-                    ft.Container(expand=True),
-                    ft.Text("Rendimiento Real:", size=11, color="grey"),
-                    ft.Text(f"{rendimiento:.1f}%", size=11, weight="bold", color=color_rendimiento)
-                ])
-            ], spacing=4),
-            padding=12,
-            bgcolor="white",
-            border_radius=8,
-            border=ft.border.all(1, "#e0e0e0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.03, "black")),
-            col={"sm": 12, "md": 6, "lg": 4}
-        )
+        self.update()
 ````
 
 ## File: ui/views/informes.py
@@ -3229,6 +2937,7 @@ class InformesView(ft.Container):
         self.expand = True
         self.db = SupabaseClient()
         self.save_pdf_picker = ft.FilePicker(on_result=self._save_pdf_result)
+        self.save_excel_picker = ft.FilePicker(on_result=self._save_excel_result)
         
         # --- PANEL IZQUIERDO: CONSTRUCTOR DE INFORMES ---
         self.drop_tipo_informe = ft.Dropdown(
@@ -3340,6 +3049,8 @@ class InformesView(ft.Container):
     def did_mount(self):
         if self.save_pdf_picker not in self.page.overlay:
             self.page.overlay.append(self.save_pdf_picker)
+        if self.save_excel_picker not in self.page.overlay:
+            self.page.overlay.append(self.save_excel_picker)
 
     def generar_informe(self, e):
         self.doc_cuerpo.controls.clear()
@@ -3375,7 +3086,7 @@ class InformesView(ft.Container):
 
         # 3. Enrutador según el tipo de informe
         if tipo_informe == "Valorización de Inventario":
-            self._generar_valorizacion(detalle)
+            self._generar_valorizacion(detalle, fecha_corte=fecha_fin if periodo_filtro != "Histórico Completo" else None)
         elif tipo_informe == "Informe de Compras":
             self._generar_compras(fecha_inicio, fecha_fin, detalle)
         elif tipo_informe == "Informe de Ventas":
@@ -3388,9 +3099,9 @@ class InformesView(ft.Container):
         if self.page:
             self.page.update()
 
-    def _generar_valorizacion(self, detalle):
-        # Obtener Datos
-        data, _ = self.db.get_insumos(page=1, page_size=10000)
+    def _generar_valorizacion(self, detalle, fecha_corte=None):
+        # Obtener datos calculados desde la base de datos
+        data, _ = self.db.get_insumos(page=1, page_size=100000, fecha_corte=fecha_corte)
 
         if not data:
             self.doc_cuerpo.controls.append(
@@ -3400,34 +3111,38 @@ class InformesView(ft.Container):
             self.current_total = 0
             return
 
-        # Agrupar Datos
         agrupacion = {}
         gran_total_costo = 0.0
         gran_total_cant = 0.0
 
         for item in data:
-            cat = item.get("categoria") or "SIN CATEGORIA"
-            stock = float(item.get("stock_actual") or item.get("stock_real") or 0)
-            costo = float(item.get("costo_unitario") or 0)
+            cat = (item.get("categoria") or "SIN CATEGORIA").strip().upper()
+            stock_real = float(item.get("stock_actual") or item.get("stock_real") or 0)
+            costo_u = float(item.get("costo_unitario") or 0)
+            
+            # REGLA DE NEGOCIO: Un informe de valorización evalúa existencias reales.
+            # Saldos negativos (ventas sin compra ingresada) se evalúan en 0 para evitar cantidades negativas y '$-0.00'.
+            stock_val = max(0.0, stock_real)
+            costo_total = stock_val * costo_u
 
-            if stock > 0:
-                costo_total = stock * costo
+            # Solo se valoran ítems con existencia disponible real
+            if stock_val > 0 and costo_total > 0:
                 if cat not in agrupacion:
                     agrupacion[cat] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
 
                 agrupacion[cat]["items"].append({
                     "codigo": item.get("codigo_insumo"),
                     "nombre": item.get("nombre"),
-                    "stock": stock,
-                    "costo_u": costo,
+                    "stock": stock_val,
+                    "costo_u": costo_u,
                     "total": costo_total
                 })
                 agrupacion[cat]["subtotal"] += costo_total
-                agrupacion[cat]["cant_total"] += stock
+                agrupacion[cat]["cant_total"] += stock_val
                 gran_total_costo += costo_total
-                gran_total_cant += stock
+                gran_total_cant += stock_val
 
-        # Guardar en memoria para exportación
+        # Guardar en memoria para exportación PDF/Excel
         self.current_data = agrupacion
         self.current_total = gran_total_costo
         self.current_periodo = self.doc_header_periodo.value
@@ -3435,7 +3150,6 @@ class InformesView(ft.Container):
         if detalle == "Resumido":
             self._dibujar_resumido(agrupacion, "CATEGORÍA", gran_total_costo, gran_total_cant, "GRAN TOTAL VALORIZACIÓN")
         else:
-            # Construcción Visual en el Lienzo Completo
             self.doc_cuerpo.controls.append(
                 ft.Row([
                     ft.Text("CÓDIGO", weight="bold", size=11, width=60),
@@ -3868,1651 +3582,204 @@ class InformesView(ft.Container):
             self.page.update()
 
     def exportar_excel(self, e):
-        self.page.snack_bar = ft.SnackBar(ft.Text("Generando Excel... (Módulo de exportación pendiente)"), bgcolor="green")
+        nombre_sugerido = f"Inventario_Consolidado_Dona_Mary_{datetime.date.today().strftime('%Y%m%d')}.xlsx"
+        self.save_excel_picker.save_file(
+            dialog_title="Guardar Consolidado Excel",
+            file_name=nombre_sugerido,
+            allowed_extensions=["xlsx"]
+        )
+
+    def _save_excel_result(self, e: ft.FilePickerResultEvent):
+        if not e.path:
+            return
+            
+        self.page.snack_bar = ft.SnackBar(ft.Text("Generando consolidado Excel en segundo plano..."), bgcolor="blue")
         self.page.snack_bar.open = True
         self.page.update()
-````
+        
+        threading.Thread(target=self._worker_generar_excel, args=(e.path,), daemon=True).start()
 
-## File: ui/app.py
-````python
-import flet as ft
-import threading
-from ui.layout.sidebar import Sidebar
-from ui.views.dashboard import DashboardView
-from ui.views.inventario import InventarioView
-from ui.views.compras import ComprasView
-from ui.views.ventas import VentasView
-from ui.views.cierre_inventario import CierreInventarioView
-from ui.views.ajustes_inventario import AjustesInventarioView
-from ui.views.informes import InformesView
-
-class AppLayout(ft.Row):
-    def __init__(self, page: ft.Page):
-        super().__init__()
-        self.page = page
-        self.expand = True
-        self.spacing = 0
-        
-        # Vistas cacheadas
-        self.views = {"dashboard": DashboardView()}
-        
-        # Contenedor principal de la vista activa
-        self.active_view = ft.Container(
-            content=self.views["dashboard"],
-            expand=True,
-            bgcolor="#F4F6F7",
-            padding=15,
-            alignment=ft.alignment.top_left
-        )
-        
-        # Sidebar
-        self.sidebar = Sidebar(self.on_route_change)
-        
-        # Componentes del Row
-        self.controls = [
-            self.sidebar,
-            self.active_view
-        ]
-        
-    def did_mount(self):
-        # Actualizar estado activo en el sidebar para la vista inicial
-        if hasattr(self.sidebar, "actualizar_estado_activo"):
-            self.sidebar.actualizar_estado_activo("dashboard")
-            
-        # Iniciar carga de datos
-        def load_data_bg():
-            vista = self.views["dashboard"]
-            if hasattr(vista, 'load_data'):
-                try: vista.load_data()
-                except Exception as e: pass
-            if hasattr(vista, 'load_summary'):
-                try: vista.load_summary()
-                except Exception as e: pass
-        threading.Thread(target=load_data_bg, daemon=True).start()
-        
-    def on_route_change(self, route_name):
-        if not route_name: return
-        
-        # Instanciar de forma perezosa (Lazy Loading) para evitar lag inicial
-        if route_name not in self.views:
-            if route_name == "dashboard": self.views[route_name] = DashboardView()
-            elif route_name == "inventario": self.views[route_name] = InventarioView()
-            elif route_name == "compras": self.views[route_name] = ComprasView()
-            elif route_name == "ventas": self.views[route_name] = VentasView()
-            elif route_name == "ajustes_inventario": self.views[route_name] = AjustesInventarioView()
-            elif route_name == "cierre_mes": self.views[route_name] = CierreInventarioView()
-            elif route_name == "informes": self.views[route_name] = InformesView()
-            
-        # Cambiar el contenido del contenedor principal
-        if route_name in self.views:
-            vista = self.views[route_name]
-            self.active_view.content = vista
-            self.active_view.update()
-            
-            # Resaltar la ruta activa en el menú lateral
-            if hasattr(self.sidebar, "actualizar_estado_activo"):
-                self.sidebar.actualizar_estado_activo(route_name)
-            
-            # Forzar recarga de datos al navegar para evitar caché estancada
-            # Se ejecuta en hilo secundario para evitar congelar la interfaz
-            def load_data_bg():
-                if hasattr(vista, 'load_data'):
-                    try:
-                        vista.load_data()
-                    except Exception as e:
-                        print(f"Error reload load_data en {route_name}: {e}")
-                        
-                if hasattr(vista, 'load_summary'):
-                    try:
-                        vista.load_summary()
-                    except Exception as e:
-                        print(f"Error reload load_summary en {route_name}: {e}")
-            
-            threading.Thread(target=load_data_bg, daemon=True).start()
-````
-
-## File: ui/layout/sidebar.py
-````python
-import flet as ft
-from config import Config
-
-class Sidebar(ft.Container):
-    def __init__(self, on_route_change):
-        super().__init__()
-        self.on_route_change = on_route_change
-        self.is_expanded = True
-        
-        # Propiedades dinámicas del contenedor
-        self.width = 250
-        self.bgcolor = Config.COLOR_PRIMARY
-        self.padding = 15
-        self.border_radius = ft.border_radius.only(top_right=15, bottom_right=15)
-        self.animate = ft.animation.Animation(300, ft.AnimationCurve.DECELERATE)
-        
-        # Botón para colapsar/expandir
-        self.toggle_btn = ft.IconButton(
-            icon=ft.icons.MENU,
-            icon_color="white",
-            on_click=self.toggle_sidebar,
-            tooltip="Ocultar/Mostrar Menú"
-        )
-        
-        # Logo y textos
-        self.logo_icon = ft.Icon(ft.icons.STOREFRONT, color="white", size=40)
-        self.logo_title = ft.Text("Doña Mary", color="white", size=24, weight="bold")
-        self.logo_subtitle = ft.Text("Abarrotes & Desechables", color="white70", size=12)
-        
-        self.header_content = ft.Column([
-            self.logo_icon,
-            self.logo_title,
-            self.logo_subtitle,
-        ], horizontal_alignment="center", spacing=5)
-
-        self.toggle_row = ft.Row([self.toggle_btn], alignment=ft.MainAxisAlignment.END)
-
-        # Almacenar referencias de los botones del menú
-        self.menu_items = {}
-        
-        self.footer_text = ft.Text("Elaborado por: Eliana Garces 2026", color="white54", size=10, text_align=ft.TextAlign.CENTER)
-        
-        self.content = ft.Column(
-            controls=[
-                # Cabecera con botón de toggle
-                self.toggle_row,
-                ft.Container(
-                    content=self.header_content,
-                    padding=ft.padding.only(bottom=20),
-                    alignment=ft.alignment.center
-                ),
-                
-                # Menú
-                self._create_menu_item("Dashboard", ft.icons.DASHBOARD, "dashboard"),
-                self._create_menu_item("Inventario", ft.icons.INVENTORY_2, "inventario"),
-                self._create_menu_item("Compras", ft.icons.ADD_SHOPPING_CART, "compras"),
-                self._create_menu_item("Ventas", ft.icons.POINT_OF_SALE, "ventas"),
-                self._create_menu_item("Ajustes de Inventario", ft.icons.TUNE, "ajustes_inventario"),
-                self._create_menu_item("Cierre de Mes", ft.icons.FACT_CHECK, "cierre_mes"),
-                self._create_menu_item("Informes", ft.icons.PIE_CHART, "informes"),
-                
-                ft.Container(expand=True), # Spacer
-                
-
-                
-                # Footer Copyright
-                ft.Container(
-                    content=self.footer_text,
-                    alignment=ft.alignment.center,
-                    padding=ft.padding.only(top=10, bottom=5)
-                )
-            ],
-            spacing=5
-        )
-        
-    def _create_menu_item(self, text, icon, route, is_sub_item=False):
-        icon_size = 20 if is_sub_item else 24
-        text_size = 13 if is_sub_item else 14
-        pad_left = 35 if is_sub_item else 15
-        
-        item = ft.ListTile(
-            leading=ft.Icon(icon, color="white70", size=icon_size),
-            title=ft.Text(text, color="white70", size=text_size),
-            hover_color=ft.colors.with_opacity(0.1, "white"),
-            content_padding=ft.padding.only(left=pad_left, right=15),
-            on_click=lambda _, r=route: self.on_route_change(r),
-            tooltip=text,
-            data={"is_sub_item": is_sub_item, "pad_left": pad_left}
-        )
-        self.menu_items[route] = item
-        return item
-        
-    def actualizar_estado_activo(self, ruta_actual):
-        self.ruta_activa = ruta_actual
-        for route, item in self.menu_items.items():
-            is_active = (route == ruta_actual)
-            item.bgcolor = ft.colors.with_opacity(0.2, "white") if is_active else None
-            item.leading.color = "white" if is_active else "white70"
-            item.title.color = "white" if is_active else "white70"
-            item.title.weight = "bold" if is_active else "normal"
-            
+    def _worker_generar_excel(self, file_path):
         try:
-            self.update()
-        except Exception:
-            pass
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
 
-    def toggle_sidebar(self, e):
-        """Alterna el ancho del sidebar y oculta/muestra los textos."""
-        self.is_expanded = not self.is_expanded
-        
-        # Ajustar ancho
-        self.width = 250 if self.is_expanded else 70
-        
-        # Mostrar u ocultar elementos del header según el estado
-        self.logo_title.visible = self.is_expanded
-        self.logo_subtitle.visible = self.is_expanded
-        self.logo_icon.size = 40 if self.is_expanded else 24
-        
-        # Mostrar u ocultar el footer
-        self.footer_text.visible = self.is_expanded
-        
-        self.toggle_row.alignment = ft.MainAxisAlignment.END if self.is_expanded else ft.MainAxisAlignment.CENTER
-        
-        # Mostrar u ocultar el texto de los ListTile
-        for control in self.content.controls:
-            if isinstance(control, ft.ListTile):
-                control.title.visible = self.is_expanded
-                pad_left = control.data["pad_left"] if self.is_expanded else 8
-                control.content_padding = ft.padding.only(left=pad_left, right=15 if self.is_expanded else 8)
+            # 1. Obtener datos completos de la base de datos sin filtros
+            raw_inv, _ = self.db.get_insumos(page=1, page_size=999999)
+            raw_compras, _ = self.db.get_compras(page=1, page_size=999999)
+            raw_ventas, _ = self.db.get_ventas(page=1, page_size=999999)
+            raw_ajustes = self.db.get_ajustes_inventario() or []
+
+            wb = openpyxl.Workbook()
+            wb.remove(wb.active) # Eliminar hoja por defecto
+
+            # Estilos generales
+            fill_header = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
+            font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            font_title = Font(name="Calibri", size=14, bold=True, color="1B365D")
+            font_sub = Font(name="Calibri", size=10, italic=True, color="555555")
+            border_thin = Border(
+                left=Side(style='thin', color='CCCCCC'), right=Side(style='thin', color='CCCCCC'),
+                top=Side(style='thin', color='CCCCCC'), bottom=Side(style='thin', color='CCCCCC')
+            )
+            num_fmt_curr = '"$"#,##0.00'
+            num_fmt_qty = '#,##0'
+
+            fecha_emision = datetime.datetime.now().strftime("%d/%m/%Y %I:%M %p")
+            nombre_empresa = "TIENDA Y ABARROTES LOS DESECHABLES DE DOÑA MARY SAS"
+
+            def agregar_encabezado(ws, titulo):
+                ws['A1'] = nombre_empresa
+                ws['A1'].font = font_title
+                ws['A2'] = f"CONSOLIDADO SISTEMA: {titulo.upper()}"
+                ws['A2'].font = Font(name="Calibri", size=12, bold=True)
+                ws['A3'] = f"Fecha de emisión: {fecha_emision} | Datos acumulados sin filtros"
+                ws['A3'].font = font_sub
+
+            # ----------------------------------------------------
+            # HOJA 1: COMPRAS
+            # ----------------------------------------------------
+            ws_c = wb.create_sheet(title="Compras")
+            agregar_encabezado(ws_c, "Detalle de Registro de Compras")
+            ws_c.append([])
+            ws_c.append(["Fecha", "Código Insumo", "Nombre Insumo", "Factura / Documento", "Cantidad", "Costo Total"])
+
+            for r_idx, c in enumerate(raw_compras, start=6):
+                cat_i = c.get("catalogo_insumos") or {}
+                ws_c.cell(row=r_idx, column=1, value=str(c.get("fecha", ""))[:10])
+                ws_c.cell(row=r_idx, column=2, value=str(c.get("codigo_insumo", "")))
+                ws_c.cell(row=r_idx, column=3, value=cat_i.get("nombre", "Desconocido"))
+                ws_c.cell(row=r_idx, column=4, value=str(c.get("numero_factura") or c.get("numero_entrada") or ""))
+                ws_c.cell(row=r_idx, column=5, value=float(c.get("cantidad") or 0))
+                ws_c.cell(row=r_idx, column=6, value=float(c.get("costo_total") or 0))
+
+            # ----------------------------------------------------
+            # HOJA 2: VENTAS
+            # ----------------------------------------------------
+            ws_v = wb.create_sheet(title="Ventas")
+            agregar_encabezado(ws_v, "Detalle de Registro de Ventas")
+            ws_v.append([])
+            ws_v.append(["Fecha", "Código Insumo", "Nombre Insumo", "Comprobante / Pedido", "Cantidad", "Ingreso Total"])
+
+            for r_idx, v in enumerate(raw_ventas, start=6):
+                cat_i = v.get("catalogo_insumos") or {}
+                ws_v.cell(row=r_idx, column=1, value=str(v.get("fecha", ""))[:10])
+                ws_v.cell(row=r_idx, column=2, value=str(v.get("codigo_insumo", "")))
+                ws_v.cell(row=r_idx, column=3, value=cat_i.get("nombre") or v.get("descripcion") or "Desconocido")
+                ws_v.cell(row=r_idx, column=4, value=str(v.get("factura_no", "")))
+                ws_v.cell(row=r_idx, column=5, value=float(v.get("cantidad") or 0))
+                ws_v.cell(row=r_idx, column=6, value=float(v.get("total") or 0))
+
+            # ----------------------------------------------------
+            # HOJA 3: AJUSTES
+            # ----------------------------------------------------
+            ws_a = wb.create_sheet(title="Ajustes")
+            agregar_encabezado(ws_a, "Detalle de Ajustes de Inventario")
+            ws_a.append([])
+            ws_a.append(["Fecha", "Código Insumo", "Nombre Insumo", "Tipo", "Cantidad", "Motivo"])
+
+            for r_idx, a in enumerate(raw_ajustes, start=6):
+                if a.get("estado_registro") != "VÁLIDO": continue
+                cat_i = a.get("catalogo_insumos") or {}
+                es_ent = a.get("tipo_ajuste") in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
                 
-        self.update()
-````
+                ws_a.cell(row=r_idx, column=1, value=str(a.get("fecha_ajuste", ""))[:10])
+                ws_a.cell(row=r_idx, column=2, value=str(a.get("codigo_insumo", "")))
+                ws_a.cell(row=r_idx, column=3, value=cat_i.get("nombre", "Desconocido"))
+                ws_a.cell(row=r_idx, column=4, value="Entrada" if es_ent else "Salida")
+                ws_a.cell(row=r_idx, column=5, value=float(a.get("cantidad") or 0))
+                ws_a.cell(row=r_idx, column=6, value=str(a.get("motivo_observacion", "")))
 
-## File: ui/views/compras.py
-````python
-import flet as ft
-import threading
-import time
-import json
-import os
-import datetime
-from pypdf import PdfReader, PdfWriter
-from config import Config
-from core.supabase_client import SupabaseClient
-from core.gemini_parser import GeminiParser
-import math
-
-class ComprasView(ft.Container):
-    def __init__(self):
-        super().__init__()
-        self.is_fullscreen = False
-        self.btn_fullscreen = ft.IconButton(
-            icon=ft.icons.FULLSCREEN,
-            tooltip="Expandir Tabla (Modo Enfoque)",
-            on_click=self.toggle_fullscreen
-        )
-        self.expand = True
-        
-        self.db = SupabaseClient()
-        self.ai_parser = GeminiParser()
-        self.page_size = 15
-        self.current_page = 1
-        self.total_pages = 1
-        self.total_records = 0
-        
-        self.parsed_data = None # Para guardar temporalmente los datos extraídos
-        
-        # --- ESTADO PANEL HISTÓRICO ---
-        self.panel_abierto = False
-        self.fecha_historial_activa = datetime.date.today().strftime("%Y-%m-%d")
-        self.modo_agrupacion_compras = "FACTURA" # "FACTURA" o "PROVEEDOR"
-        self.filtro_factura_activo = None
-        self.filtro_proveedor_activo = None
-        self.date_picker_compras_timeline = ft.DatePicker(on_change=self.on_date_compras_timeline_change)
-        # ------------------------------
-        
-        # Controles de Búsqueda
-        self.search_input = ft.TextField(
-            hint_text="Buscar por código, proveedor o factura...", 
-            prefix_icon=ft.icons.SEARCH,
-            border_radius=8,
-            expand=True,
-            bgcolor="white",
-            height=38,
-            dense=True,
-            text_size=12,
-            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
-            on_submit=self.on_search
-        )
-        
-        # Filtro de fecha
-        self.fecha_corte = None
-        self.date_picker = ft.DatePicker(
-            on_change=self.on_date_change,
-            on_dismiss=self.on_date_dismiss,
-        )
-        self.btn_date = ft.IconButton(
-            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
-            tooltip="Filtrar por Fecha",
-            on_click=self.open_date_picker
-        )
-        self.btn_clear_date = ft.IconButton(
-            icon=ft.icons.CLEAR,
-            tooltip="Limpiar Fecha",
-            on_click=self.clear_date,
-            visible=False,
-            icon_color="red"
-        )
-        
-        # Dashboard Resumen
-        self.lbl_compras_mes = ft.Text("$0", size=20, weight="bold", color=Config.COLOR_PRIMARY)
-        self.lbl_compras_hoy = ft.Text("$0", size=20, weight="bold", color="green")
-        self.lbl_cantidad = ft.Text("0", size=20, weight="bold")
-        
-        self.summary_container = ft.Container(
-            content=ft.Row([
-                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Total Compras en el Mes"), self.lbl_compras_mes]), padding=5), expand=True),
-                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Total Compras Hoy"), self.lbl_compras_hoy]), padding=5), expand=True),
-                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Cantidad Productos Comprados"), self.lbl_cantidad]), padding=5), expand=True),
-            ])
-        )
-        
-        self.btn_agregar = ft.ElevatedButton(
-            text="Agregar Compra",
-            icon=ft.icons.ADD,
-            bgcolor=Config.COLOR_SECONDARY,
-            color="white",
-            height=40,
-            on_click=self.on_agregar_click,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-        )
-        
-        # File Picker
-        self.file_picker = ft.FilePicker(on_result=self.on_file_picked)
-        
-        # Diálogo de Carga
-        self.lbl_loading_text = ft.Text("Preparando archivo...", text_align=ft.TextAlign.CENTER)
-        self.dlg_loading = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("Procesando con Inteligencia Artificial"),
-            content=ft.Column([
-                ft.ProgressRing(),
-                self.lbl_loading_text
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True)
-        )
-        
-        # Diálogo de Confirmación (se construirá dinámicamente)
-        self.dlg_confirm = ft.AlertDialog(modal=True)
-        
-        # Tabla de Datos
-        self.data_table = ft.DataTable(
-            data_row_min_height=30,
-            data_row_max_height=30,
-            heading_row_height=40,
-            columns=[
-                ft.DataColumn(ft.Text("Fecha", weight="bold")),
-                ft.DataColumn(ft.Text("No. Factura", weight="bold")),
-                ft.DataColumn(ft.Text("Proveedor", weight="bold")),
-                ft.DataColumn(ft.Text("Código Item", weight="bold")),
-                ft.DataColumn(ft.Container(content=ft.Text("Nombre", weight="bold"), width=300)),
-                ft.DataColumn(ft.Text("Cantidad", weight="bold"), numeric=True),
-                ft.DataColumn(ft.Text("Costo Unit.", weight="bold"), numeric=True),
-                ft.DataColumn(ft.Text("Costo Total", weight="bold"), numeric=True),
-            ],
-            rows=[],
-            heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
-            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
-            border_radius=8,
-            vertical_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
-        )
-        
-        # Controles Paginación
-        self.lbl_page_info = ft.Text("Página 1 de 1")
-        self.lbl_total = ft.Text("0 registros en total", color="grey")
-        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, tooltip="Página Anterior", on_click=self.on_prev_page, disabled=True)
-        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, tooltip="Página Siguiente", on_click=self.on_next_page, disabled=True)
-        self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
-        
-        # --- TAB 2: GESTIÓN DE CARGAS ---
-        self.cargas_file = "cargas_compras_locales.json"
-        self.cargas_data = {}
-        self._load_cargas()
-        
-        self.fecha_filtro_cargas = None
-        self.date_picker_filtro_cargas = ft.DatePicker(on_change=self.on_date_filtro_cargas_change)
-        
-        self.btn_filtro_fecha_cargas = ft.IconButton(
-            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
-            tooltip="Filtrar por Fecha",
-            on_click=lambda e: self.date_picker_filtro_cargas.pick_date()
-        )
-        self.btn_clear_filtro_cargas = ft.IconButton(
-            icon=ft.icons.CLEAR, tooltip="Limpiar Fecha",
-            on_click=self.clear_filtro_fecha_cargas, visible=False, icon_color="red"
-        )
-        
-        self.drop_filtro_estado_cargas = ft.Dropdown(
-            options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("Nuevo"), ft.dropdown.Option("Procesado con éxito"), ft.dropdown.Option("Falló"), ft.dropdown.Option("Guardado"), ft.dropdown.Option("Sobreescrito")],
-            value="Todos", label="Estado", dense=True, width=170, border_radius=8, text_size=12,
-            content_padding=ft.padding.symmetric(horizontal=10, vertical=8), height=38,
-            on_change=lambda e: self._render_tabla_cargas()
-        )
-        
-        self.table_cargas = ft.DataTable(
-            data_row_min_height=40,
-            data_row_max_height=40,
-            heading_row_height=40,
-            columns=[
-                ft.DataColumn(ft.Text("ID", weight="bold"), numeric=True),
-                ft.DataColumn(ft.Text("Página", weight="bold")),
-                ft.DataColumn(ft.Text("Archivo Original", weight="bold")),
-                ft.DataColumn(ft.Text("Estado", weight="bold")),
-                ft.DataColumn(ft.Text("Acciones", weight="bold")),
-            ],
-            rows=[],
-            heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
-            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
-            border_radius=8,
-            vertical_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
-        )
-        
-        # --- NUEVO MODAL DE METADATOS ---
-        self.fecha_carga_actual = datetime.date.today().strftime("%Y-%m-%d")
-        self.date_picker_cargas = ft.DatePicker(on_change=self.on_date_cargas_change)
-        self.fecha_carga_btn = ft.OutlinedButton(
-            text=self.fecha_carga_actual, icon=ft.icons.CALENDAR_MONTH,
-            on_click=lambda e: self.date_picker_cargas.pick_date(),
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)), height=40, width=250
-        )
-        self.dlg_metadatos_pdf = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("Selecciona la Fecha de la Carga"),
-            content=ft.Column([
-                ft.Text("Fecha asignada a las compras del PDF:", size=12, color="grey", weight="bold"),
-                self.fecha_carga_btn
-            ], tight=True),
-            actions=[
-                ft.TextButton("Cancelar", on_click=self._cerrar_modal_metadatos),
-                ft.ElevatedButton("Seleccionar Archivo PDF", on_click=self._abrir_file_picker_desde_modal)
+            # ----------------------------------------------------
+            # HOJA 4: INVENTARIO (HOJA MAESTRA CON FÓRMULAS)
+            # ----------------------------------------------------
+            ws_inv = wb.create_sheet(title="Inventario")
+            agregar_encabezado(ws_inv, "Catálogo General de Inventario y Valorización Formulado")
+            ws_inv.append([])
+            
+            headers_inv = [
+                "Código", "Nombre", "Categoría", "Ubicación", "Stock Inicial",
+                "Entradas", "Costo Entradas", "Salidas", "Ingresos por Salidas",
+                "Stock Actual", "Costo del Stock Actual", "Proyección Ingresos Stock Actual",
+                "Precio de Venta del Sistema", "Costo Unitario del Sistema",
+                "Ajustes Entradas", "Ajustes Salidas", "Costo Ajustes Entradas", "Ingresos Ajustes Salidas"
             ]
-        )
-        
-        # --- PREPARACIÓN DE LAS PESTAÑAS (TABS) ---
-        
-        # 1. Contenido Tab 1: Registro Compras
-        row_filtros_compras = ft.Row([
-            self.search_input,
-            self.btn_date,
-            self.btn_clear_date
-        ])
-        
-        contenedor_tabla_compras = ft.Container(
-            content=ft.Row([ft.Column([self.data_table], scroll=ft.ScrollMode.ALWAYS)], scroll=ft.ScrollMode.ALWAYS, expand=True, vertical_alignment=ft.CrossAxisAlignment.START),
-            bgcolor="white", padding=5, border_radius=10, expand=True, shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=ft.colors.with_opacity(0.05, "black"))
-        )
-        
-        footer_paginacion = ft.Container(
-            content=ft.Row([self.lbl_total, ft.Container(expand=True), self.btn_prev, self.lbl_page_info, self.btn_next], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            padding=ft.padding.only(top=10)
-        )
-        
-        layout_tab_compras = ft.Container(
-            content=ft.Column([row_filtros_compras, contenedor_tabla_compras, footer_paginacion], expand=True, spacing=10),
-            padding=10
-        )
-        
-        # 2. Contenido Tab 2: Gestión de Cargas
-        self.btn_extraer_todo = ft.ElevatedButton(
-            text="Extraer Todo",
-            icon=ft.icons.AUTO_MODE,
-            bgcolor="purple700",
-            color="white",
-            height=40,
-            on_click=self.on_extraer_todo_masivo,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-        )
-        
-        row_filtros_tab_cargas = ft.Row([
-            self.btn_filtro_fecha_cargas,
-            self.btn_clear_filtro_cargas,
-            self.drop_filtro_estado_cargas,
-            ft.Container(expand=True),
-            self.btn_extraer_todo,
-            ft.ElevatedButton(
-                text="Subir PDF de Compras", icon=ft.icons.CLOUD_UPLOAD, bgcolor=Config.COLOR_SECONDARY, color="white", height=40,
-                on_click=self.on_agregar_click, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-            )
-        ])
-        
-        contenedor_tabla_cargas = ft.Container(
-            content=ft.Row([ft.Column([self.table_cargas], scroll=ft.ScrollMode.ALWAYS)], scroll=ft.ScrollMode.ALWAYS, expand=True, vertical_alignment=ft.CrossAxisAlignment.START),
-            bgcolor="white", padding=5, border_radius=10, expand=True, shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=ft.colors.with_opacity(0.05, "black"))
-        )
-        
-        layout_tab_cargas = ft.Container(
-            content=ft.Column([row_filtros_tab_cargas, contenedor_tabla_cargas], expand=True, spacing=10),
-            padding=10
-        )
-        
-        # Integrar las Pestañas
-        self.tabs = ft.Tabs(
-            selected_index=0,
-            animation_duration=300,
-            tabs=[
-                ft.Tab(text="Registro de Compras", content=layout_tab_compras, icon=ft.icons.SHOPPING_CART),
-                ft.Tab(text="Gestión de Cargas", content=layout_tab_cargas, icon=ft.icons.FILE_UPLOAD),
-            ],
-            expand=True
-        )
+            ws_inv.append(headers_inv)
 
-        # --- DISEÑO DEL PANEL HISTÓRICO ---
-        self.lbl_tot_compras_panel = ft.Text("$0 COP", size=14, weight="bold", color="teal800")
-        self.lbl_cant_compras_panel = ft.Text("0 unds", size=10, color="grey")
-
-        kpi_compras_panel = ft.Container(
-            content=ft.Row([
-                ft.Icon(ft.icons.SHOPPING_BAG, color="teal700", size=20),
-                ft.Column([
-                    ft.Text("TOTAL COMPRAS DEL DÍA", size=9, weight="bold", color="grey"),
-                    self.lbl_tot_compras_panel
-                ], spacing=0, expand=True),
-                self.lbl_cant_compras_panel
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=10, bgcolor="#e6f4ea", border_radius=8, border=ft.border.all(1, "#c3e6cb")
-        )
-
-        self.segment_agrupacion = ft.SegmentedButton(
-            segments=[
-                ft.Segment(value="FACTURA", label=ft.Text("Por Factura", size=10)),
-                ft.Segment(value="PROVEEDOR", label=ft.Text("Por Proveedor", size=10)),
-            ],
-            selected={"FACTURA"},
-            on_change=self.on_agrupacion_change,
-            show_selected_icon=False
-        )
-
-        self.btn_fecha_compras_panel = ft.OutlinedButton(
-            self.fecha_historial_activa,
-            icon=ft.icons.CALENDAR_TODAY,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), padding=5),
-            height=30,
-            on_click=lambda e: self.date_picker_compras_timeline.pick_date()
-        )
-
-        self.panel_compras_list = ft.ListView(expand=True, spacing=6)
-
-        self.right_panel = ft.Container(
-            width=0, visible=False, bgcolor="white", border_radius=8,
-            border=ft.border.all(1, "#e0e0e0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color=ft.colors.with_opacity(0.05, "black")),
-            animate=ft.animation.Animation(250, ft.AnimationCurve.EASE_OUT),
-            content=ft.Column([
-                # Cabecera Panel
-                ft.Container(
-                    content=ft.Row([
-                        ft.Text("Histórico de Entradas", weight="bold", size=13, color=Config.COLOR_PRIMARY, expand=True),
-                        self.btn_fecha_compras_panel,
-                        ft.IconButton(ft.icons.CLOSE, icon_size=16, on_click=self.toggle_right_panel)
-                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    padding=10, bgcolor="#f4f6f8", border_radius=ft.border_radius.only(top_left=8, top_right=8)
-                ),
-                ft.Container(content=kpi_compras_panel, padding=ft.padding.symmetric(horizontal=10)),
-                ft.Container(content=self.segment_agrupacion, padding=ft.padding.symmetric(horizontal=10), alignment=ft.alignment.center),
-                ft.Divider(height=1, color="#e0e0e0"),
-                ft.Container(content=self.panel_compras_list, expand=True, padding=10)
-            ], spacing=8)
-        )
-
-        self.filtro_badge_compras = ft.Container(
-            content=ft.Row([
-                ft.Icon(ft.icons.FILTER_ALT, size=14, color="white"),
-                ft.Text("Filtro Activo", color="white", weight="bold", size=11),
-                ft.IconButton(
-                    ft.icons.CLOSE, icon_size=14, icon_color="white",
-                    on_click=self.limpiar_filtro_compras,
-                    style=ft.ButtonStyle(padding=0), width=20, height=20
-                )
-            ], tight=True),
-            bgcolor="teal700", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=12, visible=False
-        )
-
-        self.btn_toggle_panel = ft.IconButton(
-            icon=ft.icons.HISTORY_TOGGLE_OFF,
-            tooltip="Ver Histórico de Compras del Día",
-            on_click=self.toggle_right_panel
-        )
-
-        self.lbl_titulo = ft.Text("Módulo de Compras", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        main_column = ft.Column([
-            self.progress_bar,
-            ft.Row([self.lbl_titulo, self.filtro_badge_compras, ft.Container(expand=True), self.btn_toggle_panel, self.btn_fullscreen]),
-            self.summary_container,
-            self.tabs
-        ], expand=True, spacing=10)
-
-        self.content = ft.Row([
-            main_column,
-            self.right_panel
-        ], expand=True, spacing=10)
-        
-        self.load_data()
-        self._render_tabla_cargas()
-
-    def toggle_right_panel(self, e):
-        self.panel_abierto = not self.panel_abierto
-        self.right_panel.width = 330 if self.panel_abierto else 0
-        self.right_panel.visible = self.panel_abierto
-        self.right_panel.padding = 0
-        self.btn_toggle_panel.icon = ft.icons.HISTORY if self.panel_abierto else ft.icons.HISTORY_TOGGLE_OFF
-        if self.panel_abierto:
-            self.cargar_historial_panel()
-        if hasattr(self, "safe_update"):
-            self.safe_update()
-        elif self.page:
-            self.page.update()
-
-    def on_date_compras_timeline_change(self, e):
-        if self.date_picker_compras_timeline.value:
-            self.fecha_historial_activa = self.date_picker_compras_timeline.value.strftime("%Y-%m-%d")
-            self.btn_fecha_compras_panel.text = self.fecha_historial_activa
-            self.cargar_historial_panel()
-
-    def on_agrupacion_change(self, e):
-        if e.control.selected:
-            self.modo_agrupacion_compras = list(e.control.selected)[0]
-            self.cargar_historial_panel()
-
-    def cargar_historial_panel(self):
-        if not self.page: return
-
-        def worker():
-            items = self.db.get_historial_compras_dia(self.fecha_historial_activa, self.modo_agrupacion_compras)
-
-            tot_pesos = sum([item["total"] for item in items])
-            tot_unds = sum([item["unidades"] for item in items])
-
-            self.lbl_tot_compras_panel.value = f"${tot_pesos:,.0f} COP"
-            self.lbl_cant_compras_panel.value = f"{tot_unds:g} unds"
-
-            self.panel_compras_list.controls.clear()
-
-            for item in items:
-                self.panel_compras_list.controls.append(self._crear_card_item_compras(item))
-
-            if not self.panel_compras_list.controls:
-                self.panel_compras_list.controls.append(
-                    ft.Container(content=ft.Text("Sin compras registradas en esta fecha.", size=11, color="grey"), padding=20, alignment=ft.alignment.center)
-                )
-
-            if hasattr(self, "safe_update"):
-                self.safe_update()
-            else:
-                self.page.update()
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _crear_card_item_compras(self, item):
-        tipo = item["tipo"]
-
-        if tipo == "COMPRA":
-            badge_txt = f"FACTURA: {item['factura']}"
-            badge_bg, badge_col = "#e6f4ea", "teal800"
-            sub_txt = item["proveedor"]
-            icon_mat = ft.icons.RECEIPT
-        elif tipo == "PROVEEDOR_RESUMEN":
-            badge_txt = f"{item['facturas_cant']} Facturas"
-            badge_bg, badge_col = "#e8f0fe", "blue800"
-            sub_txt = item["proveedor"]
-            icon_mat = ft.icons.BUSINESS
-        else:
-            # AJUSTE_ENTRADA
-            badge_txt = "ENTRADA AJUSTE (+)"
-            badge_bg, badge_col = "#fef3c7", "orange800"
-            sub_txt = item["factura"]
-            icon_mat = ft.icons.TUNE
-
-        badge = ft.Container(
-            content=ft.Text(badge_txt, size=9, weight="bold", color=badge_col, no_wrap=True),
-            padding=ft.padding.symmetric(horizontal=6, vertical=2), bgcolor=badge_bg, border_radius=10
-        )
-
-        card = ft.Container(
-            content=ft.Row([
-                ft.Icon(icon_mat, size=16, color="teal700"),
-                ft.Column([
-                    badge,
-                    ft.Text(sub_txt, size=11, weight="bold", color="black87", no_wrap=True, tooltip=sub_txt),
-                ], expand=True, spacing=2),
-                ft.Column([
-                    ft.Text(f"${item['total']:,.0f}", size=11, weight="bold", color="black87"),
-                    ft.Text(f"{item['unidades']:g} unds", size=9, color="grey", text_align=ft.TextAlign.RIGHT)
-                ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=1)
-            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
-            padding=8,
-            border_radius=6,
-            bgcolor="#ffffff",
-            border=ft.border.all(1, "#eeeeee"),
-            on_click=lambda e, i=item: self.aplicar_filtro_cruzado_compras(i),
-            ink=True
-        )
-        return card
-
-    def aplicar_filtro_cruzado_compras(self, item):
-        tipo = item["tipo"]
-        self.progress_bar.visible = True
-        if hasattr(self, "safe_update"):
-            self.safe_update()
-        else:
-            self.page.update()
-
-        if tipo == "PROVEEDOR_RESUMEN":
-            self.filtro_proveedor_activo = item["proveedor"]
-            self.filtro_factura_activo = None
-            desc = f"Proveedor: {item['proveedor']}"
-        else:
-            self.filtro_factura_activo = item["ref"]
-            self.filtro_proveedor_activo = None
-            desc = f"Factura: {item['factura']}"
-
-        lbl = self.filtro_badge_compras.content.controls[1]
-        lbl.value = desc
-        self.filtro_badge_compras.visible = True
-
-        self.current_page = 1
-        self.load_data()
-
-    def limpiar_filtro_compras(self, e=None):
-        self.filtro_factura_activo = None
-        self.filtro_proveedor_activo = None
-        self.filtro_badge_compras.visible = False
-        self.current_page = 1
-        self.load_data()
-
-    def _load_cargas(self):
-        if os.path.exists(self.cargas_file):
-            try:
-                with open(self.cargas_file, "r", encoding="utf-8") as f:
-                    self.cargas_data = json.load(f)
-            except Exception:
-                self.cargas_data = {}
-        else:
-            self.cargas_data = {}
-
-    def _save_cargas(self):
-        try:
-            with open(self.cargas_file, "w", encoding="utf-8") as f:
-                json.dump(self.cargas_data, f, ensure_ascii=False, indent=4)
-        except Exception as e:
-            print(f"Error guardando cargas: {e}")
-
-    def on_date_cargas_change(self, e):
-        if self.date_picker_cargas.value:
-            self.fecha_carga_actual = self.date_picker_cargas.value.strftime("%Y-%m-%d")
-            self.fecha_carga_btn.text = self.fecha_carga_actual
-            if self.page:
-                self.page.update()
-
-    def on_date_filtro_cargas_change(self, e):
-        if self.date_picker_filtro_cargas.value:
-            self.fecha_filtro_cargas = self.date_picker_filtro_cargas.value.strftime("%Y-%m-%d")
-            self.btn_filtro_fecha_cargas.tooltip = f"Fecha: {self.fecha_filtro_cargas}"
-            self.btn_filtro_fecha_cargas.icon_color = "blue"
-            self.btn_clear_filtro_cargas.visible = True
-            if self.page:
-                self.page.update()
-            self._render_tabla_cargas()
-
-    def clear_filtro_fecha_cargas(self, e):
-        self.fecha_filtro_cargas = None
-        self.btn_filtro_fecha_cargas.tooltip = "Filtrar por Fecha"
-        self.btn_filtro_fecha_cargas.icon_color = None
-        self.btn_clear_filtro_cargas.visible = False
-        self.date_picker_filtro_cargas.value = None
-        if self.page:
-            self.page.update()
-        self._render_tabla_cargas()
-
-    def _render_tabla_cargas(self):
-        self.table_cargas.rows.clear()
-        
-        lista_cargas = []
-        for grupo_key, paginas in self.cargas_data.items():
-            for num_pag, data in paginas.items():
-                lista_cargas.append(data)
+            for idx, i in enumerate(raw_inv, start=6):
+                code = str(i.get("codigo_insumo", ""))
                 
-        # Ordenar por ID descendente (más nuevos arriba)
-        lista_cargas.sort(key=lambda x: x["id"], reverse=True)
-        
-        for data in lista_cargas:
-            # --- Filtrado Visual ---
-            if self.fecha_filtro_cargas and data.get("fecha") != self.fecha_filtro_cargas:
-                continue
-                    
-            if self.drop_filtro_estado_cargas.value != "Todos" and data.get("estado") != self.drop_filtro_estado_cargas.value:
-                continue
-            # -----------------------
-            
-            id_carga = data["id"]
-            nombre = f"Página No. {data['pagina']} ({data['fecha']})"
-            archivo_orig = os.path.basename(data.get("archivo_original", "Desconocido"))
-            estado = data["estado"]
-            
-            txt_crono = ft.Text("⏱️ 20s", color="red", weight="bold", visible=False)
-            
-            texto_btn = "Extraer Datos" if estado in ["Nuevo", "Falló", "Sobreescrito"] else "Ver"
-            color_btn = Config.COLOR_PRIMARY if texto_btn == "Extraer Datos" else "grey"
-            icon_btn = ft.icons.DOCUMENT_SCANNER if texto_btn == "Extraer Datos" else ft.icons.VISIBILITY
-            
-            btn_accion = ft.ElevatedButton(
-                text=texto_btn,
-                icon=icon_btn,
-                bgcolor=color_btn,
-                color="white",
-                height=30,
-                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5)),
-                on_click=lambda e, d=data, txt=txt_crono: self.on_accion_carga(e, d, txt)
-            )
-            
-            acciones_row = ft.Row([btn_accion, txt_crono], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-            
-            color_estado = "black"
-            if estado == "Procesado con éxito": color_estado = "green"
-            elif estado == "Falló": color_estado = "red"
-            elif estado == "Guardado": color_estado = "blue"
-            elif estado == "Sobreescrito": color_estado = "orange"
-            
-            self.table_cargas.rows.append(
-                ft.DataRow(
-                    cells=[
-                        ft.DataCell(ft.Text(str(id_carga))),
-                        ft.DataCell(ft.Text(nombre, weight="bold")),
-                        ft.DataCell(ft.Text(archivo_orig[:20] + "..." if len(archivo_orig) > 20 else archivo_orig, tooltip=archivo_orig)),
-                        ft.DataCell(ft.Text(estado, color=color_estado, weight="bold")),
-                        ft.DataCell(acciones_row),
-                    ]
-                )
-            )
-            
-        if self.page:
-            self.page.update()
+                # Datos estáticos base
+                ws_inv.cell(row=idx, column=1, value=code) # A
+                ws_inv.cell(row=idx, column=2, value=str(i.get("nombre", ""))) # B
+                ws_inv.cell(row=idx, column=3, value=str(i.get("categoria", ""))) # C
+                ws_inv.cell(row=idx, column=4, value=str(i.get("ubicacion") or "N/A")) # D
+                ws_inv.cell(row=idx, column=5, value=float(i.get("stock_inicial") or 0)) # E
 
-    def on_accion_carga(self, e, data, txt_crono):
-        btn = e.control
-        if btn.text == "Ver":
-            self.carga_activa = data
-            self.parsed_data = data.get("datos_extraidos", [])
-            
-            codigos_extraidos = set()
-            for invoice in self.parsed_data:
-                for p in invoice.get("productos", []):
-                    codigos_extraidos.add(str(p.get("codigo_insumo", "")))
-            if codigos_extraidos:
-                self.nombres_insumos = self.db.get_nombres_insumos(list(codigos_extraidos))
-            else:
-                self.nombres_insumos = {}
-                
-            self.show_confirm_ui()
-            return
-            
-        if getattr(self, "is_extraccion_activa", False):
-            self.page.snack_bar = ft.SnackBar(ft.Text("Hay una extracción en proceso. Espere que termine el cronómetro."), bgcolor="orange")
-            self.page.snack_bar.open = True
-            self.page.update()
-            return
+                # Fórmulas SUMIF sobre Compras y Ventas
+                ws_inv.cell(row=idx, column=6, value=f'=SUMIF(Compras!B:B, A{idx}, Compras!E:E)') # F: Entradas
+                ws_inv.cell(row=idx, column=7, value=f'=SUMIF(Compras!B:B, A{idx}, Compras!F:F)') # G: Costo Entradas
+                ws_inv.cell(row=idx, column=8, value=f'=SUMIF(Ventas!B:B, A{idx}, Ventas!E:E)') # H: Salidas
+                ws_inv.cell(row=idx, column=9, value=f'=SUMIF(Ventas!B:B, A{idx}, Ventas!F:F)') # I: Ingresos Salidas
 
-        self.is_extraccion_activa = True
-        btn.text = "Extrayendo..."
-        btn.icon = ft.icons.HOURGLASS_TOP
-        
-        for row in self.table_cargas.rows:
-            accion_row = row.cells[-1].content
-            b = accion_row.controls[0]
-            if b.text == "Extraer Datos":
-                b.disabled = True
-                
-        self.page.snack_bar = ft.SnackBar(ft.Text(f"Analizando documento con Inteligencia Artificial..."), bgcolor="blue")
-        self.page.snack_bar.open = True
-        self.page.update()
-        
-        threading.Thread(target=self._worker_extraccion, args=(data, btn, txt_crono), daemon=True).start()
+                # Precios/Costos Unitarios Maestros
+                ws_inv.cell(row=idx, column=13, value=float(i.get("precio_venta") or 0)) # M: Precio Venta
+                ws_inv.cell(row=idx, column=14, value=float(i.get("costo_unitario") or 0)) # N: Costo Unitario
 
-    def _worker_extraccion(self, data, btn, txt_crono):
-        try:
-            extracted = self.ai_parser.parse_compras_pdf_page(data["archivo"], 0)
-            
-            if extracted and isinstance(extracted, list) and len(extracted) > 0:
-                data["estado"] = "Procesado con éxito"
-                data["datos_extraidos"] = extracted
-                if self.page:
-                    self.page.snack_bar = ft.SnackBar(ft.Text("¡Extracción exitosa!"), bgcolor="green")
-            else:
-                data["estado"] = "Falló"
-                data["datos_extraidos"] = []
-                if self.page:
-                    self.page.snack_bar = ft.SnackBar(ft.Text("Fallo en la extracción. Revise el PDF o intente de nuevo."), bgcolor="red")
-                    
+                # Fórmulas SUMIFS sobre Ajustes
+                ws_inv.cell(row=idx, column=15, value=f'=SUMIFS(Ajustes!E:E, Ajustes!B:B, A{idx}, Ajustes!D:D, "Entrada")') # O: Ajustes Entradas
+                ws_inv.cell(row=idx, column=16, value=f'=SUMIFS(Ajustes!E:E, Ajustes!B:B, A{idx}, Ajustes!D:D, "Salida")') # P: Ajustes Salidas
+
+                # Fórmulas de Totales en Inventario
+                ws_inv.cell(row=idx, column=10, value=f'=E{idx}+F{idx}-H{idx}+O{idx}-P{idx}') # J: Stock Actual
+                ws_inv.cell(row=idx, column=11, value=f'=J{idx}*N{idx}') # K: Costo Stock Actual
+                ws_inv.cell(row=idx, column=12, value=f'=J{idx}*M{idx}') # L: Proyección Ingresos
+                ws_inv.cell(row=idx, column=17, value=f'=O{idx}*N{idx}') # Q: Costo Ajustes Entradas
+                ws_inv.cell(row=idx, column=18, value=f'=P{idx}*M{idx}') # R: Ingresos Ajustes Salidas
+
+            # ----------------------------------------------------
+            # APLICAR FORMATOS Y AUTOFIT A TODAS LAS HOJAS
+            # ----------------------------------------------------
+            for sheet in wb.worksheets:
+                for cell in sheet[5]:
+                    cell.fill = fill_header
+                    cell.font = font_header
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+                for col in sheet.columns:
+                    max_len = 0
+                    col_letter = get_column_letter(col[0].column)
+                    for cell in col:
+                        if cell.row >= 5 and cell.value is not None:
+                            max_len = max(max_len, len(str(cell.value)))
+                            cell.border = border_thin
+
+                        # Formatear números en la hoja Inventario
+                        if sheet.title == "Inventario" and cell.row >= 6:
+                            if col_letter in ["G", "I", "K", "L", "M", "N", "Q", "R"]:
+                                cell.number_format = num_fmt_curr
+                            elif col_letter in ["E", "F", "H", "J", "O", "P"]:
+                                cell.number_format = num_fmt_qty
+                        elif sheet.title in ["Compras", "Ventas"] and cell.row >= 6:
+                            if col_letter == "F": cell.number_format = num_fmt_curr
+                            elif col_letter == "E": cell.number_format = num_fmt_qty
+
+                    sheet.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
+            wb.save(file_path)
+
             if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text("¡Consolidado Excel generado y formulado con éxito!"), bgcolor="green")
                 self.page.snack_bar.open = True
-            self._save_cargas()
-            
-            txt_crono.visible = True
-            btn.text = "Enfriando..."
-            btn.icon = ft.icons.TIMER
-            for i in range(20, 0, -1):
-                txt_crono.value = f"⏱️ {i}s"
-                if self.page:
-                    self.page.update()
-                time.sleep(1)
-                
+                self.page.update()
+
         except Exception as ex:
-            data["estado"] = "Falló"
-            self._save_cargas()
+            print(f"Error generando Excel: {ex}")
             if self.page:
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error en extracción: {ex}"), bgcolor="red")
-                self.page.snack_bar.open = True
-        finally:
-            self.is_extraccion_activa = False
-            self._render_tabla_cargas()
-    def toggle_fullscreen(self, e):
-        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
-        visibilidad = not self.is_fullscreen
-
-        # Ocultar o mostrar elementos superiores si existen en la vista
-        if hasattr(self, "lbl_titulo"): self.lbl_titulo.visible = visibilidad
-        if hasattr(self, "summary_container"): self.summary_container.visible = visibilidad
-        if hasattr(self, "kpi_bar"): self.kpi_bar.visible = visibilidad
-
-        # Cambiar icono y tooltip
-        self.btn_fullscreen.icon = ft.icons.FULLSCREEN_EXIT if self.is_fullscreen else ft.icons.FULLSCREEN
-        self.btn_fullscreen.tooltip = "Contraer Vista" if self.is_fullscreen else "Expandir Tabla (Modo Enfoque)"
-
-        if hasattr(self, "safe_update"):
-            self.safe_update()
-        elif self.page:
-            self.page.update()
-
-    def did_mount(self):
-        # Agregar los overlays a la página principal
-        if self.file_picker not in self.page.overlay:
-            self.page.overlay.append(self.file_picker)
-        if self.dlg_loading not in self.page.overlay:
-            self.page.overlay.append(self.dlg_loading)
-        if self.dlg_confirm not in self.page.overlay:
-            self.page.overlay.append(self.dlg_confirm)
-        if hasattr(self, "date_picker") and self.date_picker not in self.page.overlay:
-            self.page.overlay.append(self.date_picker)
-        if hasattr(self, "date_picker_compras_timeline") and self.date_picker_compras_timeline not in self.page.overlay:
-            self.page.overlay.append(self.date_picker_compras_timeline)
-            
-        # Nuevos overlays para Cargas
-        if hasattr(self, "dlg_metadatos_pdf") and self.dlg_metadatos_pdf not in self.page.overlay:
-            self.page.overlay.append(self.dlg_metadatos_pdf)
-        if hasattr(self, "date_picker_cargas") and self.date_picker_cargas not in self.page.overlay:
-            self.page.overlay.append(self.date_picker_cargas)
-        if hasattr(self, "date_picker_filtro_cargas") and self.date_picker_filtro_cargas not in self.page.overlay:
-            self.page.overlay.append(self.date_picker_filtro_cargas)
-            
-        self.page.update()
-        self.load_summary()
-        self.load_data()
-        
-    def load_summary(self):
-        res = self.db.get_compras_summary()
-        self.lbl_compras_mes.value = f"${res.get('total_mes', 0):,.2f}"
-        self.lbl_compras_hoy.value = f"${res.get('total_hoy', 0):,.2f}"
-        self.lbl_cantidad.value = f"{res.get('cantidad_total', 0):,.2f}"
-        if self.page:
-            self.update()
-            
-    def open_date_picker(self, e):
-        self.date_picker.pick_date()
-        
-    def on_date_change(self, e):
-        if self.date_picker.value:
-            self.fecha_corte = self.date_picker.value.strftime("%Y-%m-%d")
-            self.btn_date.tooltip = f"Fecha: {self.fecha_corte}"
-            self.btn_date.icon_color = "blue"
-            self.btn_clear_date.visible = True
-            if self.page:
-                self.page.update()
-            self.current_page = 1
-            self.load_data()
-            
-    def on_date_dismiss(self, e):
-        pass
-        
-    def clear_date(self, e):
-        self.fecha_corte = None
-        self.btn_date.tooltip = "Filtrar por Fecha"
-        self.btn_date.icon_color = None
-        self.btn_clear_date.visible = False
-        self.date_picker.value = None
-        if self.page:
-            self.page.update()
-        self.current_page = 1
-        self.load_data()
-        
-    def on_agregar_click(self, e):
-        # En lugar de abrir file_picker, abrimos el modal de metadatos
-        self.dlg_metadatos_pdf.open = True
-        if self.page:
-            self.page.update()
-
-    def _cerrar_modal_metadatos(self, e=None):
-        self.dlg_metadatos_pdf.open = False
-        if self.page:
-            self.page.update()
-
-    def _abrir_file_picker_desde_modal(self, e):
-        self.fecha_seleccionada = self.fecha_carga_actual
-        self._cerrar_modal_metadatos()
-        self.file_picker.pick_files(allow_multiple=False, allowed_extensions=["pdf"], dialog_title="Selecciona el Reporte de Compras")
-
-    def on_file_picked(self, e: ft.FilePickerResultEvent):
-        if e.files and len(e.files) > 0:
-            pdf_path = e.files[0].path
-            
-            self.lbl_loading_text.value = "Dividiendo PDF en páginas..."
-            self.dlg_loading.open = True
-            self.page.update()
-            
-            threading.Thread(target=self._dividir_y_guardar_pdf, args=(pdf_path,), daemon=True).start()
-
-    def _dividir_y_guardar_pdf(self, pdf_path):
-        try:
-            reader = PdfReader(pdf_path)
-            total_pages = len(reader.pages)
-            
-            grupo_key = self.fecha_seleccionada
-            if grupo_key not in self.cargas_data:
-                self.cargas_data[grupo_key] = {}
-                
-            paginas_existentes = [int(p) for p in self.cargas_data[grupo_key].keys()]
-            max_pagina = max(paginas_existentes) if paginas_existentes else 0
-            
-            max_id = 0
-            for k, pags in self.cargas_data.items():
-                for p_num, d in pags.items():
-                    if d.get("id", 0) > max_id:
-                        max_id = d["id"]
-            
-            os.makedirs("pdfs_locales", exist_ok=True)
-            
-            for p_idx in range(total_pages):
-                num_pag = max_pagina + p_idx + 1
-                id_carga = max_id + p_idx + 1
-                
-                writer = PdfWriter()
-                writer.add_page(reader.pages[p_idx])
-                
-                nombre_archivo = f"compra_{grupo_key}_pag_{num_pag}.pdf"
-                ruta_local = os.path.join("pdfs_locales", nombre_archivo)
-                
-                with open(ruta_local, "wb") as f:
-                    writer.write(f)
-                    
-                self.cargas_data[grupo_key][str(num_pag)] = {
-                    "id": id_carga,
-                    "fecha": grupo_key,
-                    "pagina": num_pag,
-                    "archivo_original": pdf_path,
-                    "archivo": ruta_local,
-                    "estado": "Nuevo"
-                }
-                
-            self._save_cargas()
-            self.dlg_loading.open = False
-            self.page.snack_bar = ft.SnackBar(ft.Text(f"Se dividió el PDF en {total_pages} páginas exitosamente."), bgcolor="green")
-            self.page.snack_bar.open = True
-            
-        except Exception as e:
-            self.dlg_loading.open = False
-            self.page.snack_bar = ft.SnackBar(ft.Text(f"Error procesando PDF: {e}"), bgcolor="red")
-            self.page.snack_bar.open = True
-            
-        finally:
-            if self.page:
-                self.page.update()
-                self._render_tabla_cargas()
-
-    def animate_loading(self, base_msg):
-        messages = [
-            base_msg,
-            "Puliendo datos para enviarlos...",
-            "Generando el formato de carga...",
-            "A unos pasos de finalizar..."
-        ]
-        idx = 0
-        while getattr(self, "is_loading", False):
-            if hasattr(self, "lbl_loading_text") and self.page:
-                self.lbl_loading_text.value = messages[idx % len(messages)]
-                try:
-                    self.page.update()
-                except Exception:
-                    pass
-            idx += 1
-            time.sleep(5)
-            self.is_loading = False
-            self.dlg_loading.open = False
-            if self.page:
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"Ocurrió un error inesperado: {str(e)}", color="white"), bgcolor="red")
+                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error al generar Excel: {ex}"), bgcolor="red")
                 self.page.snack_bar.open = True
                 self.page.update()
-    def update_totals(self, e=None):
-        gran_cant = 0.0
-        gran_costo = 0.0
-        gran_iva = 0.0
-        gran_total = 0.0
-        
-        factura_totals = {}
-        
-        for item in self.productos_rows:
-            if item["type"] == "product":
-                try:
-                    cant = float(item["cantidad_ctl"].value.replace(',', '.'))
-                    costo = float(item["costo_ctl"].value.replace(',', '.'))
-                    iva = float(item["iva_ctl"].value.replace(',', '.'))
-                    
-                    row_total = (cant * costo) + iva
-                    item["total_ctl"].value = f"${row_total:,.2f}"
-                    
-                    factura_idx = item["factura_idx"]
-                    factura_totals[factura_idx] = factura_totals.get(factura_idx, 0) + row_total
-                    
-                    gran_cant += cant
-                    gran_costo += costo
-                    gran_iva += iva
-                    gran_total += row_total
-                except:
-                    item["total_ctl"].value = "Error"
-                    
-        for item in self.productos_rows:
-            if item["type"] == "header":
-                idx = item["factura_idx"]
-                total = factura_totals.get(idx, 0)
-                item["total_factura_ctl"].value = f"Total Factura: ${total:,.2f}"
-                    
-        self.txt_gran_cant.value = f"{gran_cant:,.2f}"
-        self.txt_gran_costo.value = f"${gran_costo:,.2f}"
-        self.txt_gran_iva.value = f"${gran_iva:,.2f}"
-        self.txt_gran_total.value = f"${gran_total:,.2f}"
-        if self.page:
-            self.page.update()
-
-    def show_confirm_ui(self):
-        # Guardar el contenido original de la vista para poder volver a él
-        if not hasattr(self, "main_content"):
-            self.main_content = self.content
-            
-        self.productos_rows = []
-        facturas_count = len(self.parsed_data)
-        productos_count = 0
-        
-        # Como ahora parsed_data es una lista de facturas, las iteramos todas
-        for idx, invoice in enumerate(self.parsed_data):
-            ea = invoice.get("numero_entrada", "")
-            fecha = invoice.get("fecha", "")
-            factura = invoice.get("numero_factura", "")
-            proveedor = invoice.get("proveedor", "")
-            
-            total_factura_ctl = ft.Text("Total Factura: $0.00", weight="bold", color=Config.COLOR_PRIMARY)
-            self.productos_rows.append({
-                "type": "header",
-                "factura_idx": idx,
-                "total_factura_ctl": total_factura_ctl,
-                "row_ctl": ft.Container(
-                    content=ft.Row([
-                        ft.Text(f"EA: {ea} | Factura: {factura} | Proveedor: {proveedor} | Fecha: {fecha}", weight="bold", color=Config.COLOR_PRIMARY),
-                        ft.Container(expand=True),
-                        total_factura_ctl
-                    ]),
-                    bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_PRIMARY),
-                    padding=5,
-                    border_radius=5
-                )
-            })
-            
-            # Productos de esta factura
-            for p in invoice.get("productos", []):
-                productos_count += 1
-                cod = str(p.get("codigo_insumo", ""))
-                # Extraemos el nombre de la BD si existe, sino lo dejamos como "Desconocido"
-                nombre = self.nombres_insumos.get(cod, "Desconocido")
-                
-                def get_codigo_change_handler(nombre_control):
-                    def handler(e):
-                        val = e.control.value
-                        if val:
-                            nombres = self.db.get_nombres_insumos([val])
-                            nombre_control.value = nombres.get(val, "Desconocido")
-                        else:
-                            nombre_control.value = "Desconocido"
-                        nombre_control.tooltip = nombre_control.value
-                        if self.page: self.page.update()
-                    return handler
-                
-                nombre_ctl = ft.Text(nombre[:25], width=180, no_wrap=True, tooltip=nombre)
-                codigo_ctl = ft.TextField(label="Código", value=cod, width=90, dense=True, on_change=get_codigo_change_handler(nombre_ctl))
-                cantidad_ctl = ft.TextField(label="Cant.", value=str(p.get("cantidad", 0)), width=70, dense=True, on_change=self.update_totals)
-                costo_ctl = ft.TextField(label="Costo U.", value=str(p.get("costo_unitario", 0)), width=80, dense=True, on_change=self.update_totals)
-                iva_ctl = ft.TextField(label="IVA", value=str(p.get("iva", 0)), width=80, dense=True, on_change=self.update_totals)
-                total_ctl = ft.Text("$0.00", width=100, weight="bold")
-                
-                self.productos_rows.append({
-                    "type": "product",
-                    "factura_idx": idx,
-                    "ea": ea,
-                    "fecha": fecha,
-                    "factura": factura,
-                    "proveedor": proveedor,
-                    "codigo_ctl": codigo_ctl,
-                    "nombre_ctl": nombre_ctl,
-                    "cantidad_ctl": cantidad_ctl,
-                    "costo_ctl": costo_ctl,
-                    "iva_ctl": iva_ctl,
-                    "total_ctl": total_ctl,
-                    "row_ctl": ft.Row([codigo_ctl, nombre_ctl, cantidad_ctl, costo_ctl, iva_ctl, total_ctl])
-                })
-            
-        list_view = ft.ListView(
-            controls=[item["row_ctl"] for item in self.productos_rows],
-            expand=True,
-            spacing=10
-        )
-        
-        # Resumen Visual y Controles de Totales
-        self.txt_gran_cant = ft.Text("0", weight="bold")
-        self.txt_gran_costo = ft.Text("$0", weight="bold")
-        self.txt_gran_iva = ft.Text("$0", weight="bold")
-        self.txt_gran_total = ft.Text("$0", weight="bold", size=18, color=Config.COLOR_PRIMARY)
-        
-        is_last_page = not (hasattr(self, 'total_pages_pdf') and self.current_page_idx < self.total_pages_pdf - 1)
-        botones_acciones = [ft.TextButton("Volver", on_click=self.close_confirm_ui)]
-        
-        if not is_last_page:
-            botones_acciones.append(ft.ElevatedButton("Confirmar y Guardar", bgcolor="grey", color="white", on_click=self.on_guardar_compra_partial))
-            botones_acciones.append(ft.ElevatedButton("Confirmar y Continuar", bgcolor=Config.COLOR_SECONDARY, color="white", on_click=self.on_guardar_compra))
-        else:
-            botones_acciones.append(ft.ElevatedButton("Confirmar y Guardar Todo", bgcolor=Config.COLOR_SECONDARY, color="white", on_click=self.on_guardar_compra))
-            
-        # --- NUEVO DISEÑO DEL FOOTER ---
-        # 1. Fila de Información Financiera (Estilo Dashboard)
-        info_row = ft.Row([
-            ft.Text("RESUMEN TOTAL", weight="bold", size=18, color=Config.COLOR_PRIMARY),
-            ft.Container(expand=True), # Empuja los totales hacia la derecha
-            
-            ft.Column([ft.Text("Cant. Total", size=12, color="grey"), self.txt_gran_cant], spacing=2, horizontal_alignment="end"),
-            ft.Container(width=1, height=30, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=10)),
-            
-            ft.Column([ft.Text("Costo Base", size=12, color="grey"), self.txt_gran_costo], spacing=2, horizontal_alignment="end"),
-            ft.Container(width=1, height=30, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=10)),
-            
-            ft.Column([ft.Text("IVA Total", size=12, color="grey"), self.txt_gran_iva], spacing=2, horizontal_alignment="end"),
-            ft.Container(width=1, height=30, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=10)),
-            
-            ft.Column([ft.Text("GRAN TOTAL", size=12, color="grey", weight="bold"), self.txt_gran_total], spacing=2, horizontal_alignment="end"),
-        ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
-
-        # 2. Fila de Botones de Acción
-        buttons_row = ft.Row([
-            ft.Container(expand=True), # Empuja los botones hacia el extremo derecho
-            *botones_acciones # Desempaqueta la lista de botones dinámicos
-        ], alignment=ft.MainAxisAlignment.END)
-
-        # 3. Contenedor Principal del Footer
-        footer = ft.Container(
-            content=ft.Column([
-                info_row,
-                ft.Divider(height=15, color=ft.colors.with_opacity(0.1, "black")),
-                buttons_row
-            ], spacing=0),
-            bgcolor=ft.colors.with_opacity(0.03, Config.COLOR_PRIMARY),
-            padding=20,
-            border_radius=8,
-            border=ft.border.all(1, ft.colors.with_opacity(0.1, Config.COLOR_PRIMARY)),
-            margin=ft.padding.only(top=10)
-        )
-        
-        if hasattr(self, 'total_pages_pdf'):
-            titulo = f"Datos Extraídos - Pág. No. {self.current_page_idx + 1} de {self.total_pages_pdf}"
-        elif hasattr(self, 'carga_activa'):
-            titulo = f"Datos Extraídos - Pág. No. {self.carga_activa.get('pagina', 1)}"
-        else:
-            titulo = "Revisión de Compras (Modo Inmersivo)"
-        header = ft.Row([
-            ft.Text(titulo, size=24, weight="bold"),
-            ft.Text(f"{facturas_count} Facturas extraídas | {productos_count} Productos en total", color="grey")
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-        
-        # Reemplazamos el contenido actual por el modo Inmersivo/Fullscreen
-        self.content = ft.Column([
-            header,
-            ft.Divider(),
-            ft.Row([
-                ft.Container(width=90, content=ft.Text("Código", weight="bold")),
-                ft.Container(width=180, content=ft.Text("Nombre (desde BD)", weight="bold")),
-                ft.Container(width=70, content=ft.Text("Cantidad", weight="bold")),
-                ft.Container(width=80, content=ft.Text("Costo U.", weight="bold")),
-                ft.Container(width=80, content=ft.Text("IVA", weight="bold")),
-                ft.Container(width=100, content=ft.Text("Costo Total", weight="bold"))
-            ]),
-            list_view,
-            footer
-        ], expand=True)
-        
-        self.update_totals()
-        self.page.update()
-        
-    def close_confirm_ui(self, e):
-        # Volver al diseño principal
-        self.content = self.main_content
-        self.page.update()
-        
-    def on_guardar_compra_partial(self, e):
-        if hasattr(self, 'total_pages_pdf'):
-            self.current_page_idx = self.total_pages_pdf
-        self.on_guardar_compra(e)
-
-    def on_guardar_compra(self, e):
-        # 1. Bloquear interfaz y mostrar carga
-        btn_control = e.control if e else None
-        if btn_control:
-            btn_control.disabled = True
-            
-        if hasattr(self, 'progress_bar'):
-            self.progress_bar.visible = True
-            
-        if self.page:
-            self.page.update()
-            
-        # 2. Lanzar worker de guardado
-        import threading
-        threading.Thread(target=self._guardar_compra_worker, args=(btn_control,), daemon=True).start()
-
-    def _guardar_compra_worker(self, btn_control):
-        try:
-            compras_list = []
-            lista_eas_to_delete = []
-            
-            # Si venimos del flujo nuevo de carga_activa:
-            grupo_key = None
-            pagina_origen = None
-            if hasattr(self, 'carga_activa'):
-                grupo_key = self.carga_activa["fecha"]
-                pagina_origen = self.carga_activa["pagina"]
-
-            for item in self.productos_rows:
-                if item["type"] == "product":
-                    cant_str = str(item["cantidad_ctl"].value).replace(',', '.')
-                    costo_str = str(item["costo_ctl"].value).replace(',', '.')
-                    iva_str = str(item["iva_ctl"].value).replace(',', '.')
-                    
-                    cantidad = float(cant_str)
-                    costo = float(costo_str)
-                    iva = float(iva_str)
-                    total = (cantidad * costo) + iva
-                    
-                    fecha_val = grupo_key if grupo_key else item["fecha"]
-                    if not fecha_val:
-                        import datetime
-                        fecha_val = datetime.date.today().strftime("%Y-%m-%d")
-                        
-                    compras_list.append({
-                        "numero_entrada": item["ea"],
-                        "fecha": fecha_val,
-                        "numero_factura": item["factura"],
-                        "proveedor": item["proveedor"],
-                        "codigo_insumo": item["codigo_ctl"].value,
-                        "cantidad": cantidad,
-                        "costo_unitario": costo,
-                        "iva": iva,
-                        "costo_total": total
-                    })
-                    
-                    if item["ea"] not in lista_eas_to_delete:
-                        lista_eas_to_delete.append(item["ea"])
-                        
-            if compras_list:
-                codigos_unicos = list(set([c["codigo_insumo"] for c in compras_list]))
-                codigos_validos = self.db.get_nombres_insumos(codigos_unicos)
-                
-                codigos_invalidos = [c for c in codigos_unicos if c not in codigos_validos]
-                if codigos_invalidos:
-                    if self.page:
-                        self.page.snack_bar = ft.SnackBar(
-                            ft.Text(f"Códigos no existen en catálogo: {', '.join(codigos_invalidos)}. Corrígelos en la tabla primero.", color="white"), 
-                            bgcolor="red",
-                            duration=8000
-                        )
-                        self.page.snack_bar.open = True
-                        self.page.update()
-                    return
-            
-            if compras_list:
-                # 1. Eliminar datos viejos de esta misma página
-                self.db.eliminar_compras_por_entradas(lista_eas_to_delete)
-                
-                # 2. Insertar los nuevos datos
-                if self.db.insert_compras(compras_list):
-                    self.page.snack_bar = ft.SnackBar(ft.Text("Página guardada exitosamente en BD."), bgcolor="green")
-                    self.page.snack_bar.open = True
-                    
-                    # 3. Actualizar el estado local a Guardado
-                    if grupo_key and str(pagina_origen) in self.cargas_data.get(grupo_key, {}):
-                        self.cargas_data[grupo_key][str(pagina_origen)]["estado"] = "Guardado"
-                        self._save_cargas()
-                        
-                    self.close_confirm_ui(None)
-                    self._render_tabla_cargas()
-                    self.load_data()
-                else:
-                    self.page.snack_bar = ft.SnackBar(ft.Text("Error al guardar en base de datos"), bgcolor="red")
-                    self.page.snack_bar.open = True
-            else:
-                self.page.snack_bar = ft.SnackBar(ft.Text("No hay datos para guardar."), bgcolor="orange")
-                self.page.snack_bar.open = True
-                    
-        except ValueError:
-            if self.page:
-                self.page.snack_bar = ft.SnackBar(ft.Text("Error numérico en cantidad, costo o IVA."), bgcolor="red")
-                self.page.snack_bar.open = True
-        except Exception as ex:
-            if self.page:
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error interno: {str(ex)}"), bgcolor="red")
-                self.page.snack_bar.open = True
-        finally:
-            # 3. Restaurar interfaz incondicionalmente
-            if hasattr(self, 'progress_bar'):
-                self.progress_bar.visible = False
-            if btn_control:
-                btn_control.disabled = False
-                
-            if self.page:
-                self.page.update()
-            
-    def load_data(self):
-        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
-        self.progress_bar.visible = True
-        if self.page:
-            self.update()
-            
-        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
-
-    def _fetch_data_worker(self):
-        search_val = self.search_input.value.strip() if self.search_input.value else ""
-        
-        fact_filtro = getattr(self, 'filtro_factura_activo', None)
-        prov_filtro = getattr(self, 'filtro_proveedor_activo', None)
-        f_corte = getattr(self, 'fecha_corte', None)
-
-        data, total = self.db.get_compras(
-            page=self.current_page, 
-            page_size=self.page_size, 
-            search=search_val,
-            fecha_corte=f_corte,
-            factura_filtro=fact_filtro,
-            proveedor_filtro=prov_filtro
-        )
-        
-        self.total_records = total
-        self.total_pages = math.ceil(total / self.page_size) if total > 0 else 1
-        
-        self.data_table.rows.clear()
-        
-        for item in data:
-            fecha_raw = str(item.get('fecha', ''))
-            # Cortar a 'YYYY-MM-DD' si viene con timestamp
-            fecha_formateada = fecha_raw[:10] if len(fecha_raw) >= 10 else fecha_raw
-            
-            # El nombre viene del JOIN con catalogo_insumos: catalogo_insumos.nombre
-            cat_info = item.get('catalogo_insumos') or {}
-            nombre_insumo = cat_info.get('nombre', 'Desconocido')
-            
-            cantidad = int(item.get('cantidad', 0) or 0)
-            costo_unit = float(item.get('costo_unitario', 0) or 0)
-            costo_tot = float(item.get('costo_total', 0) or 0)
-            
-            str_costo_unit = f"${costo_unit:,.2f}"
-            str_costo_tot = f"${costo_tot:,.2f}"
-            
-            row = ft.DataRow(
-                cells=[
-                    ft.DataCell(ft.Text(fecha_formateada)),
-                    ft.DataCell(ft.Text(str(item.get('numero_factura') or 'N/A'))),
-                    ft.DataCell(ft.Text(str(item.get('proveedor') or 'N/A'))),
-                    ft.DataCell(ft.Text(str(item.get('codigo_insumo', '')))),
-                    ft.DataCell(ft.Container(content=ft.Text(nombre_insumo), width=300)),
-                    ft.DataCell(ft.Text(str(cantidad), weight="bold")),
-                    ft.DataCell(ft.Text(str_costo_unit)),
-                    ft.DataCell(ft.Text(str_costo_tot, color="blue", weight="bold")),
-                ]
-            )
-            self.data_table.rows.append(row)
-            
-        self.update_pagination_ui()
-        
-    def update_pagination_ui(self):
-        self.lbl_page_info.value = f"Página {self.current_page} de {self.total_pages}"
-        self.lbl_total.value = f"{self.total_records} registros en total"
-        self.btn_prev.disabled = (self.current_page <= 1)
-        self.btn_next.disabled = (self.current_page >= self.total_pages)
-        
-        # Apagar indicador de carga al finalizar
-        self.progress_bar.visible = False
-        
-        if self.page:
-            self.update()
-        
-    def on_search(self, e):
-        self.current_page = 1
-        self.load_data()
-        
-    def on_prev_page(self, e):
-        if self.current_page > 1:
-            self.current_page -= 1
-            self.load_data()
-            
-    def on_next_page(self, e):
-        if self.current_page < self.total_pages:
-            self.current_page += 1
-            self.load_data()
-
-    def on_extraer_todo_masivo(self, e):
-        if getattr(self, "is_extraccion_activa", False):
-            self.page.snack_bar = ft.SnackBar(ft.Text("Ya hay una extracción en curso."), bgcolor="orange")
-            self.page.snack_bar.open = True
-            self.page.update()
-            return
-
-        import threading
-        threading.Thread(target=self._worker_extraccion_masiva, daemon=True).start()
-
-    def _worker_extraccion_masiva(self):
-        self.is_extraccion_activa = True
-
-        # 1. Recopilar pendientes
-        pendientes = []
-        for grupo_key, paginas in self.cargas_data.items():
-            for num_pag, data in paginas.items():
-                if data.get("estado") in ["Nuevo", "Falló", "Sobreescrito"]:
-                    pendientes.append(data)
-
-        if not pendientes:
-            self.is_extraccion_activa = False
-            if self.page:
-                self.page.snack_bar = ft.SnackBar(ft.Text("No hay páginas pendientes por extraer."), bgcolor="orange")
-                self.page.snack_bar.open = True
-                self.page.update()
-            return
-
-        # 2. Calcular Tiempos
-        total_items = len(pendientes)
-        # Estimado: 5 seg proceso + 20 seg enfriamiento por página (salvo la última)
-        tiempo_estimado_segundos = (total_items * 25) - 20 
-
-        # 3. Interfaz de Progreso Inmersiva
-        lbl_estado_progreso = ft.Text(f"Páginas en cola: {total_items}", weight="bold", size=16)
-        lbl_tiempo = ft.Text(f"Tiempo estimado total: ~{tiempo_estimado_segundos // 60} min {tiempo_estimado_segundos % 60} seg", color="grey")
-        lbl_enfriamiento = ft.Text("", size=12, color="orange", weight="bold")
-        barra_progreso = ft.ProgressBar(width=400, color="purple700", bgcolor="#eeeeee", value=0)
-
-        dlg_progreso = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("Procesamiento Masivo IA", color="purple700"),
-            content=ft.Column([
-                lbl_estado_progreso,
-                lbl_tiempo,
-                barra_progreso,
-                lbl_enfriamiento,
-                ft.Text("Por favor NO cierres esta ventana ni la aplicación.", size=11, color="red")
-            ], tight=True, spacing=10)
-        )
-
-        if self.page:
-            self.page.overlay.append(dlg_progreso)
-            dlg_progreso.open = True
-            self.page.update()
-
-        exitos = 0
-        fallos = 0
-        import time
-
-        # 4. Bucle de Procesamiento
-        for idx, data in enumerate(pendientes):
-            try:
-                if self.page:
-                    lbl_estado_progreso.value = f"Extrayendo página {idx + 1} de {total_items}..."
-                    lbl_tiempo.value = f"Analizando estructura de {data.get('archivo', '')}..."
-                    barra_progreso.value = idx / total_items
-                    self.page.update()
-
-                # Resolución dinámica según el módulo
-                if hasattr(self.ai_parser, "parse_ventas_pdf_page") and "ventas" in str(self.__class__).lower():
-                    extracted = self.ai_parser.parse_ventas_pdf_page(data["archivo"], 0, data.get("tipo", "Remisión"))
-                else:
-                    extracted = self.ai_parser.parse_compras_pdf_page(data["archivo"], 0)
-
-                if extracted and isinstance(extracted, list) and len(extracted) > 0:
-                    data["estado"] = "Procesado con éxito"
-                    data["datos_extraidos"] = extracted
-                    exitos += 1
-                else:
-                    data["estado"] = "Falló"
-                    data["datos_extraidos"] = []
-                    fallos += 1
-
-                self._save_cargas()
-
-                if self.page:
-                    self._render_tabla_cargas()
-
-                # 5. Enfriamiento de seguridad API (No se aplica al último registro)
-                if idx < total_items - 1:
-                    for i in range(20, 0, -1):
-                        if self.page and dlg_progreso.open:
-                            lbl_enfriamiento.value = f"Pausa anti-saturación de API: {i}s..."
-                            self.page.update()
-                        time.sleep(1)
-                    if self.page:
-                        lbl_enfriamiento.value = ""
-
-            except Exception as ex:
-                data["estado"] = "Falló"
-                self._save_cargas()
-                fallos += 1
-
-        # 6. Finalización
-        self.is_extraccion_activa = False
-        if self.page:
-            dlg_progreso.open = False
-            self.page.snack_bar = ft.SnackBar(
-                ft.Text(f"Proceso masivo completado. Éxitos: {exitos}, Fallos: {fallos}"), 
-                bgcolor="green" if fallos == 0 else "orange"
-            )
-            self.page.snack_bar.open = True
-            barra_progreso.value = 1
-            self.page.update()
-            self._render_tabla_cargas()
 ````
 
 ## File: ui/views/inventario.py
@@ -6742,6 +5009,2505 @@ class InventarioView(ft.Container):
         threading.Thread(target=self._fetch_data_worker, daemon=True).start()
 ````
 
+## File: cargas_compras_locales.json
+````json
+{
+    "2026-08-17": {
+        "1": {
+            "id": 1,
+            "fecha": "2026-08-17",
+            "pagina": 1,
+            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
+            "archivo": "pdfs_locales\\compra_2026-08-17_pag_1.pdf",
+            "estado": "Procesado con éxito",
+            "datos_extraidos": [
+                {
+                    "fecha": "2026-08-03",
+                    "numero_entrada": "EA-9273",
+                    "numero_factura": "7957448",
+                    "proveedor": "AJOVER SAS塑造 Exact matches depend on exact header text, OCR has Factura No.7957448, let's check image closely: actually no number is on header, but OCR has it. Wait, rules say 'Si no hay, pon null'. Let's check image for EA-9273: 'Factura AJOVER SAS'. No number. So null."
+                }
+            ]
+        },
+        "2": {
+            "id": 2,
+            "fecha": "2026-08-17",
+            "pagina": 2,
+            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
+            "archivo": "pdfs_locales\\compra_2026-08-17_pag_2.pdf",
+            "estado": "Guardado",
+            "datos_extraidos": [
+                {
+                    "fecha": "2026-08-03",
+                    "numero_entrada": "EA-9279",
+                    "numero_factura": "260803",
+                    "productos": [
+                        {
+                            "cantidad": 10.0,
+                            "codigo_insumo": "1415",
+                            "costo_unitario": 6955.0,
+                            "iva": 13214.0
+                        },
+                        {
+                            "cantidad": 10.0,
+                            "codigo_insumo": "0156",
+                            "costo_unitario": 3803.0,
+                            "iva": 7225.0
+                        },
+                        {
+                            "cantidad": 10.0,
+                            "codigo_insumo": "0157",
+                            "costo_unitario": 4565.0,
+                            "iva": 8674.0
+                        }
+                    ],
+                    "proveedor": "Clientes Varios"
+                },
+                {
+                    "fecha": "2026-08-03",
+                    "numero_entrada": "EA-9280",
+                    "numero_factura": "22618",
+                    "productos": [
+                        {
+                            "cantidad": 40.0,
+                            "codigo_insumo": "1850",
+                            "costo_unitario": 5462.0,
+                            "iva": 41513.0
+                        },
+                        {
+                            "cantidad": 24.0,
+                            "codigo_insumo": "4223",
+                            "costo_unitario": 588.0,
+                            "iva": 2682.0
+                        },
+                        {
+                            "cantidad": 36.0,
+                            "codigo_insumo": "1843",
+                            "costo_unitario": 2773.0,
+                            "iva": 18968.0
+                        },
+                        {
+                            "cantidad": 150.0,
+                            "codigo_insumo": "0663",
+                            "costo_unitario": 4958.0,
+                            "iva": 141303.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "1115",
+                            "costo_unitario": 5798.0,
+                            "iva": 13220.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "4206",
+                            "costo_unitario": 5420.0,
+                            "iva": 12358.0
+                        },
+                        {
+                            "cantidad": 100.0,
+                            "codigo_insumo": "1517",
+                            "costo_unitario": 13866.0,
+                            "iva": 263445.0
+                        }
+                    ],
+                    "proveedor": "MEGA DISTRIBUCIONES AMERICA SAS"
+                },
+                {
+                    "fecha": "2026-08-04",
+                    "numero_entrada": "EA-9281",
+                    "numero_factura": "41142",
+                    "productos": [
+                        {
+                            "cantidad": 400.0,
+                            "codigo_insumo": "4815",
+                            "costo_unitario": 485.0,
+                            "iva": 36860.0
+                        }
+                    ],
+                    "proveedor": "Clientes Varios"
+                },
+                {
+                    "fecha": "2026-08-04",
+                    "numero_entrada": "EA-9282",
+                    "numero_factura": "90042",
+                    "productos": [
+                        {
+                            "cantidad": 300.0,
+                            "codigo_insumo": "2256",
+                            "costo_unitario": 787.0,
+                            "iva": 44882.0
+                        }
+                    ],
+                    "proveedor": "DISDECOL SAS"
+                },
+                {
+                    "fecha": "2026-08-04",
+                    "numero_entrada": "EA-9283",
+                    "numero_factura": "25260",
+                    "productos": [
+                        {
+                            "cantidad": 3.0,
+                            "codigo_insumo": "1230",
+                            "costo_unitario": 27731.0,
+                            "iva": 15807.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "0462",
+                            "costo_unitario": 15408.0,
+                            "iva": 35130.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "0457",
+                            "costo_unitario": 6060.0,
+                            "iva": 13817.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "0458",
+                            "costo_unitario": 7579.0,
+                            "iva": 17280.0
+                        },
+                        {
+                            "cantidad": 12.0,
+                            "codigo_insumo": "0459",
+                            "costo_unitario": 11026.0,
+                            "iva": 25139.0
+                        }
+                    ],
+                    "proveedor": "FOAMTECK SAS"
+                },
+                {
+                    "fecha": "2026-08-05",
+                    "numero_entrada": "EA-9284",
+                    "numero_factura": "68829",
+                    "productos": [
+                        {
+                            "cantidad": 90.0,
+                            "codigo_insumo": "0024",
+                            "costo_unitario": 6133.0,
+                            "iva": 104870.0
+                        }
+                    ],
+                    "proveedor": "ARIAS Y CIA SAS"
+                },
+                {
+                    "fecha": "2026-08-05",
+                    "numero_entrada": "EA-9285",
+                    "numero_factura": "90196",
+                    "productos": [
+                        {
+                            "cantidad": 25.0,
+                            "codigo_insumo": "0817",
+                            "costo_unitario": 2857.0,
+                            "iva": 13571.0
+                        },
+                        {
+                            "cantidad": 20.0,
+                            "codigo_insumo": "2258",
+                            "costo_unitario": 3315.0,
+                            "iva": 12597.0
+                        }
+                    ],
+                    "proveedor": "DISDECOL SAS"
+                },
+                {
+                    "fecha": "2026-08-05",
+                    "numero_entrada": "EA-9286",
+                    "numero_factura": "15400",
+                    "productos": [],
+                    "proveedor": "BONNIPLAST SAS"
+                }
+            ]
+        },
+        "3": {
+            "id": 3,
+            "fecha": "2026-08-17",
+            "pagina": 3,
+            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
+            "archivo": "pdfs_locales\\compra_2026-08-17_pag_3.pdf",
+            "estado": "Procesado con éxito",
+            "datos_extraidos": [
+                {
+                    "numero_entrada": "EA-9286",
+                    "numero_factura": "15400",
+                    "proveedor": "BONNIPLAST SAS塑造/BONNIPLAST SAS/BONNIPLAST SAS"
+                }
+            ]
+        }
+    }
+}
+````
+
+## File: ui/views/compras.py
+````python
+import flet as ft
+import threading
+import time
+import json
+import os
+import datetime
+from pypdf import PdfReader, PdfWriter
+from config import Config
+from core.supabase_client import SupabaseClient
+from core.gemini_parser import GeminiParser
+import math
+
+class ComprasView(ft.Container):
+    def __init__(self):
+        super().__init__()
+        self.is_fullscreen = False
+        self.btn_fullscreen = ft.IconButton(
+            icon=ft.icons.FULLSCREEN,
+            tooltip="Expandir Tabla (Modo Enfoque)",
+            on_click=self.toggle_fullscreen
+        )
+        self.expand = True
+        
+        self.db = SupabaseClient()
+        self.ai_parser = GeminiParser()
+        self.page_size = 15
+        self.current_page = 1
+        self.total_pages = 1
+        self.total_records = 0
+        
+        self.parsed_data = None # Para guardar temporalmente los datos extraídos
+        
+        # --- ESTADO PANEL HISTÓRICO ---
+        self.panel_abierto = False
+        self.fecha_historial_activa = datetime.date.today().strftime("%Y-%m-%d")
+        self.modo_agrupacion_compras = "FACTURA" # "FACTURA" o "PROVEEDOR"
+        self.filtro_factura_activo = None
+        self.filtro_proveedor_activo = None
+        self.date_picker_compras_timeline = ft.DatePicker(on_change=self.on_date_compras_timeline_change)
+        # ------------------------------
+        
+        # Controles de Búsqueda
+        self.search_input = ft.TextField(
+            hint_text="Buscar por código, proveedor o factura...", 
+            prefix_icon=ft.icons.SEARCH,
+            border_radius=8,
+            expand=True,
+            bgcolor="white",
+            height=38,
+            dense=True,
+            text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+            on_submit=self.on_search
+        )
+        
+        # Filtro de fecha
+        self.fecha_corte = None
+        self.date_picker = ft.DatePicker(
+            on_change=self.on_date_change,
+            on_dismiss=self.on_date_dismiss,
+        )
+        self.btn_date = ft.IconButton(
+            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
+            tooltip="Filtrar por Fecha",
+            on_click=self.open_date_picker
+        )
+        self.btn_clear_date = ft.IconButton(
+            icon=ft.icons.CLEAR,
+            tooltip="Limpiar Fecha",
+            on_click=self.clear_date,
+            visible=False,
+            icon_color="red"
+        )
+        
+        # Dashboard Resumen
+        self.lbl_compras_mes = ft.Text("$0", size=20, weight="bold", color=Config.COLOR_PRIMARY)
+        self.lbl_compras_hoy = ft.Text("$0", size=20, weight="bold", color="green")
+        self.lbl_cantidad = ft.Text("0", size=20, weight="bold")
+        
+        self.summary_container = ft.Container(
+            content=ft.Row([
+                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Total Compras en el Mes"), self.lbl_compras_mes]), padding=5), expand=True),
+                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Total Compras Hoy"), self.lbl_compras_hoy]), padding=5), expand=True),
+                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Cantidad Productos Comprados"), self.lbl_cantidad]), padding=5), expand=True),
+            ])
+        )
+        
+        self.btn_agregar = ft.ElevatedButton(
+            text="Agregar Compra",
+            icon=ft.icons.ADD,
+            bgcolor=Config.COLOR_SECONDARY,
+            color="white",
+            height=40,
+            on_click=self.on_agregar_click,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+        
+        # File Picker
+        self.file_picker = ft.FilePicker(on_result=self.on_file_picked)
+        
+        # Diálogo de Carga
+        self.lbl_loading_text = ft.Text("Preparando archivo...", text_align=ft.TextAlign.CENTER)
+        self.dlg_loading = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Procesando con Inteligencia Artificial"),
+            content=ft.Column([
+                ft.ProgressRing(),
+                self.lbl_loading_text
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True)
+        )
+        
+        # Diálogo de Confirmación (se construirá dinámicamente)
+        self.dlg_confirm = ft.AlertDialog(modal=True)
+        
+        # Tabla de Datos
+        self.data_table = ft.DataTable(
+            data_row_min_height=30,
+            data_row_max_height=30,
+            heading_row_height=40,
+            columns=[
+                ft.DataColumn(ft.Text("Fecha", weight="bold")),
+                ft.DataColumn(ft.Text("No. Factura", weight="bold")),
+                ft.DataColumn(ft.Text("Proveedor", weight="bold")),
+                ft.DataColumn(ft.Text("Código Item", weight="bold")),
+                ft.DataColumn(ft.Container(content=ft.Text("Nombre", weight="bold"), width=300)),
+                ft.DataColumn(ft.Text("Cantidad", weight="bold"), numeric=True),
+                ft.DataColumn(ft.Text("Costo Unit.", weight="bold"), numeric=True),
+                ft.DataColumn(ft.Text("Costo Total", weight="bold"), numeric=True),
+            ],
+            rows=[],
+            heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
+            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
+            border_radius=8,
+            vertical_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
+            horizontal_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
+        )
+        
+        # Controles Paginación
+        self.lbl_page_info = ft.Text("Página 1 de 1")
+        self.lbl_total = ft.Text("0 registros en total", color="grey")
+        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, tooltip="Página Anterior", on_click=self.on_prev_page, disabled=True)
+        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, tooltip="Página Siguiente", on_click=self.on_next_page, disabled=True)
+        self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
+        
+        # --- TAB 2: GESTIÓN DE CARGAS ---
+        self.cargas_file = "cargas_compras_locales.json"
+        self.cargas_data = {}
+        self._load_cargas()
+        
+        self.fecha_filtro_cargas = None
+        self.date_picker_filtro_cargas = ft.DatePicker(on_change=self.on_date_filtro_cargas_change)
+        
+        self.btn_filtro_fecha_cargas = ft.IconButton(
+            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
+            tooltip="Filtrar por Fecha",
+            on_click=lambda e: self.date_picker_filtro_cargas.pick_date()
+        )
+        self.btn_clear_filtro_cargas = ft.IconButton(
+            icon=ft.icons.CLEAR, tooltip="Limpiar Fecha",
+            on_click=self.clear_filtro_fecha_cargas, visible=False, icon_color="red"
+        )
+        
+        self.drop_filtro_estado_cargas = ft.Dropdown(
+            options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("Nuevo"), ft.dropdown.Option("Procesado con éxito"), ft.dropdown.Option("Falló"), ft.dropdown.Option("Guardado"), ft.dropdown.Option("Sobreescrito")],
+            value="Todos", label="Estado", dense=True, width=170, border_radius=8, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8), height=38,
+            on_change=lambda e: self._render_tabla_cargas()
+        )
+        
+        self.table_cargas = ft.DataTable(
+            data_row_min_height=40,
+            data_row_max_height=40,
+            heading_row_height=40,
+            columns=[
+                ft.DataColumn(ft.Text("ID", weight="bold"), numeric=True),
+                ft.DataColumn(ft.Text("Página", weight="bold")),
+                ft.DataColumn(ft.Text("Archivo Original", weight="bold")),
+                ft.DataColumn(ft.Text("Estado", weight="bold")),
+                ft.DataColumn(ft.Text("Acciones", weight="bold")),
+            ],
+            rows=[],
+            heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
+            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
+            border_radius=8,
+            vertical_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
+            horizontal_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
+        )
+        
+        # --- NUEVO MODAL DE METADATOS ---
+        self.fecha_carga_actual = datetime.date.today().strftime("%Y-%m-%d")
+        self.date_picker_cargas = ft.DatePicker(on_change=self.on_date_cargas_change)
+        self.fecha_carga_btn = ft.OutlinedButton(
+            text=self.fecha_carga_actual, icon=ft.icons.CALENDAR_MONTH,
+            on_click=lambda e: self.date_picker_cargas.pick_date(),
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)), height=40, width=250
+        )
+        self.dlg_metadatos_pdf = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Selecciona la Fecha de la Carga"),
+            content=ft.Column([
+                ft.Text("Fecha asignada a las compras del PDF:", size=12, color="grey", weight="bold"),
+                self.fecha_carga_btn
+            ], tight=True),
+            actions=[
+                ft.TextButton("Cancelar", on_click=self._cerrar_modal_metadatos),
+                ft.ElevatedButton("Seleccionar Archivo PDF", on_click=self._abrir_file_picker_desde_modal)
+            ]
+        )
+        
+        # --- PREPARACIÓN DE LAS PESTAÑAS (TABS) ---
+        
+        # 1. Contenido Tab 1: Registro Compras
+        row_filtros_compras = ft.Row([
+            self.search_input,
+            self.btn_date,
+            self.btn_clear_date
+        ])
+        
+        contenedor_tabla_compras = ft.Container(
+            content=ft.Row([ft.Column([self.data_table], scroll=ft.ScrollMode.ALWAYS)], scroll=ft.ScrollMode.ALWAYS, expand=True, vertical_alignment=ft.CrossAxisAlignment.START),
+            bgcolor="white", padding=5, border_radius=10, expand=True, shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=ft.colors.with_opacity(0.05, "black"))
+        )
+        
+        footer_paginacion = ft.Container(
+            content=ft.Row([self.lbl_total, ft.Container(expand=True), self.btn_prev, self.lbl_page_info, self.btn_next], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            padding=ft.padding.only(top=10)
+        )
+        
+        layout_tab_compras = ft.Container(
+            content=ft.Column([row_filtros_compras, contenedor_tabla_compras, footer_paginacion], expand=True, spacing=10),
+            padding=10
+        )
+        
+        # 2. Contenido Tab 2: Gestión de Cargas
+        self.btn_extraer_todo = ft.ElevatedButton(
+            text="Extraer Todo",
+            icon=ft.icons.AUTO_MODE,
+            bgcolor="purple700",
+            color="white",
+            height=40,
+            on_click=self.on_extraer_todo_masivo,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+        
+        row_filtros_tab_cargas = ft.Row([
+            self.btn_filtro_fecha_cargas,
+            self.btn_clear_filtro_cargas,
+            self.drop_filtro_estado_cargas,
+            ft.Container(expand=True),
+            self.btn_extraer_todo,
+            ft.ElevatedButton(
+                text="Subir PDF de Compras", icon=ft.icons.CLOUD_UPLOAD, bgcolor=Config.COLOR_SECONDARY, color="white", height=40,
+                on_click=self.on_agregar_click, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+            )
+        ])
+        
+        contenedor_tabla_cargas = ft.Container(
+            content=ft.Row([ft.Column([self.table_cargas], scroll=ft.ScrollMode.ALWAYS)], scroll=ft.ScrollMode.ALWAYS, expand=True, vertical_alignment=ft.CrossAxisAlignment.START),
+            bgcolor="white", padding=5, border_radius=10, expand=True, shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=ft.colors.with_opacity(0.05, "black"))
+        )
+        
+        layout_tab_cargas = ft.Container(
+            content=ft.Column([row_filtros_tab_cargas, contenedor_tabla_cargas], expand=True, spacing=10),
+            padding=10
+        )
+        
+        # Integrar las Pestañas
+        self.tabs = ft.Tabs(
+            selected_index=0,
+            animation_duration=300,
+            tabs=[
+                ft.Tab(text="Registro de Compras", content=layout_tab_compras, icon=ft.icons.SHOPPING_CART),
+                ft.Tab(text="Gestión de Cargas", content=layout_tab_cargas, icon=ft.icons.FILE_UPLOAD),
+            ],
+            expand=True
+        )
+
+        # --- DISEÑO DEL PANEL HISTÓRICO ---
+        self.lbl_tot_compras_panel = ft.Text("$0 COP", size=14, weight="bold", color="teal800")
+        self.lbl_cant_compras_panel = ft.Text("0 unds", size=10, color="grey")
+
+        kpi_compras_panel = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.SHOPPING_BAG, color="teal700", size=20),
+                ft.Column([
+                    ft.Text("TOTAL COMPRAS DEL DÍA", size=9, weight="bold", color="grey"),
+                    self.lbl_tot_compras_panel
+                ], spacing=0, expand=True),
+                self.lbl_cant_compras_panel
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=10, bgcolor="#e6f4ea", border_radius=8, border=ft.border.all(1, "#c3e6cb")
+        )
+
+        self.segment_agrupacion = ft.SegmentedButton(
+            segments=[
+                ft.Segment(value="FACTURA", label=ft.Text("Por Factura", size=10)),
+                ft.Segment(value="PROVEEDOR", label=ft.Text("Por Proveedor", size=10)),
+            ],
+            selected={"FACTURA"},
+            on_change=self.on_agrupacion_change,
+            show_selected_icon=False
+        )
+
+        self.btn_fecha_compras_panel = ft.OutlinedButton(
+            self.fecha_historial_activa,
+            icon=ft.icons.CALENDAR_TODAY,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), padding=5),
+            height=30,
+            on_click=lambda e: self.date_picker_compras_timeline.pick_date()
+        )
+
+        self.panel_compras_list = ft.ListView(expand=True, spacing=6)
+
+        # Botón para copiar histórico de compras
+        self.btn_copiar_compras_panel = ft.IconButton(
+            icon=ft.icons.COPY_ROUNDED,
+            icon_size=16,
+            icon_color=Config.COLOR_PRIMARY,
+            tooltip="Copiar Histórico de Compras al Portapapeles",
+            on_click=self.copiar_historial_compras
+        )
+
+        self.right_panel = ft.Container(
+            width=0, visible=False, bgcolor="white", border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color=ft.colors.with_opacity(0.05, "black")),
+            animate=ft.animation.Animation(250, ft.AnimationCurve.EASE_OUT),
+            content=ft.Column([
+                # Cabecera Panel con el botón de copiar
+                ft.Container(
+                    content=ft.Row([
+                        ft.Text("Histórico de Entradas", weight="bold", size=13, color=Config.COLOR_PRIMARY, expand=True),
+                        self.btn_copiar_compras_panel,
+                        self.btn_fecha_compras_panel,
+                        ft.IconButton(ft.icons.CLOSE, icon_size=16, on_click=self.toggle_right_panel)
+                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    padding=10, bgcolor="#f4f6f8", border_radius=ft.border_radius.only(top_left=8, top_right=8)
+                ),
+                ft.Container(content=kpi_compras_panel, padding=ft.padding.symmetric(horizontal=10)),
+                ft.Container(content=self.segment_agrupacion, padding=ft.padding.symmetric(horizontal=10), alignment=ft.alignment.center),
+                ft.Divider(height=1, color="#e0e0e0"),
+                ft.Container(content=self.panel_compras_list, expand=True, padding=10)
+            ], spacing=8)
+        )
+
+        self.filtro_badge_compras = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.FILTER_ALT, size=14, color="white"),
+                ft.Text("Filtro Activo", color="white", weight="bold", size=11),
+                ft.IconButton(
+                    ft.icons.CLOSE, icon_size=14, icon_color="white",
+                    on_click=self.limpiar_filtro_compras,
+                    style=ft.ButtonStyle(padding=0), width=20, height=20
+                )
+            ], tight=True),
+            bgcolor="teal700", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=12, visible=False
+        )
+
+        self.btn_toggle_panel = ft.IconButton(
+            icon=ft.icons.HISTORY_TOGGLE_OFF,
+            tooltip="Ver Histórico de Compras del Día",
+            on_click=self.toggle_right_panel
+        )
+
+        self.lbl_titulo = ft.Text("Módulo de Compras", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        main_column = ft.Column([
+            self.progress_bar,
+            ft.Row([self.lbl_titulo, self.filtro_badge_compras, ft.Container(expand=True), self.btn_toggle_panel, self.btn_fullscreen]),
+            self.summary_container,
+            self.tabs
+        ], expand=True, spacing=10)
+
+        self.content = ft.Row([
+            main_column,
+            self.right_panel
+        ], expand=True, spacing=10)
+        
+        self.load_data()
+        self._render_tabla_cargas()
+
+    def toggle_right_panel(self, e):
+        self.panel_abierto = not self.panel_abierto
+        self.right_panel.width = 330 if self.panel_abierto else 0
+        self.right_panel.visible = self.panel_abierto
+        self.right_panel.padding = 0
+        self.btn_toggle_panel.icon = ft.icons.HISTORY if self.panel_abierto else ft.icons.HISTORY_TOGGLE_OFF
+        if self.panel_abierto:
+            self.cargar_historial_panel()
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        elif self.page:
+            self.page.update()
+
+    def on_date_compras_timeline_change(self, e):
+        if self.date_picker_compras_timeline.value:
+            self.fecha_historial_activa = self.date_picker_compras_timeline.value.strftime("%Y-%m-%d")
+            self.btn_fecha_compras_panel.text = self.fecha_historial_activa
+            self.cargar_historial_panel()
+
+    def on_agrupacion_change(self, e):
+        if e.control.selected:
+            self.modo_agrupacion_compras = list(e.control.selected)[0]
+            self.cargar_historial_panel()
+
+    def cargar_historial_panel(self):
+        if not self.page: return
+
+        def worker():
+            items = self.db.get_historial_compras_dia(self.fecha_historial_activa, self.modo_agrupacion_compras)
+
+            tot_pesos = sum([item["total"] for item in items])
+            tot_unds = sum([item["unidades"] for item in items])
+
+            self.lbl_tot_compras_panel.value = f"${tot_pesos:,.0f} COP"
+            self.lbl_cant_compras_panel.value = f"{tot_unds:g} unds"
+
+            self.panel_compras_list.controls.clear()
+
+            for item in items:
+                self.panel_compras_list.controls.append(self._crear_card_item_compras(item))
+
+            if not self.panel_compras_list.controls:
+                self.panel_compras_list.controls.append(
+                    ft.Container(content=ft.Text("Sin compras registradas en esta fecha.", size=11, color="grey"), padding=20, alignment=ft.alignment.center)
+                )
+
+            if hasattr(self, "safe_update"):
+                self.safe_update()
+            else:
+                self.page.update()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _crear_card_item_compras(self, item):
+        tipo = item["tipo"]
+
+        if tipo == "COMPRA":
+            badge_txt = f"FACTURA: {item['factura']}"
+            badge_bg, badge_col = "#e6f4ea", "teal800"
+            sub_txt = item["proveedor"]
+            icon_mat = ft.icons.RECEIPT
+        elif tipo == "PROVEEDOR_RESUMEN":
+            badge_txt = f"{item['facturas_cant']} Facturas"
+            badge_bg, badge_col = "#e8f0fe", "blue800"
+            sub_txt = item["proveedor"]
+            icon_mat = ft.icons.BUSINESS
+        else:
+            # AJUSTE_ENTRADA
+            badge_txt = "ENTRADA AJUSTE (+)"
+            badge_bg, badge_col = "#fef3c7", "orange800"
+            sub_txt = item["factura"]
+            icon_mat = ft.icons.TUNE
+
+        badge = ft.Container(
+            content=ft.Text(badge_txt, size=9, weight="bold", color=badge_col, no_wrap=True),
+            padding=ft.padding.symmetric(horizontal=6, vertical=2), bgcolor=badge_bg, border_radius=10
+        )
+
+        card = ft.Container(
+            content=ft.Row([
+                ft.Icon(icon_mat, size=16, color="teal700"),
+                ft.Column([
+                    badge,
+                    ft.Text(sub_txt, size=11, weight="bold", color="black87", no_wrap=True, tooltip=sub_txt),
+                ], expand=True, spacing=2),
+                ft.Column([
+                    ft.Text(f"${item['total']:,.0f}", size=11, weight="bold", color="black87"),
+                    ft.Text(f"{item['unidades']:g} unds", size=9, color="grey", text_align=ft.TextAlign.RIGHT)
+                ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=1)
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+            padding=8,
+            border_radius=6,
+            bgcolor="#ffffff",
+            border=ft.border.all(1, "#eeeeee"),
+            on_click=lambda e, i=item: self.aplicar_filtro_cruzado_compras(i),
+            ink=True
+        )
+        return card
+
+    def aplicar_filtro_cruzado_compras(self, item):
+        tipo = item["tipo"]
+        self.progress_bar.visible = True
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        else:
+            self.page.update()
+
+        if tipo == "PROVEEDOR_RESUMEN":
+            self.filtro_proveedor_activo = item["proveedor"]
+            self.filtro_factura_activo = None
+            desc = f"Proveedor: {item['proveedor']}"
+        else:
+            self.filtro_factura_activo = item["ref"]
+            self.filtro_proveedor_activo = None
+            desc = f"Factura: {item['factura']}"
+
+        lbl = self.filtro_badge_compras.content.controls[1]
+        lbl.value = desc
+        self.filtro_badge_compras.visible = True
+
+        self.current_page = 1
+        self.load_data()
+
+    def limpiar_filtro_compras(self, e=None):
+        self.filtro_factura_activo = None
+        self.filtro_proveedor_activo = None
+        self.filtro_badge_compras.visible = False
+        self.current_page = 1
+        self.load_data()
+
+    def _load_cargas(self):
+        if os.path.exists(self.cargas_file):
+            try:
+                with open(self.cargas_file, "r", encoding="utf-8") as f:
+                    self.cargas_data = json.load(f)
+            except Exception:
+                self.cargas_data = {}
+        else:
+            self.cargas_data = {}
+
+    def _save_cargas(self):
+        try:
+            with open(self.cargas_file, "w", encoding="utf-8") as f:
+                json.dump(self.cargas_data, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print(f"Error guardando cargas: {e}")
+
+    def on_date_cargas_change(self, e):
+        if self.date_picker_cargas.value:
+            self.fecha_carga_actual = self.date_picker_cargas.value.strftime("%Y-%m-%d")
+            self.fecha_carga_btn.text = self.fecha_carga_actual
+            if self.page:
+                self.page.update()
+
+    def on_date_filtro_cargas_change(self, e):
+        if self.date_picker_filtro_cargas.value:
+            self.fecha_filtro_cargas = self.date_picker_filtro_cargas.value.strftime("%Y-%m-%d")
+            self.btn_filtro_fecha_cargas.tooltip = f"Fecha: {self.fecha_filtro_cargas}"
+            self.btn_filtro_fecha_cargas.icon_color = "blue"
+            self.btn_clear_filtro_cargas.visible = True
+            if self.page:
+                self.page.update()
+            self._render_tabla_cargas()
+
+    def clear_filtro_fecha_cargas(self, e):
+        self.fecha_filtro_cargas = None
+        self.btn_filtro_fecha_cargas.tooltip = "Filtrar por Fecha"
+        self.btn_filtro_fecha_cargas.icon_color = None
+        self.btn_clear_filtro_cargas.visible = False
+        self.date_picker_filtro_cargas.value = None
+        if self.page:
+            self.page.update()
+        self._render_tabla_cargas()
+
+    def _render_tabla_cargas(self):
+        self.table_cargas.rows.clear()
+        
+        lista_cargas = []
+        for grupo_key, paginas in self.cargas_data.items():
+            for num_pag, data in paginas.items():
+                lista_cargas.append(data)
+                
+        # Ordenar por ID descendente (más nuevos arriba)
+        lista_cargas.sort(key=lambda x: x["id"], reverse=True)
+        
+        for data in lista_cargas:
+            # --- Filtrado Visual ---
+            if self.fecha_filtro_cargas and data.get("fecha") != self.fecha_filtro_cargas:
+                continue
+                    
+            if self.drop_filtro_estado_cargas.value != "Todos" and data.get("estado") != self.drop_filtro_estado_cargas.value:
+                continue
+            # -----------------------
+            
+            id_carga = data["id"]
+            nombre = f"Página No. {data['pagina']} ({data['fecha']})"
+            archivo_orig = os.path.basename(data.get("archivo_original", "Desconocido"))
+            estado = data["estado"]
+            
+            txt_crono = ft.Text("⏱️ 20s", color="red", weight="bold", visible=False)
+            
+            texto_btn = "Extraer Datos" if estado in ["Nuevo", "Falló", "Sobreescrito"] else "Ver"
+            color_btn = Config.COLOR_PRIMARY if texto_btn == "Extraer Datos" else "grey"
+            icon_btn = ft.icons.DOCUMENT_SCANNER if texto_btn == "Extraer Datos" else ft.icons.VISIBILITY
+            
+            btn_accion = ft.ElevatedButton(
+                text=texto_btn,
+                icon=icon_btn,
+                bgcolor=color_btn,
+                color="white",
+                height=30,
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5)),
+                on_click=lambda e, d=data, txt=txt_crono: self.on_accion_carga(e, d, txt)
+            )
+            
+            acciones_row = ft.Row([btn_accion, txt_crono], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            
+            color_estado = "black"
+            if estado == "Procesado con éxito": color_estado = "green"
+            elif estado == "Falló": color_estado = "red"
+            elif estado == "Guardado": color_estado = "blue"
+            elif estado == "Sobreescrito": color_estado = "orange"
+            
+            self.table_cargas.rows.append(
+                ft.DataRow(
+                    cells=[
+                        ft.DataCell(ft.Text(str(id_carga))),
+                        ft.DataCell(ft.Text(nombre, weight="bold")),
+                        ft.DataCell(ft.Text(archivo_orig[:20] + "..." if len(archivo_orig) > 20 else archivo_orig, tooltip=archivo_orig)),
+                        ft.DataCell(ft.Text(estado, color=color_estado, weight="bold")),
+                        ft.DataCell(acciones_row),
+                    ]
+                )
+            )
+            
+        if self.page:
+            self.page.update()
+
+    def on_accion_carga(self, e, data, txt_crono):
+        btn = e.control
+        if btn.text == "Ver":
+            self.carga_activa = data
+            self.parsed_data = data.get("datos_extraidos", [])
+            
+            codigos_extraidos = set()
+            for invoice in self.parsed_data:
+                for p in invoice.get("productos", []):
+                    codigos_extraidos.add(str(p.get("codigo_insumo", "")))
+            if codigos_extraidos:
+                self.nombres_insumos = self.db.get_nombres_insumos(list(codigos_extraidos))
+            else:
+                self.nombres_insumos = {}
+                
+            self.show_confirm_ui()
+            return
+            
+        if getattr(self, "is_extraccion_activa", False):
+            self.page.snack_bar = ft.SnackBar(ft.Text("Hay una extracción en proceso. Espere que termine el cronómetro."), bgcolor="orange")
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+
+        self.is_extraccion_activa = True
+        btn.text = "Extrayendo..."
+        btn.icon = ft.icons.HOURGLASS_TOP
+        
+        for row in self.table_cargas.rows:
+            accion_row = row.cells[-1].content
+            b = accion_row.controls[0]
+            if b.text == "Extraer Datos":
+                b.disabled = True
+                
+        self.page.snack_bar = ft.SnackBar(ft.Text(f"Analizando documento con Inteligencia Artificial..."), bgcolor="blue")
+        self.page.snack_bar.open = True
+        self.page.update()
+        
+        threading.Thread(target=self._worker_extraccion, args=(data, btn, txt_crono), daemon=True).start()
+
+    def _worker_extraccion(self, data, btn, txt_crono):
+        try:
+            extracted = self.ai_parser.parse_compras_pdf_page(data["archivo"], 0)
+            
+            if extracted and isinstance(extracted, list) and len(extracted) > 0:
+                data["estado"] = "Procesado con éxito"
+                data["datos_extraidos"] = extracted
+                if self.page:
+                    self.page.snack_bar = ft.SnackBar(ft.Text("¡Extracción exitosa!"), bgcolor="green")
+            else:
+                data["estado"] = "Falló"
+                data["datos_extraidos"] = []
+                if self.page:
+                    self.page.snack_bar = ft.SnackBar(ft.Text("Fallo en la extracción. Revise el PDF o intente de nuevo."), bgcolor="red")
+                    
+            if self.page:
+                self.page.snack_bar.open = True
+            self._save_cargas()
+            
+            txt_crono.visible = True
+            btn.text = "Enfriando..."
+            btn.icon = ft.icons.TIMER
+            for i in range(20, 0, -1):
+                txt_crono.value = f"⏱️ {i}s"
+                if self.page:
+                    self.page.update()
+                time.sleep(1)
+                
+        except Exception as ex:
+            data["estado"] = "Falló"
+            self._save_cargas()
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error en extracción: {ex}"), bgcolor="red")
+                self.page.snack_bar.open = True
+        finally:
+            self.is_extraccion_activa = False
+            self._render_tabla_cargas()
+    def toggle_fullscreen(self, e):
+        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
+        visibilidad = not self.is_fullscreen
+
+        # Ocultar o mostrar elementos superiores si existen en la vista
+        if hasattr(self, "lbl_titulo"): self.lbl_titulo.visible = visibilidad
+        if hasattr(self, "summary_container"): self.summary_container.visible = visibilidad
+        if hasattr(self, "kpi_bar"): self.kpi_bar.visible = visibilidad
+
+        # Cambiar icono y tooltip
+        self.btn_fullscreen.icon = ft.icons.FULLSCREEN_EXIT if self.is_fullscreen else ft.icons.FULLSCREEN
+        self.btn_fullscreen.tooltip = "Contraer Vista" if self.is_fullscreen else "Expandir Tabla (Modo Enfoque)"
+
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        elif self.page:
+            self.page.update()
+
+    def did_mount(self):
+        # Agregar los overlays a la página principal
+        if self.file_picker not in self.page.overlay:
+            self.page.overlay.append(self.file_picker)
+        if self.dlg_loading not in self.page.overlay:
+            self.page.overlay.append(self.dlg_loading)
+        if self.dlg_confirm not in self.page.overlay:
+            self.page.overlay.append(self.dlg_confirm)
+        if hasattr(self, "date_picker") and self.date_picker not in self.page.overlay:
+            self.page.overlay.append(self.date_picker)
+        if hasattr(self, "date_picker_compras_timeline") and self.date_picker_compras_timeline not in self.page.overlay:
+            self.page.overlay.append(self.date_picker_compras_timeline)
+            
+        # Nuevos overlays para Cargas
+        if hasattr(self, "dlg_metadatos_pdf") and self.dlg_metadatos_pdf not in self.page.overlay:
+            self.page.overlay.append(self.dlg_metadatos_pdf)
+        if hasattr(self, "date_picker_cargas") and self.date_picker_cargas not in self.page.overlay:
+            self.page.overlay.append(self.date_picker_cargas)
+        if hasattr(self, "date_picker_filtro_cargas") and self.date_picker_filtro_cargas not in self.page.overlay:
+            self.page.overlay.append(self.date_picker_filtro_cargas)
+            
+        self.page.update()
+        self.load_summary()
+        self.load_data()
+        
+    def load_summary(self):
+        res = self.db.get_compras_summary()
+        self.lbl_compras_mes.value = f"${res.get('total_mes', 0):,.2f}"
+        self.lbl_compras_hoy.value = f"${res.get('total_hoy', 0):,.2f}"
+        self.lbl_cantidad.value = f"{res.get('cantidad_total', 0):,.2f}"
+        if self.page:
+            self.update()
+            
+    def open_date_picker(self, e):
+        self.date_picker.pick_date()
+        
+    def on_date_change(self, e):
+        if self.date_picker.value:
+            self.fecha_corte = self.date_picker.value.strftime("%Y-%m-%d")
+            self.btn_date.tooltip = f"Fecha: {self.fecha_corte}"
+            self.btn_date.icon_color = "blue"
+            self.btn_clear_date.visible = True
+            if self.page:
+                self.page.update()
+            self.current_page = 1
+            self.load_data()
+            
+    def on_date_dismiss(self, e):
+        pass
+        
+    def clear_date(self, e):
+        self.fecha_corte = None
+        self.btn_date.tooltip = "Filtrar por Fecha"
+        self.btn_date.icon_color = None
+        self.btn_clear_date.visible = False
+        self.date_picker.value = None
+        if self.page:
+            self.page.update()
+        self.current_page = 1
+        self.load_data()
+        
+    def on_agregar_click(self, e):
+        # En lugar de abrir file_picker, abrimos el modal de metadatos
+        self.dlg_metadatos_pdf.open = True
+        if self.page:
+            self.page.update()
+
+    def _cerrar_modal_metadatos(self, e=None):
+        self.dlg_metadatos_pdf.open = False
+        if self.page:
+            self.page.update()
+
+    def _abrir_file_picker_desde_modal(self, e):
+        self.fecha_seleccionada = self.fecha_carga_actual
+        self._cerrar_modal_metadatos()
+        self.file_picker.pick_files(allow_multiple=False, allowed_extensions=["pdf"], dialog_title="Selecciona el Reporte de Compras")
+
+    def on_file_picked(self, e: ft.FilePickerResultEvent):
+        if e.files and len(e.files) > 0:
+            pdf_path = e.files[0].path
+            
+            self.lbl_loading_text.value = "Dividiendo PDF en páginas..."
+            self.dlg_loading.open = True
+            self.page.update()
+            
+            threading.Thread(target=self._dividir_y_guardar_pdf, args=(pdf_path,), daemon=True).start()
+
+    def _dividir_y_guardar_pdf(self, pdf_path):
+        try:
+            reader = PdfReader(pdf_path)
+            total_pages = len(reader.pages)
+            
+            grupo_key = self.fecha_seleccionada
+            if grupo_key not in self.cargas_data:
+                self.cargas_data[grupo_key] = {}
+                
+            paginas_existentes = [int(p) for p in self.cargas_data[grupo_key].keys()]
+            max_pagina = max(paginas_existentes) if paginas_existentes else 0
+            
+            max_id = 0
+            for k, pags in self.cargas_data.items():
+                for p_num, d in pags.items():
+                    if d.get("id", 0) > max_id:
+                        max_id = d["id"]
+            
+            os.makedirs("pdfs_locales", exist_ok=True)
+            
+            for p_idx in range(total_pages):
+                num_pag = max_pagina + p_idx + 1
+                id_carga = max_id + p_idx + 1
+                
+                writer = PdfWriter()
+                writer.add_page(reader.pages[p_idx])
+                
+                nombre_archivo = f"compra_{grupo_key}_pag_{num_pag}.pdf"
+                ruta_local = os.path.join("pdfs_locales", nombre_archivo)
+                
+                with open(ruta_local, "wb") as f:
+                    writer.write(f)
+                    
+                self.cargas_data[grupo_key][str(num_pag)] = {
+                    "id": id_carga,
+                    "fecha": grupo_key,
+                    "pagina": num_pag,
+                    "archivo_original": pdf_path,
+                    "archivo": ruta_local,
+                    "estado": "Nuevo"
+                }
+                
+            self._save_cargas()
+            self.dlg_loading.open = False
+            self.page.snack_bar = ft.SnackBar(ft.Text(f"Se dividió el PDF en {total_pages} páginas exitosamente."), bgcolor="green")
+            self.page.snack_bar.open = True
+            
+        except Exception as e:
+            self.dlg_loading.open = False
+            self.page.snack_bar = ft.SnackBar(ft.Text(f"Error procesando PDF: {e}"), bgcolor="red")
+            self.page.snack_bar.open = True
+            
+        finally:
+            if self.page:
+                self.page.update()
+                self._render_tabla_cargas()
+
+    def animate_loading(self, base_msg):
+        messages = [
+            base_msg,
+            "Puliendo datos para enviarlos...",
+            "Generando el formato de carga...",
+            "A unos pasos de finalizar..."
+        ]
+        idx = 0
+        while getattr(self, "is_loading", False):
+            if hasattr(self, "lbl_loading_text") and self.page:
+                self.lbl_loading_text.value = messages[idx % len(messages)]
+                try:
+                    self.page.update()
+                except Exception:
+                    pass
+            idx += 1
+            time.sleep(5)
+            self.is_loading = False
+            self.dlg_loading.open = False
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text(f"Ocurrió un error inesperado: {str(e)}", color="white"), bgcolor="red")
+                self.page.snack_bar.open = True
+                self.page.update()
+    def update_totals(self, e=None):
+        gran_cant = 0.0
+        gran_costo = 0.0
+        gran_iva = 0.0
+        gran_total = 0.0
+        
+        factura_totals = {}
+        
+        for item in self.productos_rows:
+            if item["type"] == "product":
+                try:
+                    cant = float(item["cantidad_ctl"].value.replace(',', '.'))
+                    costo = float(item["costo_ctl"].value.replace(',', '.'))
+                    iva = float(item["iva_ctl"].value.replace(',', '.'))
+                    
+                    row_total = (cant * costo) + iva
+                    item["total_ctl"].value = f"${row_total:,.2f}"
+                    
+                    factura_idx = item["factura_idx"]
+                    factura_totals[factura_idx] = factura_totals.get(factura_idx, 0) + row_total
+                    
+                    gran_cant += cant
+                    gran_costo += costo
+                    gran_iva += iva
+                    gran_total += row_total
+                except:
+                    item["total_ctl"].value = "Error"
+                    
+        for item in self.productos_rows:
+            if item["type"] == "header":
+                idx = item["factura_idx"]
+                total = factura_totals.get(idx, 0)
+                item["total_factura_ctl"].value = f"Total Factura: ${total:,.2f}"
+                    
+        self.txt_gran_cant.value = f"{gran_cant:,.2f}"
+        self.txt_gran_costo.value = f"${gran_costo:,.2f}"
+        self.txt_gran_iva.value = f"${gran_iva:,.2f}"
+        self.txt_gran_total.value = f"${gran_total:,.2f}"
+        if self.page:
+            self.page.update()
+
+    def show_confirm_ui(self):
+        # Guardar el contenido original de la vista para poder volver a él
+        if not hasattr(self, "main_content"):
+            self.main_content = self.content
+            
+        self.productos_rows = []
+        facturas_count = len(self.parsed_data)
+        productos_count = 0
+        
+        # Como ahora parsed_data es una lista de facturas, las iteramos todas
+        for idx, invoice in enumerate(self.parsed_data):
+            ea = invoice.get("numero_entrada", "")
+            fecha = invoice.get("fecha", "")
+            factura = invoice.get("numero_factura", "")
+            proveedor = invoice.get("proveedor", "")
+            
+            total_factura_ctl = ft.Text("Total Factura: $0.00", weight="bold", color=Config.COLOR_PRIMARY)
+            self.productos_rows.append({
+                "type": "header",
+                "factura_idx": idx,
+                "total_factura_ctl": total_factura_ctl,
+                "row_ctl": ft.Container(
+                    content=ft.Row([
+                        ft.Text(f"EA: {ea} | Factura: {factura} | Proveedor: {proveedor} | Fecha: {fecha}", weight="bold", color=Config.COLOR_PRIMARY),
+                        ft.Container(expand=True),
+                        total_factura_ctl
+                    ]),
+                    bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_PRIMARY),
+                    padding=5,
+                    border_radius=5
+                )
+            })
+            
+            # Productos de esta factura
+            for p in invoice.get("productos", []):
+                productos_count += 1
+                cod = str(p.get("codigo_insumo", ""))
+                # Extraemos el nombre de la BD si existe, sino lo dejamos como "Desconocido"
+                nombre = self.nombres_insumos.get(cod, "Desconocido")
+                
+                def get_codigo_change_handler(nombre_control):
+                    def handler(e):
+                        val = e.control.value
+                        if val:
+                            nombres = self.db.get_nombres_insumos([val])
+                            nombre_control.value = nombres.get(val, "Desconocido")
+                        else:
+                            nombre_control.value = "Desconocido"
+                        nombre_control.tooltip = nombre_control.value
+                        if self.page: self.page.update()
+                    return handler
+                
+                nombre_ctl = ft.Text(nombre[:25], width=180, no_wrap=True, tooltip=nombre)
+                codigo_ctl = ft.TextField(label="Código", value=cod, width=90, dense=True, on_change=get_codigo_change_handler(nombre_ctl))
+                cantidad_ctl = ft.TextField(label="Cant.", value=str(p.get("cantidad", 0)), width=70, dense=True, on_change=self.update_totals)
+                costo_ctl = ft.TextField(label="Costo U.", value=str(p.get("costo_unitario", 0)), width=80, dense=True, on_change=self.update_totals)
+                iva_ctl = ft.TextField(label="IVA", value=str(p.get("iva", 0)), width=80, dense=True, on_change=self.update_totals)
+                total_ctl = ft.Text("$0.00", width=100, weight="bold")
+                
+                self.productos_rows.append({
+                    "type": "product",
+                    "factura_idx": idx,
+                    "ea": ea,
+                    "fecha": fecha,
+                    "factura": factura,
+                    "proveedor": proveedor,
+                    "codigo_ctl": codigo_ctl,
+                    "nombre_ctl": nombre_ctl,
+                    "cantidad_ctl": cantidad_ctl,
+                    "costo_ctl": costo_ctl,
+                    "iva_ctl": iva_ctl,
+                    "total_ctl": total_ctl,
+                    "row_ctl": ft.Row([codigo_ctl, nombre_ctl, cantidad_ctl, costo_ctl, iva_ctl, total_ctl])
+                })
+            
+        list_view = ft.ListView(
+            controls=[item["row_ctl"] for item in self.productos_rows],
+            expand=True,
+            spacing=10
+        )
+        
+        # Resumen Visual y Controles de Totales
+        self.txt_gran_cant = ft.Text("0", weight="bold")
+        self.txt_gran_costo = ft.Text("$0", weight="bold")
+        self.txt_gran_iva = ft.Text("$0", weight="bold")
+        self.txt_gran_total = ft.Text("$0", weight="bold", size=18, color=Config.COLOR_PRIMARY)
+        
+        is_last_page = not (hasattr(self, 'total_pages_pdf') and self.current_page_idx < self.total_pages_pdf - 1)
+        botones_acciones = [ft.TextButton("Volver", on_click=self.close_confirm_ui)]
+        
+        if not is_last_page:
+            botones_acciones.append(ft.ElevatedButton("Confirmar y Guardar", bgcolor="grey", color="white", on_click=self.on_guardar_compra_partial))
+            botones_acciones.append(ft.ElevatedButton("Confirmar y Continuar", bgcolor=Config.COLOR_SECONDARY, color="white", on_click=self.on_guardar_compra))
+        else:
+            botones_acciones.append(ft.ElevatedButton("Confirmar y Guardar Todo", bgcolor=Config.COLOR_SECONDARY, color="white", on_click=self.on_guardar_compra))
+            
+        # --- NUEVO DISEÑO DEL FOOTER ---
+        # 1. Fila de Información Financiera (Estilo Dashboard)
+        info_row = ft.Row([
+            ft.Text("RESUMEN TOTAL", weight="bold", size=18, color=Config.COLOR_PRIMARY),
+            ft.Container(expand=True), # Empuja los totales hacia la derecha
+            
+            ft.Column([ft.Text("Cant. Total", size=12, color="grey"), self.txt_gran_cant], spacing=2, horizontal_alignment="end"),
+            ft.Container(width=1, height=30, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=10)),
+            
+            ft.Column([ft.Text("Costo Base", size=12, color="grey"), self.txt_gran_costo], spacing=2, horizontal_alignment="end"),
+            ft.Container(width=1, height=30, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=10)),
+            
+            ft.Column([ft.Text("IVA Total", size=12, color="grey"), self.txt_gran_iva], spacing=2, horizontal_alignment="end"),
+            ft.Container(width=1, height=30, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=10)),
+            
+            ft.Column([ft.Text("GRAN TOTAL", size=12, color="grey", weight="bold"), self.txt_gran_total], spacing=2, horizontal_alignment="end"),
+        ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+        # 2. Fila de Botones de Acción
+        buttons_row = ft.Row([
+            ft.Container(expand=True), # Empuja los botones hacia el extremo derecho
+            *botones_acciones # Desempaqueta la lista de botones dinámicos
+        ], alignment=ft.MainAxisAlignment.END)
+
+        # 3. Contenedor Principal del Footer
+        footer = ft.Container(
+            content=ft.Column([
+                info_row,
+                ft.Divider(height=15, color=ft.colors.with_opacity(0.1, "black")),
+                buttons_row
+            ], spacing=0),
+            bgcolor=ft.colors.with_opacity(0.03, Config.COLOR_PRIMARY),
+            padding=20,
+            border_radius=8,
+            border=ft.border.all(1, ft.colors.with_opacity(0.1, Config.COLOR_PRIMARY)),
+            margin=ft.padding.only(top=10)
+        )
+        
+        if hasattr(self, 'total_pages_pdf'):
+            titulo = f"Datos Extraídos - Pág. No. {self.current_page_idx + 1} de {self.total_pages_pdf}"
+        elif hasattr(self, 'carga_activa'):
+            titulo = f"Datos Extraídos - Pág. No. {self.carga_activa.get('pagina', 1)}"
+        else:
+            titulo = "Revisión de Compras (Modo Inmersivo)"
+        header = ft.Row([
+            ft.Text(titulo, size=24, weight="bold"),
+            ft.Text(f"{facturas_count} Facturas extraídas | {productos_count} Productos en total", color="grey")
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        
+        # Reemplazamos el contenido actual por el modo Inmersivo/Fullscreen
+        self.content = ft.Column([
+            header,
+            ft.Divider(),
+            ft.Row([
+                ft.Container(width=90, content=ft.Text("Código", weight="bold")),
+                ft.Container(width=180, content=ft.Text("Nombre (desde BD)", weight="bold")),
+                ft.Container(width=70, content=ft.Text("Cantidad", weight="bold")),
+                ft.Container(width=80, content=ft.Text("Costo U.", weight="bold")),
+                ft.Container(width=80, content=ft.Text("IVA", weight="bold")),
+                ft.Container(width=100, content=ft.Text("Costo Total", weight="bold"))
+            ]),
+            list_view,
+            footer
+        ], expand=True)
+        
+        self.update_totals()
+        self.page.update()
+        
+    def close_confirm_ui(self, e):
+        # Volver al diseño principal
+        self.content = self.main_content
+        self.page.update()
+        
+    def on_guardar_compra_partial(self, e):
+        if hasattr(self, 'total_pages_pdf'):
+            self.current_page_idx = self.total_pages_pdf
+        self.on_guardar_compra(e)
+
+    def on_guardar_compra(self, e):
+        # 1. Bloquear interfaz y mostrar carga
+        btn_control = e.control if e else None
+        if btn_control:
+            btn_control.disabled = True
+            
+        if hasattr(self, 'progress_bar'):
+            self.progress_bar.visible = True
+            
+        if self.page:
+            self.page.update()
+            
+        # 2. Lanzar worker de guardado
+        import threading
+        threading.Thread(target=self._guardar_compra_worker, args=(btn_control,), daemon=True).start()
+
+    def _guardar_compra_worker(self, btn_control):
+        try:
+            compras_list = []
+            lista_eas_to_delete = []
+            
+            # Si venimos del flujo nuevo de carga_activa:
+            grupo_key = None
+            pagina_origen = None
+            if hasattr(self, 'carga_activa'):
+                grupo_key = self.carga_activa["fecha"]
+                pagina_origen = self.carga_activa["pagina"]
+
+            for item in self.productos_rows:
+                if item["type"] == "product":
+                    cant_str = str(item["cantidad_ctl"].value).replace(',', '.')
+                    costo_str = str(item["costo_ctl"].value).replace(',', '.')
+                    iva_str = str(item["iva_ctl"].value).replace(',', '.')
+                    
+                    cantidad = float(cant_str)
+                    costo = float(costo_str)
+                    iva = float(iva_str)
+                    total = (cantidad * costo) + iva
+                    
+                    fecha_val = grupo_key if grupo_key else item["fecha"]
+                    if not fecha_val:
+                        import datetime
+                        fecha_val = datetime.date.today().strftime("%Y-%m-%d")
+                        
+                    compras_list.append({
+                        "numero_entrada": item["ea"],
+                        "fecha": fecha_val,
+                        "numero_factura": item["factura"],
+                        "proveedor": item["proveedor"],
+                        "codigo_insumo": item["codigo_ctl"].value,
+                        "cantidad": cantidad,
+                        "costo_unitario": costo,
+                        "iva": iva,
+                        "costo_total": total
+                    })
+                    
+                    if item["ea"] not in lista_eas_to_delete:
+                        lista_eas_to_delete.append(item["ea"])
+                        
+            if compras_list:
+                codigos_unicos = list(set([c["codigo_insumo"] for c in compras_list]))
+                codigos_validos = self.db.get_nombres_insumos(codigos_unicos)
+                
+                codigos_invalidos = [c for c in codigos_unicos if c not in codigos_validos]
+                if codigos_invalidos:
+                    if self.page:
+                        self.page.snack_bar = ft.SnackBar(
+                            ft.Text(f"Códigos no existen en catálogo: {', '.join(codigos_invalidos)}. Corrígelos en la tabla primero.", color="white"), 
+                            bgcolor="red",
+                            duration=8000
+                        )
+                        self.page.snack_bar.open = True
+                        self.page.update()
+                    return
+            
+            if compras_list:
+                # 1. Eliminar datos viejos de esta misma página
+                self.db.eliminar_compras_por_entradas(lista_eas_to_delete)
+                
+                # 2. Insertar los nuevos datos
+                if self.db.insert_compras(compras_list):
+                    self.page.snack_bar = ft.SnackBar(ft.Text("Página guardada exitosamente en BD."), bgcolor="green")
+                    self.page.snack_bar.open = True
+                    
+                    # 3. Actualizar el estado local a Guardado
+                    if grupo_key and str(pagina_origen) in self.cargas_data.get(grupo_key, {}):
+                        self.cargas_data[grupo_key][str(pagina_origen)]["estado"] = "Guardado"
+                        self._save_cargas()
+                        
+                    self.close_confirm_ui(None)
+                    self._render_tabla_cargas()
+                    self.load_data()
+                else:
+                    self.page.snack_bar = ft.SnackBar(ft.Text("Error al guardar en base de datos"), bgcolor="red")
+                    self.page.snack_bar.open = True
+            else:
+                self.page.snack_bar = ft.SnackBar(ft.Text("No hay datos para guardar."), bgcolor="orange")
+                self.page.snack_bar.open = True
+                    
+        except ValueError:
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text("Error numérico en cantidad, costo o IVA."), bgcolor="red")
+                self.page.snack_bar.open = True
+        except Exception as ex:
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error interno: {str(ex)}"), bgcolor="red")
+                self.page.snack_bar.open = True
+        finally:
+            # 3. Restaurar interfaz incondicionalmente
+            if hasattr(self, 'progress_bar'):
+                self.progress_bar.visible = False
+            if btn_control:
+                btn_control.disabled = False
+                
+            if self.page:
+                self.page.update()
+            
+    def load_data(self):
+        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
+        self.progress_bar.visible = True
+        if self.page:
+            self.update()
+            
+        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
+
+    def _fetch_data_worker(self):
+        search_val = self.search_input.value.strip() if self.search_input.value else ""
+        
+        fact_filtro = getattr(self, 'filtro_factura_activo', None)
+        prov_filtro = getattr(self, 'filtro_proveedor_activo', None)
+        f_corte = getattr(self, 'fecha_corte', None)
+
+        data, total = self.db.get_compras(
+            page=self.current_page, 
+            page_size=self.page_size, 
+            search=search_val,
+            fecha_corte=f_corte,
+            factura_filtro=fact_filtro,
+            proveedor_filtro=prov_filtro
+        )
+        
+        self.total_records = total
+        self.total_pages = math.ceil(total / self.page_size) if total > 0 else 1
+        
+        self.data_table.rows.clear()
+        
+        for item in data:
+            fecha_raw = str(item.get('fecha', ''))
+            # Cortar a 'YYYY-MM-DD' si viene con timestamp
+            fecha_formateada = fecha_raw[:10] if len(fecha_raw) >= 10 else fecha_raw
+            
+            # El nombre viene del JOIN con catalogo_insumos: catalogo_insumos.nombre
+            cat_info = item.get('catalogo_insumos') or {}
+            nombre_insumo = cat_info.get('nombre', 'Desconocido')
+            
+            cantidad = int(item.get('cantidad', 0) or 0)
+            costo_unit = float(item.get('costo_unitario', 0) or 0)
+            costo_tot = float(item.get('costo_total', 0) or 0)
+            
+            str_costo_unit = f"${costo_unit:,.2f}"
+            str_costo_tot = f"${costo_tot:,.2f}"
+            
+            row = ft.DataRow(
+                cells=[
+                    ft.DataCell(ft.Text(fecha_formateada)),
+                    ft.DataCell(ft.Text(str(item.get('numero_factura') or 'N/A'))),
+                    ft.DataCell(ft.Text(str(item.get('proveedor') or 'N/A'))),
+                    ft.DataCell(ft.Text(str(item.get('codigo_insumo', '')))),
+                    ft.DataCell(ft.Container(content=ft.Text(nombre_insumo), width=300)),
+                    ft.DataCell(ft.Text(str(cantidad), weight="bold")),
+                    ft.DataCell(ft.Text(str_costo_unit)),
+                    ft.DataCell(ft.Text(str_costo_tot, color="blue", weight="bold")),
+                ]
+            )
+            self.data_table.rows.append(row)
+            
+        self.update_pagination_ui()
+        
+    def update_pagination_ui(self):
+        self.lbl_page_info.value = f"Página {self.current_page} de {self.total_pages}"
+        self.lbl_total.value = f"{self.total_records} registros en total"
+        self.btn_prev.disabled = (self.current_page <= 1)
+        self.btn_next.disabled = (self.current_page >= self.total_pages)
+        
+        # Apagar indicador de carga al finalizar
+        self.progress_bar.visible = False
+        
+        if self.page:
+            self.update()
+        
+    def on_search(self, e):
+        self.current_page = 1
+        self.load_data()
+        
+    def on_prev_page(self, e):
+        if self.current_page > 1:
+            self.current_page -= 1
+            self.load_data()
+            
+    def on_next_page(self, e):
+        if self.current_page < self.total_pages:
+            self.current_page += 1
+            self.load_data()
+
+    def on_extraer_todo_masivo(self, e):
+        if getattr(self, "is_extraccion_activa", False):
+            self.page.snack_bar = ft.SnackBar(ft.Text("Ya hay una extracción en curso."), bgcolor="orange")
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+
+        import threading
+        threading.Thread(target=self._worker_extraccion_masiva, daemon=True).start()
+
+    def _worker_extraccion_masiva(self):
+        self.is_extraccion_activa = True
+
+        # 1. Recopilar pendientes
+        pendientes = []
+        for grupo_key, paginas in self.cargas_data.items():
+            for num_pag, data in paginas.items():
+                if data.get("estado") in ["Nuevo", "Falló", "Sobreescrito"]:
+                    pendientes.append(data)
+
+        if not pendientes:
+            self.is_extraccion_activa = False
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text("No hay páginas pendientes por extraer."), bgcolor="orange")
+                self.page.snack_bar.open = True
+                self.page.update()
+            return
+
+        # 2. Calcular Tiempos
+        total_items = len(pendientes)
+        # Estimado: 5 seg proceso + 20 seg enfriamiento por página (salvo la última)
+        tiempo_estimado_segundos = (total_items * 25) - 20 
+
+        # 3. Interfaz de Progreso Inmersiva
+        lbl_estado_progreso = ft.Text(f"Páginas en cola: {total_items}", weight="bold", size=16)
+        lbl_tiempo = ft.Text(f"Tiempo estimado total: ~{tiempo_estimado_segundos // 60} min {tiempo_estimado_segundos % 60} seg", color="grey")
+        lbl_enfriamiento = ft.Text("", size=12, color="orange", weight="bold")
+        barra_progreso = ft.ProgressBar(width=400, color="purple700", bgcolor="#eeeeee", value=0)
+
+        dlg_progreso = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Procesamiento Masivo IA", color="purple700"),
+            content=ft.Column([
+                lbl_estado_progreso,
+                lbl_tiempo,
+                barra_progreso,
+                lbl_enfriamiento,
+                ft.Text("Por favor NO cierres esta ventana ni la aplicación.", size=11, color="red")
+            ], tight=True, spacing=10)
+        )
+
+        if self.page:
+            self.page.overlay.append(dlg_progreso)
+            dlg_progreso.open = True
+            self.page.update()
+
+        exitos = 0
+        fallos = 0
+        import time
+
+        # 4. Bucle de Procesamiento
+        for idx, data in enumerate(pendientes):
+            try:
+                if self.page:
+                    lbl_estado_progreso.value = f"Extrayendo página {idx + 1} de {total_items}..."
+                    lbl_tiempo.value = f"Analizando estructura de {data.get('archivo', '')}..."
+                    barra_progreso.value = idx / total_items
+                    self.page.update()
+
+                # Resolución dinámica según el módulo
+                if hasattr(self.ai_parser, "parse_ventas_pdf_page") and "ventas" in str(self.__class__).lower():
+                    extracted = self.ai_parser.parse_ventas_pdf_page(data["archivo"], 0, data.get("tipo", "Remisión"))
+                else:
+                    extracted = self.ai_parser.parse_compras_pdf_page(data["archivo"], 0)
+
+                if extracted and isinstance(extracted, list) and len(extracted) > 0:
+                    data["estado"] = "Procesado con éxito"
+                    data["datos_extraidos"] = extracted
+                    exitos += 1
+                else:
+                    data["estado"] = "Falló"
+                    data["datos_extraidos"] = []
+                    fallos += 1
+
+                self._save_cargas()
+
+                if self.page:
+                    self._render_tabla_cargas()
+
+                # 5. Enfriamiento de seguridad API (No se aplica al último registro)
+                if idx < total_items - 1:
+                    for i in range(20, 0, -1):
+                        if self.page and dlg_progreso.open:
+                            lbl_enfriamiento.value = f"Pausa anti-saturación de API: {i}s..."
+                            self.page.update()
+                        time.sleep(1)
+                    if self.page:
+                        lbl_enfriamiento.value = ""
+
+            except Exception as ex:
+                data["estado"] = "Falló"
+                self._save_cargas()
+                fallos += 1
+
+        # 6. Finalización
+        self.is_extraccion_activa = False
+        if self.page:
+            dlg_progreso.open = False
+            self.page.snack_bar = ft.SnackBar(
+                ft.Text(f"Proceso masivo completado. Éxitos: {exitos}, Fallos: {fallos}"), 
+                bgcolor="green" if fallos == 0 else "orange"
+            )
+            self.page.snack_bar.open = True
+            barra_progreso.value = 1
+            self.page.update()
+            self._render_tabla_cargas()
+
+    def copiar_historial_compras(self, e):
+        """
+        Obtiene las compras del día agrupadas por proveedor y construye
+        un texto limpio formateado para el portapapeles del sistema.
+        """
+        if not self.page: return
+
+        def worker():
+            # Consultar desglose exacto por proveedor para la fecha activa
+            items_prov = self.db.get_historial_compras_dia(self.fecha_historial_activa, "PROVEEDOR")
+
+            tot_pesos = self.lbl_tot_compras_panel.value
+            tot_unds = self.lbl_cant_compras_panel.value
+
+            lineas_prov = []
+            for item in items_prov:
+                prov = item.get("proveedor", "Clientes Varios")
+                total = item.get("total", 0)
+                unds = item.get("unidades", 0)
+                fact_cant = item.get("facturas_cant", 1)
+                lineas_prov.append(f"  • {prov}: ${total:,.0f} COP ({unds:g} unds | {fact_cant} fact.)")
+
+            prov_text = "\n".join(lineas_prov) if lineas_prov else "  (Sin registros de proveedores)"
+
+            texto_copia = (
+                f"🛍️ HISTÓRICO DE ENTRADAS / COMPRAS\n"
+                f"📅 Fecha: {self.fecha_historial_activa}\n"
+                f"💵 Total Compras del Día: {tot_pesos} ({tot_unds})\n"
+                f"-----------------------------------------\n"
+                f"🏢 DESGLOSE POR PROVEEDOR:\n"
+                f"{prov_text}\n"
+                f"-----------------------------------------"
+            )
+
+            self.page.set_clipboard(texto_copia)
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Row([
+                    ft.Icon(ft.icons.CHECK_CIRCLE, color="white", size=18),
+                    ft.Text("Histórico de compras copiado al portapapeles exitosamente", color="white")
+                ]),
+                bgcolor="teal700"
+            )
+            self.page.snack_bar.open = True
+
+            if hasattr(self, "safe_update"):
+                self.safe_update()
+            else:
+                self.page.update()
+
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
+````
+
+## File: ui/views/dashboard.py
+````python
+import flet as ft
+import threading
+from config import Config
+from core.supabase_client import SupabaseClient
+import datetime
+
+class DashboardView(ft.Container):
+    def __init__(self):
+        super().__init__()
+        self.expand = True
+        self.db = SupabaseClient()
+        
+        self.lbl_periodo_dash = ft.Text("Periodo: ...", size=13, weight="bold", color=Config.COLOR_PRIMARY)
+        self.lbl_estado_dash = ft.Text("Estado: ...", size=13, weight="bold")
+        self.lbl_fecha_hora = ft.Text("...", size=12, color="grey")
+
+        self.fecha_filtro_dash = None
+        self.date_picker_dash = ft.DatePicker(on_change=self.on_fecha_dash_change)
+
+        self.btn_fecha_dash = ft.OutlinedButton(
+            text=f"Fecha: {datetime.date.today().strftime('%d/%m/%Y')}",
+            icon=ft.icons.CALENDAR_MONTH,
+            on_click=lambda e: self.date_picker_dash.pick_date(),
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            height=38
+        )
+        self.btn_clear_fecha_dash = ft.IconButton(
+            icon=ft.icons.CLEAR, icon_color="red", tooltip="Restablecer a Hoy",
+            visible=False, on_click=self.limpiar_filtro_fecha_dash
+        )
+
+        badge_info = ft.Container(
+            content=ft.Row([
+                ft.Column([
+                    ft.Row([self.lbl_periodo_dash, ft.Text("|", color="grey", size=13), self.lbl_estado_dash], spacing=5),
+                    ft.Row([ft.Icon(ft.icons.ACCESS_TIME, size=14, color="grey"), self.lbl_fecha_hora], spacing=5)
+                ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=2),
+                ft.Container(width=10),
+                self.btn_fecha_dash,
+                self.btn_clear_fecha_dash
+            ], alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.padding.symmetric(horizontal=15, vertical=10),
+            bgcolor="white",
+            border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+        )
+
+        header_row = ft.Row([
+            ft.Column([
+                ft.Text("Dashboard General", size=28, weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Text("Resumen ejecutivo del sistema", size=14, color="grey"),
+            ], spacing=2),
+            badge_info
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        
+        # Tarjetas de KPIs (Valores Iniciales) - SECCIÓN COSTOS
+        self.val_inventario = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_compras = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_rotacion = ft.Text("N/D", size=14, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_compras_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        
+        # SECCIÓN VENTAS
+        self.val_ingresos = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_ventas_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
+        self.val_proyeccion_ventas = ft.Text("$ 0", size=14, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_proyeccion_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
+        
+        self.kpi_costos_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("Costo Inv. Actual", self.val_inventario, ft.icons.INVENTORY_2), col={"xs": 12, "sm": 6, "md": 4}),
+            ft.Container(content=self._build_kpi_card("Total Compras (Mes)", self.val_compras, ft.icons.SHOPPING_BAG), col={"xs": 12, "sm": 6, "md": 4}),
+            ft.Container(content=self._build_kpi_card("Compras (Hoy)", self.val_compras_hoy, ft.icons.MONEY_OFF), col={"xs": 12, "sm": 6, "md": 4}),
+        ], spacing=10, run_spacing=10)
+
+        self.kpi_ventas_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("Total Ventas (Mes)", self.val_ingresos, ft.icons.TRENDING_UP), col={"xs": 12, "sm": 6, "md": 6}),
+            ft.Container(content=self._build_kpi_card("Ventas (Hoy)", self.val_ventas_hoy, ft.icons.ATTACH_MONEY), col={"xs": 12, "sm": 6, "md": 6}),
+        ], spacing=10, run_spacing=10)
+        
+        # Paso 3: Crear la Barra de Métricas Secundarias
+        self.val_meta_diaria = ft.Text("$ 0 / día", size=13, weight="bold", color="teal700")
+
+        self.kpi_secundarios = ft.Container(
+            content=ft.Row([
+                ft.Text("Objetivo Comercial:", weight="bold", color=Config.COLOR_PRIMARY, size=12),
+                ft.Text("Proy. Ventas Stock:", size=12, color="grey"), self.val_proyeccion_ventas,
+                ft.Text(" | Proy. Rentabilidad:", size=12, color="grey"), self.val_proyeccion_rentabilidad,
+                ft.Container(width=1, height=20, bgcolor="#d0d0d0", margin=ft.padding.symmetric(horizontal=8)),
+                ft.Icon(ft.icons.FLAG, size=16, color="teal700"),
+                ft.Text("Meta Venta Diaria:", weight="bold", size=12, color="grey"), self.val_meta_diaria,
+                ft.Container(expand=True),
+                ft.Text("Rotación Global:", size=12, color="grey"), self.val_rotacion,
+            ], spacing=5, alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.padding.symmetric(horizontal=15, vertical=10),
+            bgcolor="#f0f4f8", border_radius=8, border=ft.border.all(1, "#d0d7de")
+        )
+
+        # SECCIÓN AJUSTES
+        self.col_ajustes_salida = ft.Column(spacing=5)
+        self.col_ajustes_entrada = ft.Column(spacing=5)
+        
+        self.lbl_neto_ajustes_header = ft.Text("NETO: $0", weight="bold", size=16)
+        header_ajustes = ft.Row([
+            ft.Text("Impacto de Ajustes de Inventario (Mes Actual)", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+            self.lbl_neto_ajustes_header
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+
+        self.panel_ajustes = ft.Row([
+            # Panel Salida
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Ajustes de Salida (-)", size=16, weight="bold", color="red"),
+                    ft.Divider(height=1),
+                    self.col_ajustes_salida
+                ]),
+                bgcolor="white",
+                padding=15,
+                border_radius=8,
+                expand=True,
+                border=ft.border.all(1, "#f0f0f0"),
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+            ),
+            # Panel Entrada
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Ajustes de Entrada (+)", size=16, weight="bold", color="green"),
+                    ft.Divider(height=1),
+                    self.col_ajustes_entrada
+                ]),
+                bgcolor="white",
+                padding=15,
+                border_radius=8,
+                expand=True,
+                border=ft.border.all(1, "#f0f0f0"),
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+            )
+        ], spacing=15)
+
+        # Botón para copiar resumen al portapapeles
+        self.btn_copiar_resumen = ft.IconButton(
+            icon=ft.icons.COPY_ROUNDED,
+            icon_size=18,
+            icon_color=Config.COLOR_PRIMARY,
+            tooltip="Copiar Resumen Financiero al Portapapeles",
+            on_click=self.copiar_resumen_kpis
+        )
+        
+        header_kpis_row = ft.Row([
+            ft.Text("Resumen Financiero y Operativo", size=20, weight="bold", color=Config.COLOR_PRIMARY),
+            self.btn_copiar_resumen
+        ], tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+        # Ensamblaje del Layout
+        self.seccion_kpis = ft.Column([
+            header_kpis_row,
+            self.kpi_costos_row,
+            self.kpi_ventas_row,
+            self.kpi_secundarios
+        ], spacing=10)
+
+        self.seccion_ajustes = ft.Column([
+            header_ajustes,
+            self.panel_ajustes
+        ], spacing=10)
+
+        # Gráficos y Tablas
+        # Series de datos (Grosor y puntas redondeadas)
+        self.chart_ventas = ft.LineChartData(
+            data_points=[], 
+            color=ft.colors.BLUE_400,
+            stroke_width=4, 
+            curved=False,
+            stroke_cap_round=True,
+            below_line_bgcolor=ft.colors.with_opacity(0.1, ft.colors.BLUE_400)
+        )
+        self.chart_compras = ft.LineChartData(
+            data_points=[], 
+            color="#2ecca0", 
+            stroke_width=4, 
+            curved=False,
+            stroke_cap_round=True,
+            below_line_bgcolor=ft.colors.with_opacity(0.1, "#2ecca0")
+        )
+        
+        # Contenedor de Categorías (Grilla Responsiva)
+        self.categorias_row = ft.ResponsiveRow(columns=12, spacing=15, run_spacing=15)
+        self.categorias_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Rendimiento Detallado por Categoría", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                self.categorias_row
+            ]),
+            margin=ft.padding.only(top=10, bottom=10)
+        )
+
+        # Gráfico habilitando los ejes visuales
+        self.line_chart = ft.LineChart(
+            data_series=[self.chart_ventas, self.chart_compras],
+            border=ft.border.all(1, "#f0f0f0"),
+            min_y=0,
+            min_x=0,
+            expand=True,
+            tooltip_bgcolor="white",
+            left_axis=ft.ChartAxis(labels_size=50), 
+            bottom_axis=ft.ChartAxis(labels_size=40), 
+        )
+        
+        # Leyenda adaptada a fondo claro
+        leyenda = ft.Row([
+            ft.Row([ft.Container(width=12, height=12, bgcolor=ft.colors.BLUE_400, border_radius=6), ft.Text("Ingresos", size=12, weight="bold", color="black87")]),
+            ft.Row([ft.Container(width=12, height=12, bgcolor="#2ecca0", border_radius=6), ft.Text("Costos", size=12, weight="bold", color="black87")]),
+        ], spacing=30, alignment=ft.MainAxisAlignment.CENTER)
+        
+        self.chart_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Tendencia Diaria: Ingresos vs Costo de Ventas", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                leyenda,
+                ft.Container(content=self.line_chart, height=320, margin=ft.padding.only(top=10))
+            ]),
+            bgcolor="white",
+            padding=20,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+        )
+        
+        # Tables
+        self.dt_ventas = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Código", size=12)),
+                ft.DataColumn(ft.Text("Producto", size=12)),
+                ft.DataColumn(ft.Text("Unidades", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Ingreso Total", size=12), numeric=True)
+            ],
+            rows=[],
+            data_row_min_height=30,
+            data_row_max_height=30,
+            heading_row_height=40,
+            column_spacing=15,
+        )
+        
+        self.dt_costos = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Código", size=12)),
+                ft.DataColumn(ft.Text("Producto", size=12)),
+                ft.DataColumn(ft.Text("Valor Inv.", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Rotación", size=12))
+            ],
+            rows=[],
+            data_row_min_height=30,
+            data_row_max_height=30,
+            heading_row_height=40,
+            column_spacing=15,
+        )
+        
+        table_ventas_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Top 10 Productos con Mayor Ingreso", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                self.dt_ventas
+            ], scroll=ft.ScrollMode.AUTO),
+            bgcolor="white",
+            padding=15,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
+            col={"xs": 12, "md": 6}
+        )
+        
+        table_costos_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Top 10 Productos con Mayor Costo", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                self.dt_costos
+            ], scroll=ft.ScrollMode.AUTO),
+            bgcolor="white",
+            padding=15,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
+            col={"xs": 12, "md": 6}
+        )
+        
+        self.tables_row = ft.ResponsiveRow([
+            table_ventas_container,
+            table_costos_container
+        ], spacing=15, run_spacing=15)
+        
+        # Indicador de carga superior
+        self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
+
+        # 2. Main content Column
+        self.content = ft.Column([
+            self.progress_bar, 
+            header_row,
+            ft.Divider(height=10, color="transparent"),
+            self.seccion_kpis,
+            ft.Divider(height=10, color="transparent"),
+            self.seccion_ajustes,
+            ft.Divider(height=10, color="transparent"),
+            self.categorias_container,
+            ft.Divider(height=10, color="transparent"),
+            self.chart_container,
+            ft.Divider(height=10, color="transparent"),
+            self.tables_row,
+            ft.Container(height=30) # Bottom padding
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
+
+    def did_mount(self):
+        if not hasattr(self, "overlay_added"):
+            self.page.overlay.append(self.date_picker_dash)
+            self.overlay_added = True
+        self.load_data()
+
+    def safe_update(self):
+        """Actualiza la UI solo si el control sigue montado en la página."""
+        try:
+            if self.page and self.uid:
+                self.page.update()
+        except Exception:
+            pass
+
+    def load_data(self):
+        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
+        self.progress_bar.visible = True
+        self.safe_update()
+            
+        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
+
+    def on_fecha_dash_change(self, e):
+        if self.date_picker_dash.value:
+            self.fecha_filtro_dash = self.date_picker_dash.value.strftime("%Y-%m-%d")
+            self.btn_fecha_dash.text = f"Fecha: {self.date_picker_dash.value.strftime('%d/%m/%Y')}"
+            self.btn_clear_fecha_dash.visible = True
+            self.load_data()
+
+    def limpiar_filtro_fecha_dash(self, e):
+        self.fecha_filtro_dash = None
+        self.date_picker_dash.value = None
+        self.btn_fecha_dash.text = f"Fecha: {datetime.date.today().strftime('%d/%m/%Y')}"
+        self.btn_clear_fecha_dash.visible = False
+        self.load_data()
+
+    def _fetch_data_worker(self):
+        """Ejecuta todas las llamadas HTTP síncronas sin congelar la ventana."""
+        # Cargar contexto temporal
+        mes_actual = datetime.date.today().strftime("%Y-%m")
+        datos_cierre = self.db.obtener_estado_cierre(mes_actual)
+        estado_periodo = datos_cierre.get('periodo', {}).get('estado', 'ABIERTO') if datos_cierre and datos_cierre.get('periodo') else 'ABIERTO'
+
+        meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+        partes = mes_actual.split('-')
+        nombre_mes = f"{meses[int(partes[1]) - 1]} {partes[0]}"
+
+        self.lbl_periodo_dash.value = f"Periodo: {nombre_mes}"
+        self.lbl_estado_dash.value = f"Estado: {estado_periodo}"
+
+        colores_estado = {'ABIERTO': 'green', 'PRELIMINAR': 'orange', 'EN_AUDITORIA': 'blue', 'CERRADO': 'red'}
+        self.lbl_estado_dash.color = colores_estado.get(estado_periodo, 'black')
+
+        ahora = datetime.datetime.now()
+        self.lbl_fecha_hora.value = ahora.strftime("%d/%m/%Y - %I:%M %p")
+
+        # 1. Load KPIs
+        kpis_cat = self.db.get_rendimiento_categorias_periodo(fecha_inicio=None, fecha_fin=self.fecha_filtro_dash)
+        val_inv_real = sum([c["inventario_costo"] for c in kpis_cat])
+        val_inv = val_inv_real
+        self.val_inventario.value = f"$ {val_inv:,.0f}"
+        
+        res_cat = self.db.get_catalogo_summary(fecha_corte=self.fecha_filtro_dash)
+        res_ven = self.db.get_ventas_summary(fecha_corte=self.fecha_filtro_dash)
+        res_com = self.db.get_compras_summary(fecha_corte=self.fecha_filtro_dash)
+        
+        ingresos = float(res_ven.get('total_mes') or 0)
+        compras = float(res_com.get('total_mes') or 0)
+        
+        ventas_hoy = float(res_ven.get('total_hoy') or 0)
+        compras_hoy = float(res_com.get('total_hoy') or 0)
+        
+        self.val_ingresos.value = f"$ {ingresos:,.0f}"
+        self.val_ventas_hoy.value = f"$ {ventas_hoy:,.0f}"
+        self.val_compras.value = f"$ {compras:,.0f}"
+        self.val_compras_hoy.value = f"$ {compras_hoy:,.0f}"
+        
+        rentabilidad = 0
+        if ingresos > 0:
+            rentabilidad = ((ingresos - compras) / ingresos) * 100
+            
+        self.val_rentabilidad.value = f"{rentabilidad:.1f}%"
+        self.val_rentabilidad.color = "#2ecca0" if rentabilidad >= 0 else "#f26c61"
+        
+        # Basic rotacion (Ventas / Inventario)
+        if val_inv > 0:
+            rotacion_global = ingresos / val_inv
+            self.val_rotacion.value = f"{rotacion_global:.2f}x"
+        else:
+            self.val_rotacion.value = "N/D"
+
+        # Nuevos KPIs y Ajustes
+        proyeccion_ventas = self.db.get_proyeccion_ventas(fecha_corte=self.fecha_filtro_dash)
+        self.val_proyeccion_ventas.value = f"$ {proyeccion_ventas:,.0f}"
+        
+        proy_rent = 0
+        if proyeccion_ventas > 0:
+            proy_rent = ((proyeccion_ventas - val_inv) / proyeccion_ventas) * 100
+        
+        self.val_proyeccion_rentabilidad.value = f"{proy_rent:.1f}%"
+        self.val_proyeccion_rentabilidad.color = "#2ecca0" if proy_rent >= 0 else "#f26c61"
+
+        hoy_obj = datetime.datetime.strptime(self.fecha_filtro_dash, "%Y-%m-%d").date() if self.fecha_filtro_dash else datetime.date.today()
+        if hoy_obj.month == 12:
+            ultimo_dia_mes = datetime.date(hoy_obj.year, 12, 31).day
+        else:
+            ultimo_dia_mes = (datetime.date(hoy_obj.year, hoy_obj.month + 1, 1) - datetime.timedelta(days=1)).day
+        dias_restantes = max(1, ultimo_dia_mes - hoy_obj.day + 1)
+        restante_vender = max(0, proyeccion_ventas - ingresos)
+        meta_diaria = restante_vender / dias_restantes
+        self.val_meta_diaria.value = f"$ {meta_diaria:,.0f} / día"
+
+        mes_actual = hoy_obj.strftime("%Y-%m")
+        ajustes_bd = self.db.get_ajustes_mes(mes_actual, fecha_corte=self.fecha_filtro_dash)
+        
+        tipos_salida = {
+            "Daño / Merma": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Vencimiento": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Pérdida": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Consumo Familiar": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Consumo Cliente (Cortesía)": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Donación Saliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Otro (Salida)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
+        }
+
+        tipos_entrada = {
+            "Sobrante de Inventario": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Donación Entrante": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Devolución Cliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Otro (Entrada)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
+        }
+        
+        for fila in ajustes_bd:
+            tipo_bd = fila.get("tipo_ajuste", "")
+            motivo_bd = fila.get("motivo_observacion", "")
+            cant = float(fila.get("cantidad_total") or 0)
+            costo = float(fila.get("costo_total") or 0)
+            conteo = int(fila.get("conteo") or 0)
+            
+            asignado = False
+            if tipo_bd in ("AJUSTE_ENTRADA", "ENTRADA_POR_SOBRANTE"):
+                for key in tipos_entrada.keys():
+                    if key.lower() in motivo_bd.lower():
+                        tipos_entrada[key]["conteo"] += conteo
+                        tipos_entrada[key]["cantidad"] += cant
+                        tipos_entrada[key]["costo"] += costo
+                        asignado = True
+                        break
+                if not asignado:
+                    tipos_entrada["Otro (Entrada)"]["conteo"] += conteo
+                    tipos_entrada["Otro (Entrada)"]["cantidad"] += cant
+                    tipos_entrada["Otro (Entrada)"]["costo"] += costo
+            else:
+                for key in tipos_salida.keys():
+                    if key.lower() in motivo_bd.lower():
+                        tipos_salida[key]["conteo"] += conteo
+                        tipos_salida[key]["cantidad"] += cant
+                        tipos_salida[key]["costo"] += costo
+                        asignado = True
+                        break
+                if not asignado:
+                    # Fallback por tipo
+                    if tipo_bd == "BAJA_VENCIMIENTO": k = "Vencimiento"
+                    elif tipo_bd == "SALIDA_POR_FALTANTE": k = "Pérdida"
+                    else: k = "Otro (Salida)"
+                    tipos_salida[k]["conteo"] += conteo
+                    tipos_salida[k]["cantidad"] += cant
+                    tipos_salida[k]["costo"] += costo
+
+        total_costo_entradas = sum([d["costo"] for d in tipos_entrada.values()])
+        total_costo_salidas = sum([d["costo"] for d in tipos_salida.values()])
+        
+        total_cant_entradas = sum([d["cantidad"] for d in tipos_entrada.values()])
+        total_cant_salidas = sum([d["cantidad"] for d in tipos_salida.values()])
+        
+        neto = total_costo_entradas - total_costo_salidas
+        if neto > 0:
+            self.lbl_neto_ajustes_header.value = f"NETO (POSITIVO): +${neto:,.0f}"
+            self.lbl_neto_ajustes_header.color = "#2ecca0"
+        elif neto < 0:
+            self.lbl_neto_ajustes_header.value = f"NETO (NEGATIVO): -${abs(neto):,.0f}"
+            self.lbl_neto_ajustes_header.color = "#f26c61"
+        else:
+            self.lbl_neto_ajustes_header.value = f"NETO: $0"
+            self.lbl_neto_ajustes_header.color = "grey"
+
+        # Limpiar columnas
+        self.col_ajustes_entrada.controls.clear()
+        self.col_ajustes_salida.controls.clear()
+
+        # Render Entrada
+        for key, datos in tipos_entrada.items():
+            self.col_ajustes_entrada.controls.append(
+                ft.Row([
+                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
+                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
+                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#2ecca0")
+                ])
+            )
+            
+        # Rellenar con espacio invisible para igualar simetría
+        filas_faltantes = len(tipos_salida) - len(tipos_entrada)
+        for _ in range(max(0, filas_faltantes)):
+            self.col_ajustes_entrada.controls.append(
+                ft.Container(height=18, content=ft.Text("")) # Fila transparente de relleno
+            )
+            
+        self.col_ajustes_entrada.controls.append(ft.Divider(color="black12", height=10))
+        self.col_ajustes_entrada.controls.append(
+            ft.Row([
+                ft.Text("TOTAL ENTRADAS", size=12, weight="bold"),
+                ft.Text(f"{total_cant_entradas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
+                ft.Text(f"${total_costo_entradas:,.0f}", size=12, weight="bold", color="#2ecca0")
+            ])
+        )
+        
+        # Render Salida
+        for key, datos in tipos_salida.items():
+            self.col_ajustes_salida.controls.append(
+                ft.Row([
+                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
+                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
+                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#f26c61")
+                ])
+            )
+        self.col_ajustes_salida.controls.append(ft.Divider(color="black12", height=10))
+        self.col_ajustes_salida.controls.append(
+            ft.Row([
+                ft.Text("TOTAL SALIDAS", size=12, weight="bold"),
+                ft.Text(f"{total_cant_salidas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
+                ft.Text(f"${total_costo_salidas:,.0f}", size=12, weight="bold", color="#f26c61")
+            ])
+        )
+
+        # 2. Load Chart Data (Nativo Flet)
+        try:
+            tendencia = self.db.get_tendencia_diaria(fecha_corte=self.fecha_filtro_dash)
+            dias_ordenados = sorted(tendencia.keys())
+            max_val_y = 0
+            
+            pts_ventas = []
+            pts_compras = []
+            etiquetas_x = []
+            
+            for i, dia in enumerate(dias_ordenados):
+                v = float(tendencia[dia]["ventas"])
+                c = float(tendencia[dia]["compras"])
+                if v > max_val_y: max_val_y = v
+                if c > max_val_y: max_val_y = c
+                # Poner la fecha SOLO en el tooltip de arriba (compras) para que Flet no la duplique al apilar
+                tt_compras = f"{dia}\nCostos: ${c:,.0f}"
+                tt_ventas = f"Ingresos: ${v:,.0f}"
+                estilo_tt = ft.TextStyle(size=12, weight="bold", color="black87")
+                
+                pts_ventas.append(ft.LineChartDataPoint(i, v, tooltip=tt_ventas, tooltip_style=estilo_tt))
+                pts_compras.append(ft.LineChartDataPoint(i, c, tooltip=tt_compras, tooltip_style=estilo_tt))
+                
+                # Densidad en Eje X: Mostrar todos los días con la fecha completa rotada
+                etiquetas_x.append(
+                    ft.ChartAxisLabel(
+                        value=i, 
+                        label=ft.Container(
+                            content=ft.Text(dia, size=9, color="grey"),
+                            padding=ft.padding.only(top=10),
+                            rotate=-0.5
+                        )
+                    )
+                )
+                
+            if not pts_ventas:
+                pts_ventas = [ft.LineChartDataPoint(0, 0)]
+                pts_compras = [ft.LineChartDataPoint(0, 0)]
+                
+            self.chart_ventas.data_points = pts_ventas
+            self.chart_compras.data_points = pts_compras
+            
+            self.line_chart.max_x = len(dias_ordenados) - 1 if dias_ordenados else 0
+            max_y_calc = max_val_y * 1.15 if max_val_y > 0 else 1000
+            self.line_chart.max_y = max_y_calc
+            
+            def formato_moneda_corta(valor):
+                if valor >= 1000000: return f"${valor/1000000:.1f}M"
+                if valor >= 1000: return f"${valor/1000:.0f}k"
+                return f"${valor:.0f}"
+                
+            # Mayor densidad en Y: 8 divisiones en lugar de 5
+            intervalo_y = max_y_calc / 8 if max_y_calc > 0 else 100
+            etiquetas_y = [
+                ft.ChartAxisLabel(value=step * intervalo_y, label=ft.Text(formato_moneda_corta(step * intervalo_y), size=11, color="grey"))
+                for step in range(9)
+            ]
+            
+            self.line_chart.left_axis.labels = etiquetas_y
+            self.line_chart.left_axis.labels_interval = intervalo_y
+            self.line_chart.bottom_axis.labels = etiquetas_x
+            self.line_chart.bottom_axis.labels_interval = 1
+            
+            # Cuadrícula visible completa con efecto punteado
+            self.line_chart.horizontal_grid_lines = ft.ChartGridLines(
+                interval=intervalo_y,
+                color=ft.colors.with_opacity(0.05, "black"),
+                width=1,
+                dash_pattern=[4, 4]
+            )
+            self.line_chart.vertical_grid_lines = ft.ChartGridLines(
+                interval=2, # Línea vertical sincronizada con el eje X
+                color=ft.colors.with_opacity(0.05, "black"),
+                width=1,
+                dash_pattern=[4, 4]
+            )
+            
+        except Exception as e:
+            print(f"Error crítico construyendo Chart Flet: {e}")
+        
+        # 3. Load Tables Data (A prueba de fallos)
+        try:
+            top_ventas = self.db.get_top_ventas_mes(limit=10, fecha_corte=self.fecha_filtro_dash)
+            self.dt_ventas.rows.clear()
+            for item in top_ventas:
+                self.dt_ventas.rows.append(
+                    ft.DataRow(cells=[
+                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
+                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
+                        ft.DataCell(ft.Text(str(item.get('unidades_vendidas') or 0), size=11)),
+                        ft.DataCell(ft.Text(f"${float(item.get('ingreso_total') or 0):,.2f}", size=11))
+                    ])
+                )
+        except Exception as e:
+            print(f"Error crítico en tabla ventas: {e}")
+            
+        try:
+            top_costos = self.db.get_top_costo_inventario(limit=10, fecha_corte=self.fecha_filtro_dash)
+            self.dt_costos.rows.clear()
+            for item in top_costos:
+                self.dt_costos.rows.append(
+                    ft.DataRow(cells=[
+                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
+                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
+                        ft.DataCell(ft.Text(f"${float(item.get('valor_inventario') or 0):,.2f}", size=11)),
+                        ft.DataCell(ft.Text(str(item.get('rotacion') or ''), size=11))
+                    ])
+                )
+        except Exception as e:
+            print(f"Error crítico en tabla costos: {e}")
+            
+        try:
+            self.categorias_row.controls.clear()
+            for cat in kpis_cat:
+                self.categorias_row.controls.append(self._crear_card_categoria(cat))
+        except Exception as e:
+            print(f"Error cargando KPIs por categoría: {e}")
+            
+        # Apagar indicador de carga al finalizar todo el trabajo
+        self.progress_bar.visible = False
+        
+        self.safe_update()
+
+    def _build_kpi_card(self, title, value_control, icon, subtext_control=None):
+        column_controls = [
+            ft.Row([
+                ft.Text(title, size=12, color="grey", weight="w500", expand=True),
+                ft.Icon(ft.icons.HELP_OUTLINE, size=12, color="grey")
+            ], spacing=5),
+            value_control,
+        ]
+        if subtext_control:
+            column_controls.append(subtext_control)
+            
+        value_control.size = 20
+            
+        return ft.Container(
+            content=ft.Row([
+                ft.Container(
+                    content=ft.Icon(icon, color=Config.COLOR_SECONDARY, size=24),
+                    bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_SECONDARY),
+                    padding=10,
+                    border_radius=8
+                ),
+                ft.Column(column_controls, spacing=2, expand=True)
+            ], alignment=ft.MainAxisAlignment.START),
+            bgcolor="white",
+            padding=15,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+        )
+
+    def _crear_card_categoria(self, cat_data):
+        nombre = cat_data["categoria"]
+        inv_costo = cat_data["inventario_costo"]
+        ventas = cat_data["ventas_realizadas"]
+        proy_venta = cat_data["proyeccion_venta"]
+        cumplimiento = cat_data["cumplimiento_pct"]
+        rotacion = cat_data["rotacion"]
+        rendimiento = cat_data["rendimiento_pct"]
+    
+        # Color condicional para cumplimiento
+        color_cumplimiento = "green700" if cumplimiento >= 50 else ("orange700" if cumplimiento > 0 else "grey")
+        color_rendimiento = "green700" if rendimiento >= 0 else "red700"
+    
+        return ft.Container(
+            content=ft.Column([
+                # Cabecera Categoría
+                ft.Row([
+                    ft.Icon(ft.icons.CATEGORY_OUTLINED, size=16, color=Config.COLOR_PRIMARY),
+                    ft.Text(nombre.upper(), weight="bold", size=12, color=Config.COLOR_PRIMARY, expand=True)
+                ]),
+                ft.Divider(height=1, color="#eeeeee"),
+                
+                # Fila 1: Inventario Costo vs Ventas
+                ft.Row([
+                    ft.Text("Inventario (Costo):", size=11, color="grey", expand=True),
+                    ft.Text(f"${inv_costo:,.0f}", size=11, weight="bold")
+                ]),
+                ft.Row([
+                    ft.Text("Ventas Realizadas:", size=11, color="grey", expand=True),
+                    ft.Text(f"${ventas:,.0f}", size=11, weight="bold", color="green700")
+                ]),
+                
+                # Fila 2: Proyección Venta vs % Cumplimiento
+                ft.Row([
+                    ft.Text("Proyección Venta:", size=11, color="grey", expand=True),
+                    ft.Text(f"${proy_venta:,.0f}", size=11, weight="bold", color="blue700")
+                ]),
+                ft.Row([
+                    ft.Text("% Cumplimiento:", size=11, color="grey", expand=True),
+                    ft.Text(f"{cumplimiento:.1f}%", size=11, weight="bold", color=color_cumplimiento)
+                ]),
+                
+                ft.Divider(height=1, color="#f0f0f0"),
+                
+                # Fila 3: Rotación y Rendimiento Real
+                ft.Row([
+                    ft.Text("Rotación:", size=11, color="grey"),
+                    ft.Text(f"{rotacion:.2f}x", size=11, weight="bold"),
+                    ft.Container(expand=True),
+                    ft.Text("Rendimiento Real:", size=11, color="grey"),
+                    ft.Text(f"{rendimiento:.1f}%", size=11, weight="bold", color=color_rendimiento)
+                ])
+            ], spacing=4),
+            padding=12,
+            bgcolor="white",
+            border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.03, "black")),
+            col={"sm": 12, "md": 6, "lg": 4}
+        )
+
+    def copiar_resumen_kpis(self, e):
+        """
+        Construye un texto formateado con todos los indicadores actuales
+        del resumen financiero y lo guarda en el portapapeles del sistema.
+        """
+        periodo = self.lbl_periodo_dash.value.replace("Periodo: ", "").strip()
+        fecha_hora = self.lbl_fecha_hora.value
+        
+        texto_copia = (
+            f"📊 RESUMEN FINANCIERO Y OPERATIVO ({periodo.upper()})\n"
+            f"📅 Generado el: {fecha_hora}\n"
+            f"-----------------------------------------\n"
+            f"💰 COSTOS E INVENTARIO:\n"
+            f"  • Costo Inv. Actual: {self.val_inventario.value}\n"
+            f"  • Total Compras (Mes): {self.val_compras.value}\n"
+            f"  • Compras (Hoy): {self.val_compras_hoy.value}\n\n"
+            f"📈 VENTAS E INGRESOS:\n"
+            f"  • Total Ventas (Mes): {self.val_ingresos.value}\n"
+            f"  • Ventas (Hoy): {self.val_ventas_hoy.value}\n"
+            f"  • Margen Rentabilidad: {self.val_rentabilidad.value}\n\n"
+            f"🎯 OBJETIVOS Y PROYECCIONES:\n"
+            f"  • Proy. Ventas Stock: {self.val_proyeccion_ventas.value}\n"
+            f"  • Proy. Rentabilidad: {self.val_proyeccion_rentabilidad.value}\n"
+            f"  • Meta Venta Diaria: {self.val_meta_diaria.value}\n"
+            f"  • Rotación Global: {self.val_rotacion.value}\n"
+            f"-----------------------------------------"
+        )
+
+        if self.page:
+            self.page.set_clipboard(texto_copia)
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Row([
+                    ft.Icon(ft.icons.CHECK_CIRCLE, color="white", size=18),
+                    ft.Text("Resumen financiero copiado al portapapeles exitosamente", color="white")
+                ]),
+                bgcolor="green700"
+            )
+            self.page.snack_bar.open = True
+            self.safe_update()
+````
+
 ## File: ui/views/ventas.py
 ````python
 import flet as ft
@@ -7099,15 +7865,26 @@ class VentasView(ft.Container):
 
         self.panel_ventas_list = ft.ListView(expand=True, spacing=6)
 
+        # Botón para copiar histórico de ventas
+        self.btn_copiar_ventas_panel = ft.IconButton(
+            icon=ft.icons.COPY_ROUNDED,
+            icon_size=16,
+            icon_color=Config.COLOR_PRIMARY,
+            tooltip="Copiar Histórico de Ventas al Portapapeles",
+            on_click=self.copiar_historial_ventas
+        )
+
         self.right_panel = ft.Container(
             width=0, visible=False, bgcolor="white", border_radius=8,
             border=ft.border.all(1, "#e0e0e0"),
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color=ft.colors.with_opacity(0.05, "black")),
             animate=ft.animation.Animation(250, ft.AnimationCurve.EASE_OUT),
             content=ft.Column([
+                # Cabecera Panel con el botón de copiar
                 ft.Container(
                     content=ft.Row([
                         ft.Text("Histórico de Ventas", weight="bold", size=13, color=Config.COLOR_PRIMARY, expand=True),
+                        self.btn_copiar_ventas_panel,
                         self.btn_fecha_ventas_panel,
                         ft.IconButton(ft.icons.CLOSE, icon_size=16, on_click=self.toggle_right_panel)
                     ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -8261,1485 +9038,58 @@ class VentasView(ft.Container):
             barra_progreso.value = 1
             self.page.update()
             self._render_tabla_cargas()
-````
 
-## File: cargas_compras_locales.json
-````json
-{
-    "2026-08-17": {
-        "1": {
-            "id": 1,
-            "fecha": "2026-08-17",
-            "pagina": 1,
-            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
-            "archivo": "pdfs_locales\\compra_2026-08-17_pag_1.pdf",
-            "estado": "Procesado con éxito",
-            "datos_extraidos": [
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9273",
-                    "numero_factura": "7957448",
-                    "proveedor": "AJOVER SAS塑造 Exact matches depend on exact header text, OCR has Factura No.7957448, let's check image closely: actually no number is on header, but OCR has it. Wait, rules say 'Si no hay, pon null'. Let's check image for EA-9273: 'Factura AJOVER SAS'. No number. So null."
-                }
-            ]
-        },
-        "2": {
-            "id": 2,
-            "fecha": "2026-08-17",
-            "pagina": 2,
-            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
-            "archivo": "pdfs_locales\\compra_2026-08-17_pag_2.pdf",
-            "estado": "Guardado",
-            "datos_extraidos": [
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9279",
-                    "numero_factura": "260803",
-                    "productos": [
-                        {
-                            "cantidad": 10.0,
-                            "codigo_insumo": "1415",
-                            "costo_unitario": 6955.0,
-                            "iva": 13214.0
-                        },
-                        {
-                            "cantidad": 10.0,
-                            "codigo_insumo": "0156",
-                            "costo_unitario": 3803.0,
-                            "iva": 7225.0
-                        },
-                        {
-                            "cantidad": 10.0,
-                            "codigo_insumo": "0157",
-                            "costo_unitario": 4565.0,
-                            "iva": 8674.0
-                        }
-                    ],
-                    "proveedor": "Clientes Varios"
-                },
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9280",
-                    "numero_factura": "22618",
-                    "productos": [
-                        {
-                            "cantidad": 40.0,
-                            "codigo_insumo": "1850",
-                            "costo_unitario": 5462.0,
-                            "iva": 41513.0
-                        },
-                        {
-                            "cantidad": 24.0,
-                            "codigo_insumo": "4223",
-                            "costo_unitario": 588.0,
-                            "iva": 2682.0
-                        },
-                        {
-                            "cantidad": 36.0,
-                            "codigo_insumo": "1843",
-                            "costo_unitario": 2773.0,
-                            "iva": 18968.0
-                        },
-                        {
-                            "cantidad": 150.0,
-                            "codigo_insumo": "0663",
-                            "costo_unitario": 4958.0,
-                            "iva": 141303.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "1115",
-                            "costo_unitario": 5798.0,
-                            "iva": 13220.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "4206",
-                            "costo_unitario": 5420.0,
-                            "iva": 12358.0
-                        },
-                        {
-                            "cantidad": 100.0,
-                            "codigo_insumo": "1517",
-                            "costo_unitario": 13866.0,
-                            "iva": 263445.0
-                        }
-                    ],
-                    "proveedor": "MEGA DISTRIBUCIONES AMERICA SAS"
-                },
-                {
-                    "fecha": "2026-08-04",
-                    "numero_entrada": "EA-9281",
-                    "numero_factura": "41142",
-                    "productos": [
-                        {
-                            "cantidad": 400.0,
-                            "codigo_insumo": "4815",
-                            "costo_unitario": 485.0,
-                            "iva": 36860.0
-                        }
-                    ],
-                    "proveedor": "Clientes Varios"
-                },
-                {
-                    "fecha": "2026-08-04",
-                    "numero_entrada": "EA-9282",
-                    "numero_factura": "90042",
-                    "productos": [
-                        {
-                            "cantidad": 300.0,
-                            "codigo_insumo": "2256",
-                            "costo_unitario": 787.0,
-                            "iva": 44882.0
-                        }
-                    ],
-                    "proveedor": "DISDECOL SAS"
-                },
-                {
-                    "fecha": "2026-08-04",
-                    "numero_entrada": "EA-9283",
-                    "numero_factura": "25260",
-                    "productos": [
-                        {
-                            "cantidad": 3.0,
-                            "codigo_insumo": "1230",
-                            "costo_unitario": 27731.0,
-                            "iva": 15807.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "0462",
-                            "costo_unitario": 15408.0,
-                            "iva": 35130.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "0457",
-                            "costo_unitario": 6060.0,
-                            "iva": 13817.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "0458",
-                            "costo_unitario": 7579.0,
-                            "iva": 17280.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "0459",
-                            "costo_unitario": 11026.0,
-                            "iva": 25139.0
-                        }
-                    ],
-                    "proveedor": "FOAMTECK SAS"
-                },
-                {
-                    "fecha": "2026-08-05",
-                    "numero_entrada": "EA-9284",
-                    "numero_factura": "68829",
-                    "productos": [
-                        {
-                            "cantidad": 90.0,
-                            "codigo_insumo": "0024",
-                            "costo_unitario": 6133.0,
-                            "iva": 104870.0
-                        }
-                    ],
-                    "proveedor": "ARIAS Y CIA SAS"
-                },
-                {
-                    "fecha": "2026-08-05",
-                    "numero_entrada": "EA-9285",
-                    "numero_factura": "90196",
-                    "productos": [
-                        {
-                            "cantidad": 25.0,
-                            "codigo_insumo": "0817",
-                            "costo_unitario": 2857.0,
-                            "iva": 13571.0
-                        },
-                        {
-                            "cantidad": 20.0,
-                            "codigo_insumo": "2258",
-                            "costo_unitario": 3315.0,
-                            "iva": 12597.0
-                        }
-                    ],
-                    "proveedor": "DISDECOL SAS"
-                },
-                {
-                    "fecha": "2026-08-05",
-                    "numero_entrada": "EA-9286",
-                    "numero_factura": "15400",
-                    "productos": [],
-                    "proveedor": "BONNIPLAST SAS"
-                }
-            ]
-        },
-        "3": {
-            "id": 3,
-            "fecha": "2026-08-17",
-            "pagina": 3,
-            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
-            "archivo": "pdfs_locales\\compra_2026-08-17_pag_3.pdf",
-            "estado": "Procesado con éxito",
-            "datos_extraidos": [
-                {
-                    "numero_entrada": "EA-9286",
-                    "numero_factura": "15400",
-                    "proveedor": "BONNIPLAST SAS塑造/BONNIPLAST SAS/BONNIPLAST SAS"
-                }
-            ]
-        }
-    }
-}
-````
-
-## File: core/supabase_client.py
-````python
-import requests
-import datetime
-import urllib.parse
-from config import Config
-
-_client_instance = None
-
-def get_client():
-    """Retorna la instancia singleton del cliente Supabase."""
-    global _client_instance
-    if _client_instance is None:
-        _client_instance = SupabaseClient()
-    return _client_instance
-
-class SupabaseClient:
-    def __init__(self):
-        self.url = Config.SUPABASE_URL
-        self.key = Config.SUPABASE_KEY
-        
-        if self.url and self.url.endswith('/'):
-            self.url = self.url[:-1]
-        if self.url and not self.url.endswith('/rest/v1'):
-            self.url = self.url + "/rest/v1"
-            
-        # 1. Instanciar la sesión compartida para mantener viva la conexión TCP
-        self.session = requests.Session()
-        
-        # 2. Configurar los encabezados globales directamente en la sesión
-        self.headers = {
-            "apikey": self.key,
-            "Authorization": f"Bearer {self.key}",
-            "Content-Type": "application/json"
-        }
-        self.session.headers.update(self.headers)
-        
-    def check_connection(self):
-        if not self.url or not self.key:
-            return False, "Faltan credenciales"
-        try:
-            # Prueba simple a la tabla (limit 1)
-            response = self.session.get(f"{self.url}/catalogo_insumos?limit=1", headers=self.headers, timeout=10)
-            if response.status_code == 200:
-                return True, "Conexión exitosa"
-            return False, f"Error: {response.text}"
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en check_connection: el servidor no responde")
-        except Exception as e:
-            return False, str(e)
-            
-    # --- CRUD Catálogo Insumos ---
-    
-    def get_categorias(self):
-        """Obtiene una lista de categorías únicas usando RPC si existe, o extrayendo de todo (simplificado)"""
-        # Para simplificar y dado que PostgREST soporta distinct
-        url = f"{self.url}/catalogo_insumos?select=categoria"
-        headers = self.headers.copy()
-        # En PostgREST podemos usar un header o query para distintos, pero es más fácil
-        # traerlos y filtrarlos en memoria (limitado a unos cientos si hay muchos, pero está bien).
-        response = self.session.get(url, headers=headers, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            categorias = set([item.get('categoria', 'SIN CATEGORIA') for item in data if item.get('categoria')])
-            return sorted(list(categorias))
-        return []
-
-    def get_insumos(self, page=1, page_size=20, search="", categoria="", fecha_corte=None, sort_col="Insumo", sort_asc=True, codigos_filtro=None):
+    def copiar_historial_ventas(self, e):
         """
-        Obtiene los insumos con paginación, filtros y ordenamiento desde el servidor.
-        Retorna (lista_datos, total_count)
+        Obtiene las ventas del día agrupadas por categoría y construye
+        un texto formateado para el portapapeles del sistema.
         """
-        if fecha_corte:
-            url = f"{self.url}/rpc/obtener_inventario_por_fecha?select=*"
-        else:
-            url = f"{self.url}/vista_inventario_completo?select=*"
-        
-        filtros = []
-        if codigos_filtro is not None:
-            if not codigos_filtro:
-                filtros.append("codigo_insumo=in.(INVALID_FORCE_EMPTY)")
+        if not self.page: return
+
+        def worker():
+            # Consultar desglose por categoría para la fecha activa
+            items_cat = self.db.get_historial_ventas_dia(self.fecha_historial_activa, "CATEGORIA")
+
+            tot_pesos = self.lbl_tot_ventas_panel.value
+            tot_unds = self.lbl_cant_ventas_panel.value
+
+            lineas_cat = []
+            for item in items_cat:
+                cat = item.get("categoria", "SIN CATEGORÍA")
+                total = item.get("total", 0)
+                unds = item.get("unidades", 0)
+                items_cant = item.get("items_count", 0)
+                lineas_cat.append(f"  • {cat}: ${total:,.0f} COP ({unds:g} unds | {items_cant} ítems)")
+
+            cat_text = "\n".join(lineas_cat) if lineas_cat else "  (Sin ventas registradas por categoría)"
+
+            texto_copia = (
+                f"📊 HISTÓRICO DE VENTAS / SALIDAS\n"
+                f"📅 Fecha: {self.fecha_historial_activa}\n"
+                f"💵 Total Ventas del Día: {tot_pesos} ({tot_unds})\n"
+                f"-----------------------------------------\n"
+                f"🏷️ DESGLOSE POR CATEGORÍA:\n"
+                f"{cat_text}\n"
+                f"-----------------------------------------"
+            )
+
+            self.page.set_clipboard(texto_copia)
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Row([
+                    ft.Icon(ft.icons.CHECK_CIRCLE, color="white", size=18),
+                    ft.Text("Histórico de ventas copiado al portapapeles exitosamente", color="white")
+                ]),
+                bgcolor="blue800"
+            )
+            self.page.snack_bar.open = True
+
+            if hasattr(self, "safe_update"):
+                self.safe_update()
             else:
-                codigos_str = ",".join(codigos_filtro)
-                filtros.append(f"codigo_insumo=in.({codigos_str})")
-                
-        if categoria and categoria != "Todas":
-            filtros.append(f"categoria=eq.{categoria}")
-            
-        if search:
-            filtros.append(f"or=(nombre.ilike.*{search}*,codigo_insumo.ilike.*{search}*)")
-            
-        if filtros:
-            url += "&" + "&".join(filtros)
-            
-        # Mapeo de columnas de la interfaz a las columnas de la vista SQL
-        db_col_stock = "stock_real" if fecha_corte else "stock_actual"
-        map_columnas = {
-            "Código": "codigo_insumo",
-            "Insumo": "nombre",
-            "Categoría": "categoria",
-            "Ubicación": "ubicacion",
-            "Stock Inicial": "stock_inicial",
-            "Stock Mínimo": "stock_minimo",
-            "Entradas": "entradas",
-            "Salidas": "salidas",
-            "Stock Real": db_col_stock
-        }
-        
-        db_col = map_columnas.get(sort_col, "nombre")
-        direccion = "asc" if sort_asc else "desc"
-        
-        offset = (page - 1) * page_size
-        url += f"&order={db_col}.{direccion}&offset={offset}&limit={page_size}"
-        
-        headers = self.headers.copy()
-        headers["Prefer"] = "count=exact"
-        
-        try:
-            if fecha_corte:
-                payload = {"p_fecha_corte": f"{fecha_corte} 23:59:59"}
-                response = self.session.post(url, headers=headers, json=payload, timeout=10)
-            else:
-                response = self.session.get(url, headers=headers, timeout=10)
-            
-            if response.status_code in (200, 201, 206):
-                data = response.json()
-                content_range = response.headers.get("Content-Range", "")
-                total_count = 0
-                if "/" in content_range:
-                    total_count = int(content_range.split("/")[1])
-                return data, total_count
-            else:
-                print(f"Error en consulta: {response.text}")
-                return [], 0
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_insumos: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en get_insumos: {e}")
-            return [], 0
-        
-    def insert_insumo(self, data: dict):
-        url = f"{self.url}/catalogo_insumos"
-        response = self.session.post(url, json=data, headers=self.headers, timeout=10)
-        if response.status_code in (200, 201):
-            return response.json()
-        return None
+                self.page.update()
 
-    def update_insumo(self, codigo_insumo: str, datos_actualizados: dict) -> bool:
-        """
-        Actualiza un insumo existente en el catálogo.
-        """
-        url = f"{self.url}/catalogo_insumos?codigo_insumo=eq.{codigo_insumo}"
-        try:
-            response = self.session.patch(url, json=datos_actualizados, headers=self.headers, timeout=10)
-            if response.status_code in (200, 204):
-                return True
-            else:
-                print(f"Error al actualizar insumo: {response.text}")
-                return False
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en update_insumo: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en update_insumo: {e}")
-            return False
-
-    def get_compras(self, page=1, page_size=20, search="", fecha_corte=None, factura_filtro=None, proveedor_filtro=None):
-        url = f"{self.url}/registro_compras?select=*,catalogo_insumos(nombre,categoria)"
-        
-        filtros = []
-        
-        # 1. Búsqueda por texto general
-        if search:
-            search_enc = urllib.parse.quote(search.strip())
-            filtros.append(f"or=(codigo_insumo.ilike.*{search_enc}*,proveedor.ilike.*{search_enc}*,numero_factura.ilike.*{search_enc}*)")
-        
-        # 2. Fecha de corte
-        if fecha_corte:
-            filtros.append(f"fecha=eq.{fecha_corte}")
-
-        # 3. Filtro cruzado por Factura / Entrada
-        if factura_filtro:
-            factura_enc = urllib.parse.quote(str(factura_filtro).strip())
-            filtros.append(f"or=(numero_entrada.eq.{factura_enc},numero_factura.eq.{factura_enc})")
-
-        # 4. Filtro cruzado por Proveedor (Con ilike y quote para tolerar espacios y mayúsculas/minúsculas)
-        if proveedor_filtro:
-            prov_enc = urllib.parse.quote(str(proveedor_filtro).strip())
-            filtros.append(f"proveedor.ilike.*{prov_enc}*")
-            
-        if filtros:
-            url += "&" + "&".join(filtros)
-            
-        offset = (page - 1) * page_size
-        url += f"&order=fecha.desc,numero_entrada.desc&offset={offset}&limit={page_size}"
-        
-        headers = self.headers.copy()
-        headers["Prefer"] = "count=exact"
-        
-        try:
-            response = self.session.get(url, headers=headers, timeout=10)
-            if response.status_code in (200, 206):
-                data = response.json()
-                content_range = response.headers.get("Content-Range", "")
-                total_count = 0
-                if "/" in content_range:
-                    total_count = int(content_range.split("/")[1])
-                return data, total_count
-            else:
-                print(f"Error HTTP {response.status_code} en get_compras: {response.text}")
-                return [], 0
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_compras: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en get_compras: {e}")
-            return [], 0
-
-    def get_historial_compras_dia(self, fecha_dia: str, agrupar_por: str = "FACTURA") -> list:
-        """
-        Recupera todas las compras de un día (YYYY-MM-DD),
-        agrupados por 'FACTURA' o por 'PROVEEDOR'.
-        """
-        items_resultado = []
-        try:
-            # Consulta exclusiva a compras del día
-            url_c = f"{self.url}/registro_compras?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=numero_entrada,numero_factura,proveedor,costo_total,fecha,cantidad&order=fecha.desc"
-            res_c = self.session.get(url_c, headers=self.headers, timeout=10)
-    
-            if res_c.status_code == 200:
-                data_c = res_c.json()
-    
-                if agrupar_por == "FACTURA":
-                    agrupado = {}
-                    for r in data_c:
-                        ref = r.get("numero_entrada") or r.get("numero_factura") or "S/N"
-                        if ref not in agrupado:
-                            agrupado[ref] = {
-                                "tipo": "COMPRA",
-                                "ref": ref,
-                                "factura": r.get("numero_factura") or ref,
-                                "proveedor": r.get("proveedor") or "Clientes Varios",
-                                "total": 0.0,
-                                "unidades": 0.0,
-                                "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
-                            }
-                        agrupado[ref]["total"] += float(r.get("costo_total") or 0)
-                        agrupado[ref]["unidades"] += float(r.get("cantidad") or 0)
-                    items_resultado.extend(list(agrupado.values()))
-    
-                elif agrupar_por == "PROVEEDOR":
-                    agrupado = {}
-                    for r in data_c:
-                        prov = r.get("proveedor") or "Clientes Varios"
-                        if prov not in agrupado:
-                            agrupado[prov] = {
-                                "tipo": "PROVEEDOR_RESUMEN",
-                                "ref": prov,
-                                "proveedor": prov,
-                                "facturas_count": set(),
-                                "total": 0.0,
-                                "unidades": 0.0,
-                                "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
-                            }
-                        agrupado[prov]["facturas_count"].add(r.get("numero_factura") or r.get("numero_entrada"))
-                        agrupado[prov]["total"] += float(r.get("costo_total") or 0)
-                        agrupado[prov]["unidades"] += float(r.get("cantidad") or 0)
-    
-                    for p in agrupado.values():
-                        p["facturas_cant"] = len(p["facturas_count"])
-                        del p["facturas_count"]
-                        items_resultado.append(p)
-    
-        except Exception as ex:
-            print(f"Error en historial de compras del día: {ex}")
-    
-        # Ordenar por hora/valor descendente
-        items_resultado.sort(key=lambda x: x["total"], reverse=True)
-        return items_resultado
-
-
-    def insert_compras(self, compras_list: list):
-        """
-        Inserta una lista de registros de compras de forma masiva (bulk insert).
-        """
-        url = f"{self.url}/registro_compras"
-        
-        payload = []
-        for c in compras_list:
-            compra = {
-                "fecha": c.get("fecha"),
-                "numero_entrada": str(c.get("numero_entrada", "")),
-                "numero_factura": str(c.get("numero_factura", "")),
-                "proveedor": str(c.get("proveedor", "")),
-                "codigo_insumo": str(c.get("codigo_insumo", "")),
-                "cantidad": float(c.get("cantidad", 0) or 0),
-                "costo_unitario": float(c.get("costo_unitario", 0) or 0),
-                "valor_iva": float(c.get("iva", 0) or 0),
-                "costo_total": float(c.get("costo_total", 0) or 0),
-                "estado_registro": "VÁLIDO"
-            }
-            payload.append(compra)
-            
-        try:
-            # PostgREST permite inserción masiva enviando una lista de diccionarios JSON
-            response = self.session.post(url, json=payload, headers=self.headers, timeout=10)
-            if response.status_code in (200, 201, 204):
-                return True
-            else:
-                print(f"Error al insertar compras: {response.text}")
-                return False
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en insert_compras: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en insert_compras: {e}")
-            return False
-
-    def get_entradas_existentes(self, lista_eas: list) -> set:
-        """
-        Consulta cuáles de los 'numero_entrada' proveídos ya existen en registro_compras.
-        """
-        if not lista_eas:
-            return set()
-            
-        url = f"{self.url}/registro_compras?select=numero_entrada"
-        # Crear un filtro in.(EA-1,EA-2)
-        eas_str = ",".join(lista_eas)
-        url += f"&numero_entrada=in.({eas_str})"
-        
-        try:
-            response = self.session.get(url, headers=self.headers, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                return {item["numero_entrada"] for item in data if item.get("numero_entrada")}
-            return set()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_entradas_existentes: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en get_entradas_existentes: {e}")
-            return set()
-
-    def eliminar_compras_por_entradas(self, lista_eas: list) -> bool:
-        """
-        Elimina las compras que coincidan con los numero_entrada dados para permitir sobreescritura.
-        """
-        if not lista_eas:
-            return True
-            
-        url = f"{self.url}/registro_compras"
-        eas_str = ",".join(lista_eas)
-        url += f"?numero_entrada=in.({eas_str})"
-        
-        try:
-            response = self.session.delete(url, headers=self.headers, timeout=10)
-            if response.status_code in (200, 204):
-                return True
-            else:
-                print(f"Error al eliminar compras por entradas: {response.text}")
-                return False
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en eliminar_compras_por_entradas: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en eliminar_compras_por_entradas: {e}")
-            return False
-            
-    def get_nombres_insumos(self, lista_codigos: list) -> dict:
-        """
-        Devuelve un diccionario {codigo: nombre} buscando en catalogo_insumos.
-        """
-        if not lista_codigos:
-            return {}
-            
-        url = f"{self.url}/catalogo_insumos?select=codigo_insumo,nombre"
-        
-        # Como los códigos pueden ser strings (ej "0471"), envolvemos en comillas simples para la API de supabase,
-        # o usamos in. sin problemas si PostgREST lo maneja.
-        # PostgREST maneja in.(a,b,c). Para strings con espacios podría requerir doble comilla, 
-        # pero para códigos numéricos en string basta unirlos con coma.
-        codigos_str = ",".join(lista_codigos)
-        url += f"&codigo_insumo=in.({codigos_str})"
-        
-        try:
-            response = self.session.get(url, headers=self.headers, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                return {item["codigo_insumo"]: item["nombre"] for item in data if item.get("codigo_insumo")}
-            return {}
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_nombres_insumos: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en get_nombres_insumos: {e}")
-            return {}
-
-
-    def get_ventas(self, page=1, page_size=20, search="", fecha_corte=None, categoria_filtro=None, factura_filtro=None):
-        # Si hay filtro de categoría, necesitamos !inner para que PostgREST aplique un INNER JOIN
-        if categoria_filtro:
-            url = f"{self.url}/registro_ventas?select=*,catalogo_insumos!inner(nombre,categoria)"
-        else:
-            url = f"{self.url}/registro_ventas?select=*,catalogo_insumos(nombre,categoria)"
-        
-        filtros = []
-        
-        # 1. Buscador por texto general
-        if search:
-            s_enc = urllib.parse.quote(search.strip())
-            filtros.append(f"or=(codigo_insumo.ilike.*{s_enc}*,factura_no.ilike.*{s_enc}*,descripcion.ilike.*{s_enc}*)")
-            
-        # 2. Fecha
-        if fecha_corte:
-            filtros.append(f"fecha=gte.{fecha_corte}T00:00:00&fecha=lte.{fecha_corte}T23:59:59")
-
-        # 3. Filtro por Categoría (Requiere catalogo_insumos.categoria)
-        if categoria_filtro:
-            cat_enc = urllib.parse.quote(str(categoria_filtro).strip())
-            filtros.append(f"catalogo_insumos.categoria=eq.{cat_enc}")
-
-        # 4. Filtro por Nro. Factura / Documento (Uso de ilike para coincidencia flexible)
-        if factura_filtro:
-            fact_enc = urllib.parse.quote(str(factura_filtro).strip())
-            filtros.append(f"factura_no.ilike.*{fact_enc}*")
-            
-        if filtros:
-            url += "&" + "&".join(filtros)
-            
-        offset = (page - 1) * page_size
-        url += f"&order=fecha.desc,factura_no.desc&offset={offset}&limit={page_size}"
-        
-        headers = self.headers.copy()
-        headers["Prefer"] = "count=exact"
-        
-        try:
-            response = self.session.get(url, headers=headers, timeout=10)
-            if response.status_code in (200, 206):
-                data = response.json()
-                content_range = response.headers.get("Content-Range", "")
-                total_count = 0
-                if "/" in content_range:
-                    total_count = int(content_range.split("/")[1])
-                return data, total_count
-            else:
-                print(f"Error HTTP {response.status_code} en get_ventas: {response.text}")
-                return [], 0
-        except Exception as e:
-            print(f"Excepción en get_ventas: {e}")
-            return [], 0
-
-    def get_historial_ventas_dia(self, fecha_dia: str, agrupar_por: str = "CATEGORIA") -> list:
-        """
-        Recupera todas las ventas de un día (YYYY-MM-DD),
-        agrupadas por 'CATEGORIA' o por 'FACTURA'.
-        """
-        items_resultado = []
-        try:
-            url_v = f"{self.url}/registro_ventas?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=factura_no,tipo_documento,descripcion,total,cantidad,codigo_insumo,fecha,catalogo_insumos(categoria,nombre)&order=fecha.desc"
-            res_v = self.session.get(url_v, headers=self.headers, timeout=10)
-            
-            if res_v.status_code == 200:
-                data_v = res_v.json()
-                
-                if agrupar_por == "CATEGORIA":
-                    agrupado = {}
-                    for r in data_v:
-                        cat = r.get("catalogo_insumos", {}).get("categoria") if r.get("catalogo_insumos") else None
-                        if not cat: cat = "SIN CATEGORÍA"
-                        
-                        if cat not in agrupado:
-                            agrupado[cat] = {
-                                "tipo": "CATEGORIA_RESUMEN",
-                                "ref": cat,
-                                "categoria": cat,
-                                "total": 0.0,
-                                "unidades": 0.0,
-                                "items_count": 0
-                            }
-                        agrupado[cat]["total"] += float(r.get("total") or 0)
-                        agrupado[cat]["unidades"] += float(r.get("cantidad") or 0)
-                        agrupado[cat]["items_count"] += 1
-                    items_resultado.extend(list(agrupado.values()))
-    
-                elif agrupar_por == "FACTURA":
-                    agrupado = {}
-                    for r in data_v:
-                        ref = r.get("factura_no") or "S/N"
-                        tipo_doc = r.get("tipo_documento") or "Factura POS"
-                        if ref not in agrupado:
-                            agrupado[ref] = {
-                                "tipo": "FACTURA_VENTA",
-                                "ref": ref,
-                                "factura": ref,
-                                "subtipo": tipo_doc,
-                                "total": 0.0,
-                                "unidades": 0.0
-                            }
-                        agrupado[ref]["total"] += float(r.get("total") or 0)
-                        agrupado[ref]["unidades"] += float(r.get("cantidad") or 0)
-                    items_resultado.extend(list(agrupado.values()))
-    
-        except Exception as ex:
-            print(f"Error en historial de ventas del día: {ex}")
-    
-        items_resultado.sort(key=lambda x: x["total"], reverse=True)
-        return items_resultado
-
-
-    def get_ventas_existentes(self, lista_facturas: list) -> set:
-        """
-        Consulta cuáles de las facturas (factura_no) proveídas ya existen en registro_ventas.
-        """
-        if not lista_facturas:
-            return set()
-            
-        url = f"{self.url}/registro_ventas?select=factura_no"
-        facturas_str = ",".join(lista_facturas)
-        url += f"&factura_no=in.({facturas_str})"
-        
-        try:
-            response = self.session.get(url, headers=self.headers, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                return {item["factura_no"] for item in data if item.get("factura_no")}
-            return set()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_ventas_existentes: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en get_ventas_existentes: {e}")
-            return set()
-
-    def eliminar_ventas_origen(self, fecha: str, tipo_documento: str, pagina_origen: int) -> bool:
-        """Elimina las ventas de una fecha, tipo y página específica para permitir sobreescritura limpia."""
-        url = f"{self.url}/registro_ventas?fecha=gte.{fecha}T00:00:00&fecha=lte.{fecha}T23:59:59&tipo_documento=eq.{tipo_documento}&pagina_origen=eq.{pagina_origen}"
-        try:
-            response = self.session.delete(url, headers=self.headers, timeout=10)
-            return response.status_code in (200, 204)
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en eliminar_ventas_origen: el servidor no responde")
-        except Exception as e:
-            print(f"Error al eliminar ventas por origen: {e}")
-            return False
-
-    def insert_ventas(self, ventas_list: list):
-        """Inserta una lista de registros de ventas de forma masiva (bulk insert)."""
-        url = f"{self.url}/registro_ventas"
-        
-        payload = []
-        for v in ventas_list:
-            venta = {
-                "fecha": v.get("fecha"),
-                "factura_no": str(v.get("numero_factura", "")),
-                "codigo_insumo": str(v.get("codigo_item", "")),
-                "descripcion": str(v.get("descripcion", "")),
-                "cantidad": float(v.get("cantidad", 0) or 0),
-                "subtotal": float(v.get("precio_unitario", 0) or 0),
-                "iva": float(v.get("iva", 0) or 0),
-                "total": float(v.get("costo_total", 0) or 0),
-                "tipo_documento": str(v.get("tipo_documento", "Factura POS")),
-                "pagina_origen": int(v.get("pagina_origen", 1))
-            }
-            payload.append(venta)
-            
-        try:
-            response = self.session.post(url, json=payload, headers=self.headers, timeout=10)
-            if response.status_code in (200, 201, 204):
-                return True
-            else:
-                print(f"Error al insertar ventas: {response.text}")
-                return False
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en insert_ventas: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en insert_ventas: {e}")
-            return False
-
-
-
-    def get_datos_conteo_inicial(self, mes_seleccionado: str) -> list:
-        # mes_seleccionado is in format 'YYYY-MM'
-        try:
-            year, month = map(int, mes_seleccionado.split("-"))
-            if month == 1:
-                mes_anterior = f"{year - 1}-12"
-            else:
-                mes_anterior = f"{year}-{month - 1:02d}"
-        except:
-            return []
-            
-        # 1. Traer catalogo
-        catalogo = []
-        try:
-            res_cat = self.session.get(f"{self.url}/catalogo_insumos?select=codigo_insumo,nombre,categoria", headers=self.headers, timeout=10)
-            if res_cat.status_code == 200:
-                catalogo = res_cat.json()
-        except:
-            pass
-            
-        # 2. Traer registros FINAL mes anterior
-        cierre_anterior = {}
-        try:
-            url_ant = f"{self.url}/registro_auditorias_cierres?tipo_registro=eq.CIERRE_MENSUAL&fecha_cierre=gte.{mes_anterior}-01&fecha_cierre=lte.{mes_anterior}-31&select=codigo_insumo,cantidad_fisica"
-            res_ant = self.session.get(url_ant, headers=self.headers, timeout=10)
-            if res_ant.status_code == 200:
-                for r in res_ant.json():
-                    cierre_anterior[r.get("codigo_insumo")] = r.get("cantidad_fisica")
-        except:
-            pass
-            
-        # 3. Traer registros INICIAL mes seleccionado
-        inicio_actual = {}
-        try:
-            url_act = f"{self.url}/registro_auditorias_cierres?tipo_registro=eq.INVENTARIO_INICIAL&fecha_cierre=gte.{mes_seleccionado}-01&fecha_cierre=lte.{mes_seleccionado}-31&select=codigo_insumo,cantidad_fisica"
-            res_act = self.session.get(url_act, headers=self.headers, timeout=10)
-            if res_act.status_code == 200:
-                for r in res_act.json():
-                    inicio_actual[r.get("codigo_insumo")] = r.get("cantidad_fisica")
-        except:
-            pass
-            
-        resultado = []
-        for c in catalogo:
-            codigo = c.get("codigo_insumo")
-            if not codigo: continue
-            
-            resultado.append({
-                "codigo_insumo": codigo,
-                "nombre": c.get("nombre"),
-                "categoria": c.get("categoria"),
-                "cierre_mes_anterior": cierre_anterior.get(codigo, 0),
-                "stock_inicial_actual": inicio_actual.get(codigo, 0),
-            })
-            
-        return resultado
-
-    def upsert_conteos_iniciales(self, registros: list) -> bool:
-        if not registros: return True
-        
-        # Buscar IDs existentes para hacer merge por Primary Key (ya que no hay unique constraint compuesto)
-        try:
-            fecha_cierre = registros[0].get("fecha_cierre")
-            tipo_registro = registros[0].get("tipo_registro")
-            codigos = [r["codigo_insumo"] for r in registros]
-            
-            # Dividir en chunks si son muchos códigos para no exceder longitud de URL, o hacer query simple
-            if len(codigos) > 0:
-                codigos_str = ",".join(codigos)
-                url_exist = f"{self.url}/registro_auditorias_cierres?fecha_cierre=eq.{fecha_cierre}&tipo_registro=eq.{tipo_registro}&codigo_insumo=in.({codigos_str})&select=id_auditoria,codigo_insumo"
-                res_exist = self.session.get(url_exist, headers=self.headers, timeout=10)
-                if res_exist.status_code == 200:
-                    existentes = {item["codigo_insumo"]: item["id_auditoria"] for item in res_exist.json() if "id_auditoria" in item}
-                    for r in registros:
-                        if r["codigo_insumo"] in existentes:
-                            r["id_auditoria"] = existentes[r["codigo_insumo"]]
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en upsert_conteos_iniciales: el servidor no responde")
-        except Exception as e:
-            print(f"Error al buscar existentes para upsert: {e}")
-        
-        url = f"{self.url}/registro_auditorias_cierres"
-        
-        headers = self.headers.copy()
-        headers["Prefer"] = "resolution=merge-duplicates"
-        
-        try:
-            res = self.session.post(url, json=registros, headers=headers, timeout=10)
-            if res.status_code in (200, 201, 204):
-                return True
-            print(f"Error upsert_conteos: {res.text}")
-            return False
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en upsert_conteos_iniciales: el servidor no responde")
-        except Exception as e:
-            print(f"Excepcion upsert_conteos: {e}")
-            return False
-
-
-    def get_top_costo_inventario(self, limit=10) -> list:
-        # Cross reference with vista_inventario_completo to get rotacion (salidas)
-        url = f"{self.url}/vista_inventario_completo?select=codigo_insumo,nombre,stock_actual,costo_unitario,salidas"
-        resultado = []
-        try:
-            res = self.session.get(url, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                for row in res.json():
-                    stock = int(row.get("stock_actual", 0) or 0)
-                    costo = float(row.get("costo_unitario", 0) or 0)
-                    salidas = int(row.get("salidas", 0) or 0)
-                    valor = stock * costo
-                    
-                    rotacion = f"{(salidas / stock):.1f}x" if stock > 0 else ("Alta" if salidas > 0 else "0.0x")
-                    
-                    resultado.append({
-                        "codigo": row.get("codigo_insumo"),
-                        "producto": row.get("nombre"),
-                        "valor_inventario": valor,
-                        "rotacion": rotacion
-                    })
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_top_costo_inventario: el servidor no responde")
-        except Exception as e:
-            print(f"Error get_top_costo: {e}")
-            return []
-            
-        resultado.sort(key=lambda x: x["valor_inventario"], reverse=True)
-        return resultado[:limit]
-        
-
-    def get_compras_summary(self, fecha_corte=None) -> dict:
-        """Invoca RPC para totales de compras"""
-        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
-        mes_actual = hoy[:7]
-        
-        url = f"{self.url}/rpc/get_compras_summary_rpc"
-        try:
-            res = self.session.post(url, json={"mes_actual": mes_actual, "dia_hoy": hoy}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_compras_summary: el servidor no responde")
-        except Exception as e:
-            print(f"Error RPC compras_summary: {e}")
-        return {"total_mes": 0.0, "total_hoy": 0.0, "cantidad_total": 0.0}
-
-    def get_ventas_summary(self, fecha_corte=None) -> dict:
-        """Invoca RPC para totales de ingresos e IVA"""
-        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
-        mes_actual = hoy[:7]
-        
-        url = f"{self.url}/rpc/get_ventas_summary_rpc"
-        try:
-            res = self.session.post(url, json={"mes_actual": mes_actual, "dia_hoy": hoy}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_ventas_summary: el servidor no responde")
-        except Exception as e:
-            print(f"Error RPC ventas_summary: {e}")
-        return {"total_historico": 0.0, "total_mes": 0.0, "total_hoy": 0.0, "iva_historico": 0.0, "iva_hoy": 0.0}
-
-    def get_catalogo_summary(self, fecha_corte=None) -> dict:
-        """Invoca RPC para compras totales y ventas totales en pesos"""
-        url = f"{self.url}/rpc/get_catalogo_summary_rpc"
-        try:
-            payload = {}
-            if fecha_corte:
-                payload["fecha_corte"] = fecha_corte
-            res = self.session.post(url, json=payload if payload else None, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_catalogo_summary: el servidor no responde")
-        except Exception as e:
-            print(f"Error RPC catalogo_summary: {e}")
-        return {"total_compras": 0.0, "total_ventas": 0.0}
-
-    def get_top_ventas_mes(self, limit=10, fecha_corte=None) -> list:
-        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
-        mes_actual = hoy[:7]
-        url = f"{self.url}/rpc/get_top_ventas_mes_rpc"
-        try:
-            res = self.session.post(url, json={"mes_actual": mes_actual, "limite": limit, "fecha_corte": fecha_corte} if fecha_corte else {"mes_actual": mes_actual, "limite": limit}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_top_ventas_mes: el servidor no responde")
-        except Exception as e:
-            print(f"Error RPC top_ventas: {e}")
-        return []
-
-    def get_tendencia_diaria(self, fecha_corte=None) -> dict:
-        """Invoca RPC para obtener ventas y compras agrupadas por día"""
-        if fecha_corte:
-            hoy = datetime.datetime.strptime(fecha_corte, "%Y-%m-%d").date()
-        else:
-            hoy = datetime.date.today()
-        mes_actual = hoy.strftime("%Y-%m")
-        
-        # Pre-poblar el diccionario con ceros para todos los días transcurridos
-        tendencia = {f"{mes_actual}-{i:02d}": {"ventas": 0.0, "compras": 0.0} for i in range(1, hoy.day + 1)}
-        
-        url = f"{self.url}/rpc/get_tendencia_diaria_rpc"
-        try:
-            payload = {"mes_actual": mes_actual}
-            if fecha_corte:
-                payload["fecha_corte"] = fecha_corte
-            res = self.session.post(url, json=payload, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                for row in res.json():
-                    dia = row.get("dia")
-                    if dia in tendencia:
-                        tendencia[dia]["ventas"] = float(row.get("ventas", 0))
-                        tendencia[dia]["compras"] = float(row.get("compras", 0))
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_tendencia_diaria: el servidor no responde")
-        except Exception as e:
-            print(f"Error RPC tendencia_diaria: {e}")
-        return tendencia
-
-    def get_inventario_kpis(self, fecha_corte=None) -> dict:
-        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
-        mes_actual = hoy[:7]
-        url = f"{self.url}/rpc/get_inventario_kpis_rpc"
-        try:
-            res = self.session.post(url, json={"mes_actual": mes_actual, "fecha_corte": fecha_corte} if fecha_corte else {"mes_actual": mes_actual}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_inventario_kpis: el servidor no responde")
-        except Exception as e:
-            print(f"Error RPC inventario_kpis: {e}")
-        return {"valor_inventario": 0.0, "alertas_criticas": 0}
-
-    def get_kpis_por_categoria(self, fecha_corte=None) -> list:
-        """Invoca RPC para extraer rendimiento y rotación agrupada por categoría."""
-        url = f"{self.url}/rpc/get_kpis_por_categoria_rpc"
-        try:
-            payload = {}
-            if fecha_corte:
-                payload["fecha_corte"] = fecha_corte
-            res = self.session.post(url, json=payload if payload else None, headers=self.headers, timeout=5)
-            if res.status_code == 200:
-                return res.json()
-        except:
-            pass
-            
-        # Fallback local para agrupar KPIs por categoría desde la vista principal
-        try:
-            url_vista = f"{self.url}/vista_inventario_completo?select=categoria,costo_total_insumo,valor_ventas"
-            res_vista = self.session.get(url_vista, headers=self.headers, timeout=10)
-            if res_vista.status_code == 200:
-                data = res_vista.json()
-                categorias = {}
-                for item in data:
-                    cat = item.get("categoria") or "SIN CATEGORIA"
-                    if cat not in categorias:
-                        categorias[cat] = {
-                            "categoria": cat,
-                            "costo_inventario": 0.0,
-                            "ventas_totales": 0.0,
-                            "rotacion": 0.0,
-                            "rentabilidad": 0.0
-                        }
-                    categorias[cat]["costo_inventario"] += float(item.get("costo_total_insumo") or 0)
-                    categorias[cat]["ventas_totales"] += float(item.get("valor_ventas") or 0)
-                
-                result = []
-                for cat, vals in categorias.items():
-                    costo_inv = vals["costo_inventario"]
-                    vtas = vals["ventas_totales"]
-                    if costo_inv > 0:
-                        vals["rotacion"] = vtas / costo_inv
-                    if vtas > 0:
-                        vals["rentabilidad"] = 25.0 # Margen simulado 25% si hay ventas
-                    result.append(vals)
-                    
-                result.sort(key=lambda x: x["ventas_totales"], reverse=True)
-                return result
-        except Exception as e:
-            print(f"Error en get_kpis_por_categoria fallback: {e}")
-            
-        return []
-
-    def iniciar_snapshot_cierre(self, mes_periodo: str) -> dict:
-        """Invoca el RPC para generar el snapshot preliminar del mes."""
-        url = f"{self.url}/rpc/fn_snapshot_cierre_mensual"
-        try:
-            res = self.session.post(url, json={"p_mes": mes_periodo}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-            return {"exito": False, "error": res.text}
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en iniciar_snapshot_cierre: el servidor no responde")
-        except Exception as e:
-            return {"exito": False, "error": str(e)}
-
-    def obtener_estado_cierre(self, mes_periodo: str) -> dict:
-        """Obtiene el resumen y los insumos del período especificado."""
-        url = f"{self.url}/rpc/fn_obtener_estado_cierre"
-        try:
-            res = self.session.post(url, json={"p_mes": mes_periodo}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                data = res.json()
-                return data if data is not None else {}
-            return {}
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en obtener_estado_cierre: el servidor no responde")
-        except Exception as e:
-            print(f"Error en obtener_estado_cierre: {e}")
-            return {}
-
-    def registrar_conteo_fisico(self, id_auditoria: str, cantidad: float, costo: float = None, observacion: str = None) -> dict:
-        """Registra el conteo físico y genera ajustes si existe diferencia."""
-        url = f"{self.url}/rpc/fn_registrar_conteo_fisico"
-        payload = {
-            "p_id_auditoria": id_auditoria,
-            "p_cantidad_fisica": cantidad
-        }
-        if costo is not None:
-            payload["p_costo_ajuste"] = costo
-        if observacion:
-            payload["p_observacion"] = observacion
-            
-        try:
-            res = self.session.post(url, json=payload, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-            return {"exito": False, "error": res.text}
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en registrar_conteo_fisico: el servidor no responde")
-        except Exception as e:
-            return {"exito": False, "error": str(e)}
-
-    def aceptar_stock_sistema(self, id_auditoria: str) -> dict:
-        """Acepta el stock calculado por el sistema sin conteo físico."""
-        url = f"{self.url}/rpc/fn_aceptar_stock_sistema"
-        try:
-            res = self.session.post(url, json={"p_id_auditoria": id_auditoria}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-            return {"exito": False, "error": res.text}
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en aceptar_stock_sistema: el servidor no responde")
-        except Exception as e:
-            return {"exito": False, "error": str(e)}
-
-    def aprobar_cierre_mes(self, id_periodo: str, aprobado_por: str) -> dict:
-        """Cierra el período y consolida el inventario inicial del mes siguiente."""
-        url = f"{self.url}/rpc/fn_aprobar_cierre_mes"
-        try:
-            res = self.session.post(url, json={"p_id_periodo": id_periodo, "p_aprobado_por": aprobado_por}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-            return {"exito": False, "error": res.text}
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en aprobar_cierre_mes: el servidor no responde")
-        except Exception as e:
-            return {"exito": False, "error": str(e)}
-
-    def get_catalogo_costos(self) -> dict:
-        """Obtiene un diccionario con los costos actuales del catálogo de insumos"""
-        url = f"{self.url}/catalogo_insumos?select=codigo_insumo,costo_unitario"
-        try:
-            res = self.session.get(url, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return {item.get('codigo_insumo'): float(item.get('costo_unitario') or 0) for item in res.json()}
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_catalogo_costos: el servidor no responde")
-        except Exception as e:
-            print(f"Error get_catalogo_costos: {e}")
-        return {}
-
-    def get_insumo_detalle(self, codigo: str) -> dict:
-        """Recupera el nombre, costo, precio y stock de un insumo específico para el autocompletado."""
-        url = f"{self.url}/catalogo_insumos?codigo_insumo=eq.{codigo}&select=nombre,costo_unitario,precio_venta,stock_actual"
-        try:
-            res = self.session.get(url, headers=self.headers, timeout=10)
-            if res.status_code == 200 and len(res.json()) > 0:
-                return res.json()[0]
-        except Exception:
-            pass
-        return {}
-
-    def get_ajustes_inventario(self) -> list:
-        """Obtiene el historial de ajustes cruzado con el catálogo para extraer el nombre."""
-        url = f"{self.url}/registro_ajustes_inventario?select=*,catalogo_insumos(nombre,categoria)&order=fecha_ajuste.desc"
-        try:
-            res = self.session.get(url, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_ajustes_inventario: el servidor no responde")
-        except Exception as e:
-            pass
-
-    def get_historial_facturas_dia(self, fecha_dia: str) -> list:
-        """
-        Recupera todas las facturas y documentos cargados en un día específico (YYYY-MM-DD),
-        agrupados por número de factura/entrada con su hora de registro y valor total.
-        """
-        facturas = []
-        try:
-            # 1. Compras del día
-            url_c = f"{self.url}/registro_compras?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=numero_entrada,numero_factura,proveedor,costo_total,fecha&order=fecha.desc"
-            res_c = self.session.get(url_c, headers=self.headers, timeout=10)
-            if res_c.status_code == 200:
-                agrupado_c = {}
-                for r in res_c.json():
-                    ref = r.get("numero_entrada") or r.get("numero_factura")
-                    if not ref: continue
-                    if ref not in agrupado_c:
-                        agrupado_c[ref] = {
-                            "tipo": "COMPRA",
-                            "ref": ref,
-                            "factura": r.get("numero_factura", "N/A"),
-                            "proveedor": r.get("proveedor") or "Clientes Varios",
-                            "total": 0.0,
-                            "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
-                        }
-                    agrupado_c[ref]["total"] += float(r.get("costo_total") or 0)
-                facturas.extend(list(agrupado_c.values()))
-
-            # 2. Ventas del día (Diferenciando POS y Remisión)
-            url_v = f"{self.url}/registro_ventas?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=factura_no,tipo_documento,total,fecha&order=fecha.desc"
-            res_v = self.session.get(url_v, headers=self.headers, timeout=10)
-            if res_v.status_code == 200:
-                agrupado_v = {}
-                for r in res_v.json():
-                    ref = r.get("factura_no")
-                    if not ref: continue
-                    if ref not in agrupado_v:
-                        tipo_doc = r.get("tipo_documento") or "Factura POS"
-                        agrupado_v[ref] = {
-                            "tipo": f"VENTA_{'POS' if 'POS' in tipo_doc.upper() else 'REVISION'}",
-                            "ref": ref,
-                            "factura": ref,
-                            "subtipo": tipo_doc,
-                            "total": 0.0,
-                            "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
-                        }
-                    agrupado_v[ref]["total"] += float(r.get("total") or 0)
-                facturas.extend(list(agrupado_v.values()))
-
-            # 3. Ajustes del día
-            url_a = f"{self.url}/registro_ajustes_inventario?fecha_ajuste=gte.{fecha_dia}T00:00:00&fecha_ajuste=lte.{fecha_dia}T23:59:59&select=id_ajuste,tipo_ajuste,motivo_observacion,costo_total_ajuste,fecha_ajuste&order=fecha_ajuste.desc"
-            res_a = self.session.get(url_a, headers=self.headers, timeout=10)
-            if res_a.status_code == 200:
-                for r in res_a.json():
-                    es_entrada = r.get("tipo_ajuste") in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
-                    facturas.append({
-                        "tipo": "AJUSTE_ENTRADA" if es_entrada else "AJUSTE_SALIDA",
-                        "ref": r.get("id_ajuste"),
-                        "factura": r.get("motivo_observacion") or "Ajuste Directo",
-                        "total": float(r.get("costo_total_ajuste") or 0),
-                        "hora": r.get("fecha_ajuste", "") if len(r.get("fecha_ajuste", "")) >= 16 else "12:00"
-                    })
-
-        except Exception as ex:
-            print(f"Error cargando historial del día: {ex}")
-
-        # Ordenar por hora descendente (más reciente arriba)
-        facturas.sort(key=lambda x: x["hora"], reverse=True)
-        return facturas
-
-    def get_codigos_factura_especifica(self, tipo: str, ref: str) -> list:
-        try:
-            if tipo == "COMPRA":
-                res = self.session.get(f"{self.url}/registro_compras?numero_entrada=eq.{ref}&select=codigo_insumo", headers=self.headers, timeout=5)
-            elif tipo.startswith("VENTA"):
-                res = self.session.get(f"{self.url}/registro_ventas?factura_no=eq.{ref}&select=codigo_insumo", headers=self.headers, timeout=5)
-            else:
-                res = self.session.get(f"{self.url}/registro_ajustes_inventario?id_ajuste=eq.{ref}&select=codigo_insumo", headers=self.headers, timeout=5)
-            
-            if res.status_code == 200:
-                return list(set([r.get("codigo_insumo") for r in res.json() if r.get("codigo_insumo")]))
-        except: pass
-        return []
-        return []
-
-    def insert_ajuste_individual(self, datos: dict) -> bool:
-        """Inserta un nuevo registro de ajuste operativo."""
-        url = f"{self.url}/registro_ajustes_inventario"
-        try:
-            res = self.session.post(url, json=datos, headers=self.headers, timeout=10)
-            return res.status_code in (200, 201, 204)
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en insert_ajuste_individual: el servidor no responde")
-        except Exception as e:
-            return False
-
-    def anular_ajuste(self, id_ajuste: str) -> bool:
-        """Cambia el estado del ajuste a ANULADO. El trigger en la BD revertirá el inventario."""
-        url = f"{self.url}/registro_ajustes_inventario?id_ajuste=eq.{id_ajuste}"
-        try:
-            res = self.session.patch(url, json={"estado_registro": "ANULADO"}, headers=self.headers, timeout=10)
-            return res.status_code in (200, 204)
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en anular_ajuste: el servidor no responde")
-        except Exception as e:
-            return False
-
-    def get_periodos_inventario(self) -> list:
-        """Obtiene la lista de periodos de inventario ordenados descendentemente."""
-        url = f"{self.url}/periodos_inventario?select=*&order=mes_periodo.desc"
-        try:
-            res = self.session.get(url, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-            return []
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_periodos_inventario: el servidor no responde")
-            return []
-        except Exception as e:
-            return []
-
-    def get_proyeccion_ventas(self, fecha_corte=None) -> float:
-        """Invoca RPC get_proyeccion_ventas_rpc"""
-        url = f"{self.url}/rpc/get_proyeccion_ventas_rpc"
-        try:
-            payload = {}
-            if fecha_corte:
-                payload["fecha_corte"] = fecha_corte
-            res = self.session.post(url, json=payload if payload else None, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                data = res.json()
-                return float(data) if data is not None else 0.0
-            return 0.0
-        except requests.exceptions.RequestException:
-            print(f"Error de conexión con Supabase en get_proyeccion_ventas: el servidor no responde")
-            return 0.0
-        except Exception:
-            return 0.0
-
-    def get_ajustes_mes(self, mes_actual: str, fecha_corte=None) -> list:
-        """Invoca RPC get_ajustes_mes_rpc"""
-        url = f"{self.url}/rpc/get_ajustes_mes_rpc"
-        try:
-            payload = {"mes_actual": mes_actual}
-            if fecha_corte:
-                payload["fecha_corte"] = fecha_corte
-            res = self.session.post(url, json=payload, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                data = res.json()
-                return data if data is not None else []
-            return []
-        except requests.exceptions.RequestException:
-            print(f"Error de conexión con Supabase en get_ajustes_mes: el servidor no responde")
-            return []
-        except Exception:
-            return []
-
-    def aceptar_stock_sistema_masivo(self, ids_auditoria: list) -> dict:
-        url = f"{self.url}/rpc/fn_aceptar_stock_sistema_masivo"
-        try:
-            res = self.session.post(url, json={"p_ids": ids_auditoria}, headers=self.headers, timeout=15)
-            if res.status_code == 200: return res.json()
-            return {"exito": False, "error": res.text}
-        except Exception as e: return {"exito": False, "error": str(e)}
-
-    def eliminar_ajuste_cierre(self, id_auditoria: str) -> dict:
-        url = f"{self.url}/rpc/fn_eliminar_ajuste_cierre"
-        try:
-            res = self.session.post(url, json={"p_id_auditoria": id_auditoria}, headers=self.headers, timeout=10)
-            if res.status_code == 200: return res.json()
-            return {"exito": False, "error": res.text}
-        except Exception as e: return {"exito": False, "error": str(e)}
-
-    def get_rendimiento_categorias_periodo(self, fecha_inicio=None, fecha_fin=None) -> list:
-        """
-        Calcula las métricas reales por categoría combinando la tabla catalogo_insumos
-        y registro_ventas.
-        """
-        categorias_map = {}
-    
-        try:
-            # 1. Obtener todos los insumos del catálogo
-            url_insumos = f"{self.url}/catalogo_insumos?select=codigo_insumo,categoria,stock_actual,costo_unitario,precio_venta,costo_total_insumo"
-            res_i = self.session.get(url_insumos, headers=self.headers, timeout=10)
-            
-            if res_i.status_code == 200:
-                for item in res_i.json():
-                    cat_nombre = (item.get("categoria") or "SIN CATEGORÍA").strip().upper()
-                    
-                    # Extraer métricas de insumo con fallbacks seguros
-                    stock = float(item.get("stock_actual") or 0)
-                    costo_u = float(item.get("costo_unitario") or 0)
-                    precio_v = float(item.get("precio_venta") or 0)
-                    
-                    # Si costo_total_insumo existe en BD se usa, si no, se calcula stock * costo_u
-                    costo_tot_item = float(item.get("costo_total_insumo") or (stock * costo_u))
-                    proy_venta_item = stock * precio_v
-    
-                    if cat_nombre not in categorias_map:
-                        categorias_map[cat_nombre] = {
-                            "categoria": cat_nombre,
-                            "inventario_costo": 0.0,
-                            "proyeccion_venta": 0.0,
-                            "ventas_realizadas": 0.0,
-                            "costo_vendido": 0.0
-                        }
-    
-                    categorias_map[cat_nombre]["inventario_costo"] += costo_tot_item
-                    categorias_map[cat_nombre]["proyeccion_venta"] += proy_venta_item
-    
-            # 2. Obtener las ventas del periodo
-            url_ventas = f"{self.url}/registro_ventas?select=total,cantidad,codigo_insumo,catalogo_insumos(categoria,costo_unitario)"
-            if fecha_inicio and fecha_fin:
-                url_ventas += f"&fecha=gte.{fecha_inicio}T00:00:00&fecha=lte.{fecha_fin}T23:59:59"
-            elif fecha_fin:
-                url_ventas += f"&fecha=lte.{fecha_fin}T23:59:59"
-            elif fecha_inicio:
-                url_ventas += f"&fecha=gte.{fecha_inicio}T00:00:00"
-    
-            res_v = self.session.get(url_ventas, headers=self.headers, timeout=10)
-            
-            if res_v.status_code == 200:
-                for v in res_v.json():
-                    cat_v = None
-                    costo_u_v = 0.0
-                    
-                    if v.get("catalogo_insumos"):
-                        cat_v = v["catalogo_insumos"].get("categoria")
-                        costo_u_v = float(v["catalogo_insumos"].get("costo_unitario") or 0)
-                    
-                    cat_nombre = (cat_v or "SIN CATEGORÍA").strip().upper()
-                    tot_venta = float(v.get("total") or 0)
-                    cant_v = float(v.get("cantidad") or 0)
-    
-                    if cat_nombre not in categorias_map:
-                        categorias_map[cat_nombre] = {
-                            "categoria": cat_nombre,
-                            "inventario_costo": 0.0,
-                            "proyeccion_venta": 0.0,
-                            "ventas_realizadas": 0.0,
-                            "costo_vendido": 0.0
-                        }
-    
-                    categorias_map[cat_nombre]["ventas_realizadas"] += tot_venta
-                    categorias_map[cat_nombre]["costo_vendido"] += (cant_v * costo_u_v)
-    
-        except Exception as ex:
-            print(f"Error calculando rendimiento por categorías: {ex}")
-    
-        # 3. Formatear y calcular porcentajes finales
-        resultado = []
-        for cat_nombre, d in categorias_map.items():
-            inv_c = d["inventario_costo"]
-            v_real = d["ventas_realizadas"]
-            proy_v = d["proyeccion_venta"]
-            c_vend = d["costo_vendido"]
-    
-            cumplimiento = (v_real / proy_v * 100) if proy_v > 0 else 0.0
-            rotacion = (v_real / inv_c) if inv_c > 0 else 0.0
-            
-            # Rendimiento Real % = (Ventas - CostoVendido) / Ventas * 100
-            rendimiento = ((v_real - c_vend) / v_real * 100) if v_real > 0 else 100.0
-    
-            resultado.append({
-                "categoria": cat_nombre,
-                "inventario_costo": inv_c,
-                "ventas_realizadas": v_real,
-                "proyeccion_venta": proy_v,
-                "cumplimiento_pct": cumplimiento,
-                "rotacion": rotacion,
-                "rendimiento_pct": rendimiento
-            })
-    
-        # Ordenar de mayor a menor por inventario o ventas
-        resultado.sort(key=lambda x: (x["inventario_costo"], x["ventas_realizadas"]), reverse=True)
-        return resultado
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
 ````
 
 ## File: ui/views/cierre_inventario.py
@@ -14517,4 +13867,1234 @@ class CierreInventarioView(ft.Container):
         }
     }
 }
+````
+
+## File: core/supabase_client.py
+````python
+import requests
+import datetime
+import urllib.parse
+from config import Config
+
+_client_instance = None
+
+def get_client():
+    """Retorna la instancia singleton del cliente Supabase."""
+    global _client_instance
+    if _client_instance is None:
+        _client_instance = SupabaseClient()
+    return _client_instance
+
+class SupabaseClient:
+    def __init__(self):
+        self.url = Config.SUPABASE_URL
+        self.key = Config.SUPABASE_KEY
+        
+        if self.url and self.url.endswith('/'):
+            self.url = self.url[:-1]
+        if self.url and not self.url.endswith('/rest/v1'):
+            self.url = self.url + "/rest/v1"
+            
+        # 1. Instanciar la sesión compartida para mantener viva la conexión TCP
+        self.session = requests.Session()
+        
+        # 2. Configurar los encabezados globales directamente en la sesión
+        self.headers = {
+            "apikey": self.key,
+            "Authorization": f"Bearer {self.key}",
+            "Content-Type": "application/json"
+        }
+        self.session.headers.update(self.headers)
+        
+    def check_connection(self):
+        if not self.url or not self.key:
+            return False, "Faltan credenciales"
+        try:
+            # Prueba simple a la tabla (limit 1)
+            response = self.session.get(f"{self.url}/catalogo_insumos?limit=1", headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                return True, "Conexión exitosa"
+            return False, f"Error: {response.text}"
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en check_connection: el servidor no responde")
+        except Exception as e:
+            return False, str(e)
+            
+    # --- CRUD Catálogo Insumos ---
+    
+    def get_categorias(self):
+        """Obtiene una lista de categorías únicas usando RPC si existe, o extrayendo de todo (simplificado)"""
+        # Para simplificar y dado que PostgREST soporta distinct
+        url = f"{self.url}/catalogo_insumos?select=categoria"
+        headers = self.headers.copy()
+        # En PostgREST podemos usar un header o query para distintos, pero es más fácil
+        # traerlos y filtrarlos en memoria (limitado a unos cientos si hay muchos, pero está bien).
+        response = self.session.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            categorias = set([item.get('categoria', 'SIN CATEGORIA') for item in data if item.get('categoria')])
+            return sorted(list(categorias))
+        return []
+
+    def get_insumos(self, page=1, page_size=20, search="", categoria="", fecha_corte=None, sort_col="Insumo", sort_asc=True, codigos_filtro=None):
+        """
+        Obtiene los insumos con paginación, filtros y ordenamiento desde el servidor.
+        Retorna (lista_datos, total_count)
+        """
+        if fecha_corte:
+            url = f"{self.url}/rpc/obtener_inventario_por_fecha?select=*"
+        else:
+            url = f"{self.url}/vista_inventario_completo?select=*"
+        
+        filtros = []
+        if codigos_filtro is not None:
+            if not codigos_filtro:
+                filtros.append("codigo_insumo=in.(INVALID_FORCE_EMPTY)")
+            else:
+                codigos_str = ",".join(codigos_filtro)
+                filtros.append(f"codigo_insumo=in.({codigos_str})")
+                
+        if categoria and categoria != "Todas":
+            filtros.append(f"categoria=eq.{categoria}")
+            
+        if search:
+            filtros.append(f"or=(nombre.ilike.*{search}*,codigo_insumo.ilike.*{search}*)")
+            
+        if filtros:
+            url += "&" + "&".join(filtros)
+            
+        # Mapeo de columnas de la interfaz a las columnas de la vista SQL
+        db_col_stock = "stock_real" if fecha_corte else "stock_actual"
+        map_columnas = {
+            "Código": "codigo_insumo",
+            "Insumo": "nombre",
+            "Categoría": "categoria",
+            "Ubicación": "ubicacion",
+            "Stock Inicial": "stock_inicial",
+            "Stock Mínimo": "stock_minimo",
+            "Entradas": "entradas",
+            "Salidas": "salidas",
+            "Stock Real": db_col_stock
+        }
+        
+        db_col = map_columnas.get(sort_col, "nombre")
+        direccion = "asc" if sort_asc else "desc"
+        
+        offset = (page - 1) * page_size
+        url += f"&order={db_col}.{direccion}&offset={offset}&limit={page_size}"
+        
+        headers = self.headers.copy()
+        headers["Prefer"] = "count=exact"
+        
+        try:
+            if fecha_corte:
+                payload = {"p_fecha_corte": f"{fecha_corte} 23:59:59"}
+                response = self.session.post(url, headers=headers, json=payload, timeout=10)
+            else:
+                response = self.session.get(url, headers=headers, timeout=10)
+            
+            if response.status_code in (200, 201, 206):
+                data = response.json()
+                content_range = response.headers.get("Content-Range", "")
+                total_count = 0
+                if "/" in content_range:
+                    total_count = int(content_range.split("/")[1])
+                return data, total_count
+            else:
+                print(f"Error en consulta: {response.text}")
+                return [], 0
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_insumos: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en get_insumos: {e}")
+            return [], 0
+        
+    def insert_insumo(self, data: dict):
+        url = f"{self.url}/catalogo_insumos"
+        response = self.session.post(url, json=data, headers=self.headers, timeout=10)
+        if response.status_code in (200, 201):
+            return response.json()
+        return None
+
+    def update_insumo(self, codigo_insumo: str, datos_actualizados: dict) -> bool:
+        """
+        Actualiza un insumo existente en el catálogo.
+        """
+        url = f"{self.url}/catalogo_insumos?codigo_insumo=eq.{codigo_insumo}"
+        try:
+            response = self.session.patch(url, json=datos_actualizados, headers=self.headers, timeout=10)
+            if response.status_code in (200, 204):
+                return True
+            else:
+                print(f"Error al actualizar insumo: {response.text}")
+                return False
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en update_insumo: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en update_insumo: {e}")
+            return False
+
+    def get_compras(self, page=1, page_size=20, search="", fecha_corte=None, factura_filtro=None, proveedor_filtro=None):
+        url = f"{self.url}/registro_compras?select=*,catalogo_insumos(nombre,categoria)"
+        
+        filtros = []
+        
+        # 1. Búsqueda por texto general
+        if search:
+            search_enc = urllib.parse.quote(search.strip())
+            filtros.append(f"or=(codigo_insumo.ilike.*{search_enc}*,proveedor.ilike.*{search_enc}*,numero_factura.ilike.*{search_enc}*)")
+        
+        # 2. Fecha de corte
+        if fecha_corte:
+            filtros.append(f"fecha=eq.{fecha_corte}")
+
+        # 3. Filtro cruzado por Factura / Entrada
+        if factura_filtro:
+            factura_enc = urllib.parse.quote(str(factura_filtro).strip())
+            filtros.append(f"or=(numero_entrada.eq.{factura_enc},numero_factura.eq.{factura_enc})")
+
+        # 4. Filtro cruzado por Proveedor (Con ilike y quote para tolerar espacios y mayúsculas/minúsculas)
+        if proveedor_filtro:
+            prov_enc = urllib.parse.quote(str(proveedor_filtro).strip())
+            filtros.append(f"proveedor.ilike.*{prov_enc}*")
+            
+        if filtros:
+            url += "&" + "&".join(filtros)
+            
+        offset = (page - 1) * page_size
+        url += f"&order=fecha.desc,numero_entrada.desc&offset={offset}&limit={page_size}"
+        
+        headers = self.headers.copy()
+        headers["Prefer"] = "count=exact"
+        
+        try:
+            response = self.session.get(url, headers=headers, timeout=10)
+            if response.status_code in (200, 206):
+                data = response.json()
+                content_range = response.headers.get("Content-Range", "")
+                total_count = 0
+                if "/" in content_range:
+                    total_count = int(content_range.split("/")[1])
+                return data, total_count
+            else:
+                print(f"Error HTTP {response.status_code} en get_compras: {response.text}")
+                return [], 0
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_compras: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en get_compras: {e}")
+            return [], 0
+
+    def get_historial_compras_dia(self, fecha_dia: str, agrupar_por: str = "FACTURA") -> list:
+        """
+        Recupera todas las compras de un día (YYYY-MM-DD),
+        agrupados por 'FACTURA' o por 'PROVEEDOR'.
+        """
+        items_resultado = []
+        try:
+            # Consulta exclusiva a compras del día
+            url_c = f"{self.url}/registro_compras?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=numero_entrada,numero_factura,proveedor,costo_total,fecha,cantidad&order=fecha.desc"
+            res_c = self.session.get(url_c, headers=self.headers, timeout=10)
+    
+            if res_c.status_code == 200:
+                data_c = res_c.json()
+    
+                if agrupar_por == "FACTURA":
+                    agrupado = {}
+                    for r in data_c:
+                        ref = r.get("numero_entrada") or r.get("numero_factura") or "S/N"
+                        if ref not in agrupado:
+                            agrupado[ref] = {
+                                "tipo": "COMPRA",
+                                "ref": ref,
+                                "factura": r.get("numero_factura") or ref,
+                                "proveedor": r.get("proveedor") or "Clientes Varios",
+                                "total": 0.0,
+                                "unidades": 0.0,
+                                "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
+                            }
+                        agrupado[ref]["total"] += float(r.get("costo_total") or 0)
+                        agrupado[ref]["unidades"] += float(r.get("cantidad") or 0)
+                    items_resultado.extend(list(agrupado.values()))
+    
+                elif agrupar_por == "PROVEEDOR":
+                    agrupado = {}
+                    for r in data_c:
+                        prov = r.get("proveedor") or "Clientes Varios"
+                        if prov not in agrupado:
+                            agrupado[prov] = {
+                                "tipo": "PROVEEDOR_RESUMEN",
+                                "ref": prov,
+                                "proveedor": prov,
+                                "facturas_count": set(),
+                                "total": 0.0,
+                                "unidades": 0.0,
+                                "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
+                            }
+                        agrupado[prov]["facturas_count"].add(r.get("numero_factura") or r.get("numero_entrada"))
+                        agrupado[prov]["total"] += float(r.get("costo_total") or 0)
+                        agrupado[prov]["unidades"] += float(r.get("cantidad") or 0)
+    
+                    for p in agrupado.values():
+                        p["facturas_cant"] = len(p["facturas_count"])
+                        del p["facturas_count"]
+                        items_resultado.append(p)
+    
+        except Exception as ex:
+            print(f"Error en historial de compras del día: {ex}")
+    
+        # Ordenar por hora/valor descendente
+        items_resultado.sort(key=lambda x: x["total"], reverse=True)
+        return items_resultado
+
+
+    def insert_compras(self, compras_list: list):
+        """
+        Inserta una lista de registros de compras de forma masiva (bulk insert).
+        """
+        url = f"{self.url}/registro_compras"
+        
+        payload = []
+        for c in compras_list:
+            compra = {
+                "fecha": c.get("fecha"),
+                "numero_entrada": str(c.get("numero_entrada", "")),
+                "numero_factura": str(c.get("numero_factura", "")),
+                "proveedor": str(c.get("proveedor", "")),
+                "codigo_insumo": str(c.get("codigo_insumo", "")),
+                "cantidad": float(c.get("cantidad", 0) or 0),
+                "costo_unitario": float(c.get("costo_unitario", 0) or 0),
+                "valor_iva": float(c.get("iva", 0) or 0),
+                "costo_total": float(c.get("costo_total", 0) or 0),
+                "estado_registro": "VÁLIDO"
+            }
+            payload.append(compra)
+            
+        try:
+            # PostgREST permite inserción masiva enviando una lista de diccionarios JSON
+            response = self.session.post(url, json=payload, headers=self.headers, timeout=10)
+            if response.status_code in (200, 201, 204):
+                return True
+            else:
+                print(f"Error al insertar compras: {response.text}")
+                return False
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en insert_compras: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en insert_compras: {e}")
+            return False
+
+    def get_entradas_existentes(self, lista_eas: list) -> set:
+        """
+        Consulta cuáles de los 'numero_entrada' proveídos ya existen en registro_compras.
+        """
+        if not lista_eas:
+            return set()
+            
+        url = f"{self.url}/registro_compras?select=numero_entrada"
+        # Crear un filtro in.(EA-1,EA-2)
+        eas_str = ",".join(lista_eas)
+        url += f"&numero_entrada=in.({eas_str})"
+        
+        try:
+            response = self.session.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                return {item["numero_entrada"] for item in data if item.get("numero_entrada")}
+            return set()
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_entradas_existentes: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en get_entradas_existentes: {e}")
+            return set()
+
+    def eliminar_compras_por_entradas(self, lista_eas: list) -> bool:
+        """
+        Elimina las compras que coincidan con los numero_entrada dados para permitir sobreescritura.
+        """
+        if not lista_eas:
+            return True
+            
+        url = f"{self.url}/registro_compras"
+        eas_str = ",".join(lista_eas)
+        url += f"?numero_entrada=in.({eas_str})"
+        
+        try:
+            response = self.session.delete(url, headers=self.headers, timeout=10)
+            if response.status_code in (200, 204):
+                return True
+            else:
+                print(f"Error al eliminar compras por entradas: {response.text}")
+                return False
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en eliminar_compras_por_entradas: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en eliminar_compras_por_entradas: {e}")
+            return False
+            
+    def get_nombres_insumos(self, lista_codigos: list) -> dict:
+        """
+        Devuelve un diccionario {codigo: nombre} buscando en catalogo_insumos.
+        """
+        if not lista_codigos:
+            return {}
+            
+        url = f"{self.url}/catalogo_insumos?select=codigo_insumo,nombre"
+        
+        # Como los códigos pueden ser strings (ej "0471"), envolvemos en comillas simples para la API de supabase,
+        # o usamos in. sin problemas si PostgREST lo maneja.
+        # PostgREST maneja in.(a,b,c). Para strings con espacios podría requerir doble comilla, 
+        # pero para códigos numéricos en string basta unirlos con coma.
+        codigos_str = ",".join(lista_codigos)
+        url += f"&codigo_insumo=in.({codigos_str})"
+        
+        try:
+            response = self.session.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                return {item["codigo_insumo"]: item["nombre"] for item in data if item.get("codigo_insumo")}
+            return {}
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_nombres_insumos: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en get_nombres_insumos: {e}")
+            return {}
+
+
+    def get_ventas(self, page=1, page_size=20, search="", fecha_corte=None, categoria_filtro=None, factura_filtro=None):
+        # Si hay filtro de categoría, necesitamos !inner para que PostgREST aplique un INNER JOIN
+        if categoria_filtro:
+            url = f"{self.url}/registro_ventas?select=*,catalogo_insumos!inner(nombre,categoria)"
+        else:
+            url = f"{self.url}/registro_ventas?select=*,catalogo_insumos(nombre,categoria)"
+        
+        filtros = []
+        
+        # 1. Buscador por texto general
+        if search:
+            s_enc = urllib.parse.quote(search.strip())
+            filtros.append(f"or=(codigo_insumo.ilike.*{s_enc}*,factura_no.ilike.*{s_enc}*,descripcion.ilike.*{s_enc}*)")
+            
+        # 2. Fecha
+        if fecha_corte:
+            filtros.append(f"fecha=gte.{fecha_corte}T00:00:00&fecha=lte.{fecha_corte}T23:59:59")
+
+        # 3. Filtro por Categoría (Requiere catalogo_insumos.categoria)
+        if categoria_filtro:
+            cat_enc = urllib.parse.quote(str(categoria_filtro).strip())
+            filtros.append(f"catalogo_insumos.categoria=eq.{cat_enc}")
+
+        # 4. Filtro por Nro. Factura / Documento (Uso de ilike para coincidencia flexible)
+        if factura_filtro:
+            fact_enc = urllib.parse.quote(str(factura_filtro).strip())
+            filtros.append(f"factura_no.ilike.*{fact_enc}*")
+            
+        if filtros:
+            url += "&" + "&".join(filtros)
+            
+        offset = (page - 1) * page_size
+        url += f"&order=fecha.desc,factura_no.desc&offset={offset}&limit={page_size}"
+        
+        headers = self.headers.copy()
+        headers["Prefer"] = "count=exact"
+        
+        try:
+            response = self.session.get(url, headers=headers, timeout=10)
+            if response.status_code in (200, 206):
+                data = response.json()
+                content_range = response.headers.get("Content-Range", "")
+                total_count = 0
+                if "/" in content_range:
+                    total_count = int(content_range.split("/")[1])
+                return data, total_count
+            else:
+                print(f"Error HTTP {response.status_code} en get_ventas: {response.text}")
+                return [], 0
+        except Exception as e:
+            print(f"Excepción en get_ventas: {e}")
+            return [], 0
+
+    def get_historial_ventas_dia(self, fecha_dia: str, agrupar_por: str = "CATEGORIA") -> list:
+        """
+        Recupera todas las ventas de un día (YYYY-MM-DD),
+        agrupadas por 'CATEGORIA' o por 'FACTURA'.
+        """
+        items_resultado = []
+        try:
+            url_v = f"{self.url}/registro_ventas?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=factura_no,tipo_documento,descripcion,total,cantidad,codigo_insumo,fecha,catalogo_insumos(categoria,nombre)&order=fecha.desc"
+            res_v = self.session.get(url_v, headers=self.headers, timeout=10)
+            
+            if res_v.status_code == 200:
+                data_v = res_v.json()
+                
+                if agrupar_por == "CATEGORIA":
+                    agrupado = {}
+                    for r in data_v:
+                        cat = r.get("catalogo_insumos", {}).get("categoria") if r.get("catalogo_insumos") else None
+                        if not cat: cat = "SIN CATEGORÍA"
+                        
+                        if cat not in agrupado:
+                            agrupado[cat] = {
+                                "tipo": "CATEGORIA_RESUMEN",
+                                "ref": cat,
+                                "categoria": cat,
+                                "total": 0.0,
+                                "unidades": 0.0,
+                                "items_count": 0
+                            }
+                        agrupado[cat]["total"] += float(r.get("total") or 0)
+                        agrupado[cat]["unidades"] += float(r.get("cantidad") or 0)
+                        agrupado[cat]["items_count"] += 1
+                    items_resultado.extend(list(agrupado.values()))
+    
+                elif agrupar_por == "FACTURA":
+                    agrupado = {}
+                    for r in data_v:
+                        ref = r.get("factura_no") or "S/N"
+                        tipo_doc = r.get("tipo_documento") or "Factura POS"
+                        if ref not in agrupado:
+                            agrupado[ref] = {
+                                "tipo": "FACTURA_VENTA",
+                                "ref": ref,
+                                "factura": ref,
+                                "subtipo": tipo_doc,
+                                "total": 0.0,
+                                "unidades": 0.0
+                            }
+                        agrupado[ref]["total"] += float(r.get("total") or 0)
+                        agrupado[ref]["unidades"] += float(r.get("cantidad") or 0)
+                    items_resultado.extend(list(agrupado.values()))
+    
+        except Exception as ex:
+            print(f"Error en historial de ventas del día: {ex}")
+    
+        items_resultado.sort(key=lambda x: x["total"], reverse=True)
+        return items_resultado
+
+
+    def get_ventas_existentes(self, lista_facturas: list) -> set:
+        """
+        Consulta cuáles de las facturas (factura_no) proveídas ya existen en registro_ventas.
+        """
+        if not lista_facturas:
+            return set()
+            
+        url = f"{self.url}/registro_ventas?select=factura_no"
+        facturas_str = ",".join(lista_facturas)
+        url += f"&factura_no=in.({facturas_str})"
+        
+        try:
+            response = self.session.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                return {item["factura_no"] for item in data if item.get("factura_no")}
+            return set()
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_ventas_existentes: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en get_ventas_existentes: {e}")
+            return set()
+
+    def eliminar_ventas_origen(self, fecha: str, tipo_documento: str, pagina_origen: int) -> bool:
+        """Elimina las ventas de una fecha, tipo y página específica para permitir sobreescritura limpia."""
+        url = f"{self.url}/registro_ventas?fecha=gte.{fecha}T00:00:00&fecha=lte.{fecha}T23:59:59&tipo_documento=eq.{tipo_documento}&pagina_origen=eq.{pagina_origen}"
+        try:
+            response = self.session.delete(url, headers=self.headers, timeout=10)
+            return response.status_code in (200, 204)
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en eliminar_ventas_origen: el servidor no responde")
+        except Exception as e:
+            print(f"Error al eliminar ventas por origen: {e}")
+            return False
+
+    def insert_ventas(self, ventas_list: list):
+        """Inserta una lista de registros de ventas de forma masiva (bulk insert)."""
+        url = f"{self.url}/registro_ventas"
+        
+        payload = []
+        for v in ventas_list:
+            venta = {
+                "fecha": v.get("fecha"),
+                "factura_no": str(v.get("numero_factura", "")),
+                "codigo_insumo": str(v.get("codigo_item", "")),
+                "descripcion": str(v.get("descripcion", "")),
+                "cantidad": float(v.get("cantidad", 0) or 0),
+                "subtotal": float(v.get("precio_unitario", 0) or 0),
+                "iva": float(v.get("iva", 0) or 0),
+                "total": float(v.get("costo_total", 0) or 0),
+                "tipo_documento": str(v.get("tipo_documento", "Factura POS")),
+                "pagina_origen": int(v.get("pagina_origen", 1))
+            }
+            payload.append(venta)
+            
+        try:
+            response = self.session.post(url, json=payload, headers=self.headers, timeout=10)
+            if response.status_code in (200, 201, 204):
+                return True
+            else:
+                print(f"Error al insertar ventas: {response.text}")
+                return False
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en insert_ventas: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en insert_ventas: {e}")
+            return False
+
+
+
+    def get_datos_conteo_inicial(self, mes_seleccionado: str) -> list:
+        # mes_seleccionado is in format 'YYYY-MM'
+        try:
+            year, month = map(int, mes_seleccionado.split("-"))
+            if month == 1:
+                mes_anterior = f"{year - 1}-12"
+            else:
+                mes_anterior = f"{year}-{month - 1:02d}"
+        except:
+            return []
+            
+        # 1. Traer catalogo
+        catalogo = []
+        try:
+            res_cat = self.session.get(f"{self.url}/catalogo_insumos?select=codigo_insumo,nombre,categoria", headers=self.headers, timeout=10)
+            if res_cat.status_code == 200:
+                catalogo = res_cat.json()
+        except:
+            pass
+            
+        # 2. Traer registros FINAL mes anterior
+        cierre_anterior = {}
+        try:
+            url_ant = f"{self.url}/registro_auditorias_cierres?tipo_registro=eq.CIERRE_MENSUAL&fecha_cierre=gte.{mes_anterior}-01&fecha_cierre=lte.{mes_anterior}-31&select=codigo_insumo,cantidad_fisica"
+            res_ant = self.session.get(url_ant, headers=self.headers, timeout=10)
+            if res_ant.status_code == 200:
+                for r in res_ant.json():
+                    cierre_anterior[r.get("codigo_insumo")] = r.get("cantidad_fisica")
+        except:
+            pass
+            
+        # 3. Traer registros INICIAL mes seleccionado
+        inicio_actual = {}
+        try:
+            url_act = f"{self.url}/registro_auditorias_cierres?tipo_registro=eq.INVENTARIO_INICIAL&fecha_cierre=gte.{mes_seleccionado}-01&fecha_cierre=lte.{mes_seleccionado}-31&select=codigo_insumo,cantidad_fisica"
+            res_act = self.session.get(url_act, headers=self.headers, timeout=10)
+            if res_act.status_code == 200:
+                for r in res_act.json():
+                    inicio_actual[r.get("codigo_insumo")] = r.get("cantidad_fisica")
+        except:
+            pass
+            
+        resultado = []
+        for c in catalogo:
+            codigo = c.get("codigo_insumo")
+            if not codigo: continue
+            
+            resultado.append({
+                "codigo_insumo": codigo,
+                "nombre": c.get("nombre"),
+                "categoria": c.get("categoria"),
+                "cierre_mes_anterior": cierre_anterior.get(codigo, 0),
+                "stock_inicial_actual": inicio_actual.get(codigo, 0),
+            })
+            
+        return resultado
+
+    def upsert_conteos_iniciales(self, registros: list) -> bool:
+        if not registros: return True
+        
+        # Buscar IDs existentes para hacer merge por Primary Key (ya que no hay unique constraint compuesto)
+        try:
+            fecha_cierre = registros[0].get("fecha_cierre")
+            tipo_registro = registros[0].get("tipo_registro")
+            codigos = [r["codigo_insumo"] for r in registros]
+            
+            # Dividir en chunks si son muchos códigos para no exceder longitud de URL, o hacer query simple
+            if len(codigos) > 0:
+                codigos_str = ",".join(codigos)
+                url_exist = f"{self.url}/registro_auditorias_cierres?fecha_cierre=eq.{fecha_cierre}&tipo_registro=eq.{tipo_registro}&codigo_insumo=in.({codigos_str})&select=id_auditoria,codigo_insumo"
+                res_exist = self.session.get(url_exist, headers=self.headers, timeout=10)
+                if res_exist.status_code == 200:
+                    existentes = {item["codigo_insumo"]: item["id_auditoria"] for item in res_exist.json() if "id_auditoria" in item}
+                    for r in registros:
+                        if r["codigo_insumo"] in existentes:
+                            r["id_auditoria"] = existentes[r["codigo_insumo"]]
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en upsert_conteos_iniciales: el servidor no responde")
+        except Exception as e:
+            print(f"Error al buscar existentes para upsert: {e}")
+        
+        url = f"{self.url}/registro_auditorias_cierres"
+        
+        headers = self.headers.copy()
+        headers["Prefer"] = "resolution=merge-duplicates"
+        
+        try:
+            res = self.session.post(url, json=registros, headers=headers, timeout=10)
+            if res.status_code in (200, 201, 204):
+                return True
+            print(f"Error upsert_conteos: {res.text}")
+            return False
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en upsert_conteos_iniciales: el servidor no responde")
+        except Exception as e:
+            print(f"Excepcion upsert_conteos: {e}")
+            return False
+
+
+    def get_top_costo_inventario(self, limit=10, fecha_corte=None) -> list:
+        """
+        Obtiene los insumos con mayor costo total de inventario acumulado hasta 'fecha_corte'.
+        """
+        try:
+            insumos, _ = self.get_insumos(
+                page=1, 
+                page_size=limit, 
+                fecha_corte=fecha_corte, 
+                sort_col="Stock Real", 
+                sort_asc=False
+            )
+            top = []
+            for item in insumos:
+                costo_tot = float(item.get("costo_total_insumo") or 0)
+                ventas_tot = float(item.get("valor_ventas") or 0)
+                rotacion = (ventas_tot / costo_tot) if costo_tot > 0 else 0.0
+                
+                top.append({
+                    "codigo": item.get("codigo_insumo") or "S/C",
+                    "producto": item.get("nombre") or "Desconocido",
+                    "valor_inventario": costo_tot,
+                    "rotacion": f"{rotacion:.2f}x"
+                })
+            return top
+        except Exception as e:
+            print(f"Error en get_top_costo_inventario: {e}")
+            return []
+        
+
+    def get_compras_summary(self, fecha_corte=None) -> dict:
+        url = f"{self.url}/registro_compras?select=costo_total,cantidad,fecha&estado_registro=eq.VÁLIDO"
+        if fecha_corte:
+            url += f"&fecha=lte.{fecha_corte}T23:59:59"
+            
+        try:
+            res = self.session.get(url, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                total_acumulado = sum([float(r.get("costo_total") or 0) for r in data])
+                cant_acumulada = sum([float(r.get("cantidad") or 0) for r in data])
+                
+                hoy_str = datetime.date.today().strftime("%Y-%m-%d")
+                total_hoy = sum([float(r.get("costo_total") or 0) for r in data if r.get("fecha", "")[:10] == hoy_str])
+                
+                return {
+                    "total_mes": total_acumulado,
+                    "total_hoy": total_hoy,
+                    "cantidad_total": cant_acumulada
+                }
+        except Exception as e:
+            print(f"Error en get_compras_summary: {e}")
+        return {"total_mes": 0, "total_hoy": 0, "cantidad_total": 0}
+    
+    def get_ventas_summary(self, fecha_corte=None) -> dict:
+        url = f"{self.url}/registro_ventas?select=total,iva,fecha&estado_registro=eq.VÁLIDO"
+        if fecha_corte:
+            url += f"&fecha=lte.{fecha_corte}T23:59:59"
+            
+        try:
+            res = self.session.get(url, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                total_acumulado = sum([float(r.get("total") or 0) for r in data])
+                iva_acumulado = sum([float(r.get("iva") or 0) for r in data])
+                
+                hoy_str = datetime.date.today().strftime("%Y-%m-%d")
+                total_hoy = sum([float(r.get("total") or 0) for r in data if r.get("fecha", "")[:10] == hoy_str])
+                
+                return {
+                    "total_mes": total_acumulado,
+                    "total_historico": total_acumulado,
+                    "total_hoy": total_hoy,
+                    "iva_historico": iva_acumulado
+                }
+        except Exception as e:
+            print(f"Error en get_ventas_summary: {e}")
+        return {"total_mes": 0, "total_historico": 0, "total_hoy": 0, "iva_historico": 0}
+
+    def get_catalogo_summary(self, fecha_corte=None) -> dict:
+        """Invoca RPC para compras totales y ventas totales en pesos"""
+        url = f"{self.url}/rpc/get_catalogo_summary_rpc"
+        try:
+            payload = {}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.session.post(url, json=payload if payload else None, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_catalogo_summary: el servidor no responde")
+        except Exception as e:
+            print(f"Error RPC catalogo_summary: {e}")
+        return {"total_compras": 0.0, "total_ventas": 0.0}
+
+    def get_top_ventas_mes(self, limit=10, fecha_corte=None) -> list:
+        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
+        mes_actual = hoy[:7]
+        url = f"{self.url}/rpc/get_top_ventas_mes_rpc"
+        try:
+            res = self.session.post(url, json={"mes_actual": mes_actual, "limite": limit, "fecha_corte": fecha_corte} if fecha_corte else {"mes_actual": mes_actual, "limite": limit}, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_top_ventas_mes: el servidor no responde")
+        except Exception as e:
+            print(f"Error RPC top_ventas: {e}")
+        return []
+
+    def get_tendencia_diaria(self, fecha_corte=None) -> dict:
+        """Invoca RPC para obtener ventas y compras agrupadas por día"""
+        if fecha_corte:
+            hoy = datetime.datetime.strptime(fecha_corte, "%Y-%m-%d").date()
+        else:
+            hoy = datetime.date.today()
+        mes_actual = hoy.strftime("%Y-%m")
+        
+        # Pre-poblar el diccionario con ceros para todos los días transcurridos
+        tendencia = {f"{mes_actual}-{i:02d}": {"ventas": 0.0, "compras": 0.0} for i in range(1, hoy.day + 1)}
+        
+        url = f"{self.url}/rpc/get_tendencia_diaria_rpc"
+        try:
+            payload = {"mes_actual": mes_actual}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.session.post(url, json=payload, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                for row in res.json():
+                    dia = row.get("dia")
+                    if dia in tendencia:
+                        tendencia[dia]["ventas"] = float(row.get("ventas", 0))
+                        tendencia[dia]["compras"] = float(row.get("compras", 0))
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_tendencia_diaria: el servidor no responde")
+        except Exception as e:
+            print(f"Error RPC tendencia_diaria: {e}")
+        return tendencia
+
+    def get_inventario_kpis(self, fecha_corte=None) -> dict:
+        """
+        Obtiene los KPIs generales de valorización de inventario.
+        """
+        try:
+            insumos, _ = self.get_insumos(page=1, page_size=99999, fecha_corte=fecha_corte)
+            val_inv = sum([float(i.get("costo_total_insumo") or 0) for i in insumos])
+            alertas = sum([1 for i in insumos if float(i.get("stock_actual") or i.get("stock_real") or 0) <= float(i.get("stock_minimo") or 5)])
+            
+            return {
+                "valor_inventario": val_inv,
+                "alertas_criticas": alertas
+            }
+        except Exception as e:
+            print(f"Excepción controlada en get_inventario_kpis: {e}")
+            return {"valor_inventario": 0, "alertas_criticas": 0}
+
+    def get_kpis_por_categoria(self, fecha_corte=None) -> list:
+        """Invoca RPC para extraer rendimiento y rotación agrupada por categoría."""
+        url = f"{self.url}/rpc/get_kpis_por_categoria_rpc"
+        try:
+            payload = {}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.session.post(url, json=payload if payload else None, headers=self.headers, timeout=5)
+            if res.status_code == 200:
+                return res.json()
+        except:
+            pass
+            
+        # Fallback local para agrupar KPIs por categoría desde la vista principal
+        try:
+            url_vista = f"{self.url}/vista_inventario_completo?select=categoria,costo_total_insumo,valor_ventas"
+            res_vista = self.session.get(url_vista, headers=self.headers, timeout=10)
+            if res_vista.status_code == 200:
+                data = res_vista.json()
+                categorias = {}
+                for item in data:
+                    cat = item.get("categoria") or "SIN CATEGORIA"
+                    if cat not in categorias:
+                        categorias[cat] = {
+                            "categoria": cat,
+                            "costo_inventario": 0.0,
+                            "ventas_totales": 0.0,
+                            "rotacion": 0.0,
+                            "rentabilidad": 0.0
+                        }
+                    categorias[cat]["costo_inventario"] += float(item.get("costo_total_insumo") or 0)
+                    categorias[cat]["ventas_totales"] += float(item.get("valor_ventas") or 0)
+                
+                result = []
+                for cat, vals in categorias.items():
+                    costo_inv = vals["costo_inventario"]
+                    vtas = vals["ventas_totales"]
+                    if costo_inv > 0:
+                        vals["rotacion"] = vtas / costo_inv
+                    if vtas > 0:
+                        vals["rentabilidad"] = 25.0 # Margen simulado 25% si hay ventas
+                    result.append(vals)
+                    
+                result.sort(key=lambda x: x["ventas_totales"], reverse=True)
+                return result
+        except Exception as e:
+            print(f"Error en get_kpis_por_categoria fallback: {e}")
+            
+        return []
+
+    def iniciar_snapshot_cierre(self, mes_periodo: str) -> dict:
+        """Invoca el RPC para generar el snapshot preliminar del mes."""
+        url = f"{self.url}/rpc/fn_snapshot_cierre_mensual"
+        try:
+            res = self.session.post(url, json={"p_mes": mes_periodo}, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+            return {"exito": False, "error": res.text}
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en iniciar_snapshot_cierre: el servidor no responde")
+        except Exception as e:
+            return {"exito": False, "error": str(e)}
+
+    def obtener_estado_cierre(self, mes_periodo: str) -> dict:
+        """Obtiene el resumen y los insumos del período especificado."""
+        url = f"{self.url}/rpc/fn_obtener_estado_cierre"
+        try:
+            res = self.session.post(url, json={"p_mes": mes_periodo}, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                return data if data is not None else {}
+            return {}
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en obtener_estado_cierre: el servidor no responde")
+        except Exception as e:
+            print(f"Error en obtener_estado_cierre: {e}")
+            return {}
+
+    def registrar_conteo_fisico(self, id_auditoria: str, cantidad: float, costo: float = None, observacion: str = None) -> dict:
+        """Registra el conteo físico y genera ajustes si existe diferencia."""
+        url = f"{self.url}/rpc/fn_registrar_conteo_fisico"
+        payload = {
+            "p_id_auditoria": id_auditoria,
+            "p_cantidad_fisica": cantidad
+        }
+        if costo is not None:
+            payload["p_costo_ajuste"] = costo
+        if observacion:
+            payload["p_observacion"] = observacion
+            
+        try:
+            res = self.session.post(url, json=payload, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+            return {"exito": False, "error": res.text}
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en registrar_conteo_fisico: el servidor no responde")
+        except Exception as e:
+            return {"exito": False, "error": str(e)}
+
+    def aceptar_stock_sistema(self, id_auditoria: str) -> dict:
+        """Acepta el stock calculado por el sistema sin conteo físico."""
+        url = f"{self.url}/rpc/fn_aceptar_stock_sistema"
+        try:
+            res = self.session.post(url, json={"p_id_auditoria": id_auditoria}, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+            return {"exito": False, "error": res.text}
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en aceptar_stock_sistema: el servidor no responde")
+        except Exception as e:
+            return {"exito": False, "error": str(e)}
+
+    def aprobar_cierre_mes(self, id_periodo: str, aprobado_por: str) -> dict:
+        """Cierra el período y consolida el inventario inicial del mes siguiente."""
+        url = f"{self.url}/rpc/fn_aprobar_cierre_mes"
+        try:
+            res = self.session.post(url, json={"p_id_periodo": id_periodo, "p_aprobado_por": aprobado_por}, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+            return {"exito": False, "error": res.text}
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en aprobar_cierre_mes: el servidor no responde")
+        except Exception as e:
+            return {"exito": False, "error": str(e)}
+
+    def get_catalogo_costos(self) -> dict:
+        """Obtiene un diccionario con los costos actuales del catálogo de insumos"""
+        url = f"{self.url}/catalogo_insumos?select=codigo_insumo,costo_unitario"
+        try:
+            res = self.session.get(url, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return {item.get('codigo_insumo'): float(item.get('costo_unitario') or 0) for item in res.json()}
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_catalogo_costos: el servidor no responde")
+        except Exception as e:
+            print(f"Error get_catalogo_costos: {e}")
+        return {}
+
+    def get_insumo_detalle(self, codigo: str) -> dict:
+        """Recupera el nombre, costo, precio y stock de un insumo específico para el autocompletado."""
+        url = f"{self.url}/catalogo_insumos?codigo_insumo=eq.{codigo}&select=nombre,costo_unitario,precio_venta,stock_actual"
+        try:
+            res = self.session.get(url, headers=self.headers, timeout=10)
+            if res.status_code == 200 and len(res.json()) > 0:
+                return res.json()[0]
+        except Exception:
+            pass
+        return {}
+
+    def get_ajustes_inventario(self) -> list:
+        """Obtiene el historial de ajustes cruzado con el catálogo para extraer el nombre."""
+        url = f"{self.url}/registro_ajustes_inventario?select=*,catalogo_insumos(nombre,categoria)&order=fecha_ajuste.desc"
+        try:
+            res = self.session.get(url, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_ajustes_inventario: el servidor no responde")
+        except Exception as e:
+            pass
+
+    def get_historial_facturas_dia(self, fecha_dia: str) -> list:
+        """
+        Recupera todas las facturas y documentos cargados en un día específico (YYYY-MM-DD),
+        agrupados por número de factura/entrada con su hora de registro y valor total.
+        """
+        facturas = []
+        try:
+            # 1. Compras del día
+            url_c = f"{self.url}/registro_compras?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=numero_entrada,numero_factura,proveedor,costo_total,fecha&order=fecha.desc"
+            res_c = self.session.get(url_c, headers=self.headers, timeout=10)
+            if res_c.status_code == 200:
+                agrupado_c = {}
+                for r in res_c.json():
+                    ref = r.get("numero_entrada") or r.get("numero_factura")
+                    if not ref: continue
+                    if ref not in agrupado_c:
+                        agrupado_c[ref] = {
+                            "tipo": "COMPRA",
+                            "ref": ref,
+                            "factura": r.get("numero_factura", "N/A"),
+                            "proveedor": r.get("proveedor") or "Clientes Varios",
+                            "total": 0.0,
+                            "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
+                        }
+                    agrupado_c[ref]["total"] += float(r.get("costo_total") or 0)
+                facturas.extend(list(agrupado_c.values()))
+
+            # 2. Ventas del día (Diferenciando POS y Remisión)
+            url_v = f"{self.url}/registro_ventas?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=factura_no,tipo_documento,total,fecha&order=fecha.desc"
+            res_v = self.session.get(url_v, headers=self.headers, timeout=10)
+            if res_v.status_code == 200:
+                agrupado_v = {}
+                for r in res_v.json():
+                    ref = r.get("factura_no")
+                    if not ref: continue
+                    if ref not in agrupado_v:
+                        tipo_doc = r.get("tipo_documento") or "Factura POS"
+                        agrupado_v[ref] = {
+                            "tipo": f"VENTA_{'POS' if 'POS' in tipo_doc.upper() else 'REVISION'}",
+                            "ref": ref,
+                            "factura": ref,
+                            "subtipo": tipo_doc,
+                            "total": 0.0,
+                            "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
+                        }
+                    agrupado_v[ref]["total"] += float(r.get("total") or 0)
+                facturas.extend(list(agrupado_v.values()))
+
+            # 3. Ajustes del día
+            url_a = f"{self.url}/registro_ajustes_inventario?fecha_ajuste=gte.{fecha_dia}T00:00:00&fecha_ajuste=lte.{fecha_dia}T23:59:59&select=id_ajuste,tipo_ajuste,motivo_observacion,costo_total_ajuste,fecha_ajuste&order=fecha_ajuste.desc"
+            res_a = self.session.get(url_a, headers=self.headers, timeout=10)
+            if res_a.status_code == 200:
+                for r in res_a.json():
+                    es_entrada = r.get("tipo_ajuste") in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
+                    facturas.append({
+                        "tipo": "AJUSTE_ENTRADA" if es_entrada else "AJUSTE_SALIDA",
+                        "ref": r.get("id_ajuste"),
+                        "factura": r.get("motivo_observacion") or "Ajuste Directo",
+                        "total": float(r.get("costo_total_ajuste") or 0),
+                        "hora": r.get("fecha_ajuste", "") if len(r.get("fecha_ajuste", "")) >= 16 else "12:00"
+                    })
+
+        except Exception as ex:
+            print(f"Error cargando historial del día: {ex}")
+
+        # Ordenar por hora descendente (más reciente arriba)
+        facturas.sort(key=lambda x: x["hora"], reverse=True)
+        return facturas
+
+    def get_codigos_factura_especifica(self, tipo: str, ref: str) -> list:
+        try:
+            if tipo == "COMPRA":
+                res = self.session.get(f"{self.url}/registro_compras?numero_entrada=eq.{ref}&select=codigo_insumo", headers=self.headers, timeout=5)
+            elif tipo.startswith("VENTA"):
+                res = self.session.get(f"{self.url}/registro_ventas?factura_no=eq.{ref}&select=codigo_insumo", headers=self.headers, timeout=5)
+            else:
+                res = self.session.get(f"{self.url}/registro_ajustes_inventario?id_ajuste=eq.{ref}&select=codigo_insumo", headers=self.headers, timeout=5)
+            
+            if res.status_code == 200:
+                return list(set([r.get("codigo_insumo") for r in res.json() if r.get("codigo_insumo")]))
+        except: pass
+        return []
+        return []
+
+    def insert_ajuste_individual(self, datos: dict) -> bool:
+        """Inserta un nuevo registro de ajuste operativo."""
+        url = f"{self.url}/registro_ajustes_inventario"
+        try:
+            res = self.session.post(url, json=datos, headers=self.headers, timeout=10)
+            return res.status_code in (200, 201, 204)
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en insert_ajuste_individual: el servidor no responde")
+        except Exception as e:
+            return False
+
+    def anular_ajuste(self, id_ajuste: str) -> bool:
+        """Cambia el estado del ajuste a ANULADO. El trigger en la BD revertirá el inventario."""
+        url = f"{self.url}/registro_ajustes_inventario?id_ajuste=eq.{id_ajuste}"
+        try:
+            res = self.session.patch(url, json={"estado_registro": "ANULADO"}, headers=self.headers, timeout=10)
+            return res.status_code in (200, 204)
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en anular_ajuste: el servidor no responde")
+        except Exception as e:
+            return False
+
+    def get_periodos_inventario(self) -> list:
+        """Obtiene la lista de periodos de inventario ordenados descendentemente."""
+        url = f"{self.url}/periodos_inventario?select=*&order=mes_periodo.desc"
+        try:
+            res = self.session.get(url, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+            return []
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_periodos_inventario: el servidor no responde")
+            return []
+        except Exception as e:
+            return []
+
+    def get_proyeccion_ventas(self, fecha_corte=None) -> float:
+        """Invoca RPC get_proyeccion_ventas_rpc"""
+        url = f"{self.url}/rpc/get_proyeccion_ventas_rpc"
+        try:
+            payload = {}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.session.post(url, json=payload if payload else None, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                return float(data) if data is not None else 0.0
+            return 0.0
+        except requests.exceptions.RequestException:
+            print(f"Error de conexión con Supabase en get_proyeccion_ventas: el servidor no responde")
+            return 0.0
+        except Exception:
+            return 0.0
+
+    def get_ajustes_mes(self, mes_actual: str, fecha_corte=None) -> list:
+        """Invoca RPC get_ajustes_mes_rpc"""
+        url = f"{self.url}/rpc/get_ajustes_mes_rpc"
+        try:
+            payload = {"mes_actual": mes_actual}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.session.post(url, json=payload, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                return data if data is not None else []
+            return []
+        except requests.exceptions.RequestException:
+            print(f"Error de conexión con Supabase en get_ajustes_mes: el servidor no responde")
+            return []
+        except Exception:
+            return []
+
+    def aceptar_stock_sistema_masivo(self, ids_auditoria: list) -> dict:
+        url = f"{self.url}/rpc/fn_aceptar_stock_sistema_masivo"
+        try:
+            res = self.session.post(url, json={"p_ids": ids_auditoria}, headers=self.headers, timeout=15)
+            if res.status_code == 200: return res.json()
+            return {"exito": False, "error": res.text}
+        except Exception as e: return {"exito": False, "error": str(e)}
+
+    def eliminar_ajuste_cierre(self, id_auditoria: str) -> dict:
+        url = f"{self.url}/rpc/fn_eliminar_ajuste_cierre"
+        try:
+            res = self.session.post(url, json={"p_id_auditoria": id_auditoria}, headers=self.headers, timeout=10)
+            if res.status_code == 200: return res.json()
+            return {"exito": False, "error": res.text}
+        except Exception as e: return {"exito": False, "error": str(e)}
+
+    def get_rendimiento_categorias_periodo(self, fecha_inicio=None, fecha_fin=None) -> list:
+        """
+        Calcula el rendimiento y costo acumulado real por categoría hasta 'fecha_fin'
+        usando la vista/RPC de inventario calculado.
+        """
+        categorias_map = {}
+        try:
+            # Obtener todos los insumos calculados hasta fecha_fin
+            insumos, _ = self.get_insumos(page=1, page_size=99999, fecha_corte=fecha_fin)
+            
+            for item in insumos:
+                cat_nombre = (item.get("categoria") or "SIN CATEGORÍA").strip().upper()
+                
+                # Stock real calculado por el servidor (vista o RPC)
+                stock = float(item.get("stock_actual") or item.get("stock_real") or 0)
+                costo_u = float(item.get("costo_unitario") or 0)
+                precio_v = float(item.get("precio_venta") or 0)
+                
+                # Costo total calculado por la BD o fallback producto
+                inv_costo_item = float(item.get("costo_total_insumo") or (stock * costo_u))
+                proy_venta_item = stock * precio_v
+                ventas_item = float(item.get("valor_ventas") or 0)
+                cant_ventas = float(item.get("ventas") or 0)
+                costo_vendido_item = cant_ventas * costo_u
+    
+                if cat_nombre not in categorias_map:
+                    categorias_map[cat_nombre] = {
+                        "categoria": cat_nombre,
+                        "inventario_costo": 0.0,
+                        "proyeccion_venta": 0.0,
+                        "ventas_realizadas": 0.0,
+                        "costo_vendido": 0.0
+                    }
+    
+                categorias_map[cat_nombre]["inventario_costo"] += inv_costo_item
+                categorias_map[cat_nombre]["proyeccion_venta"] += proy_venta_item
+                categorias_map[cat_nombre]["ventas_realizadas"] += ventas_item
+                categorias_map[cat_nombre]["costo_vendido"] += costo_vendido_item
+    
+        except Exception as ex:
+            print(f"Error calculando rendimiento acumulado por categoría: {ex}")
+    
+        # Formatear lista final con indicadores matemáticos reales
+        resultado = []
+        for cat_nombre, d in categorias_map.items():
+            inv_c = d["inventario_costo"]
+            v_real = d["ventas_realizadas"]
+            proy_v = d["proyeccion_venta"]
+            c_vend = d["costo_vendido"]
+    
+            cumplimiento = (v_real / proy_v * 100) if proy_v > 0 else 0.0
+            rotacion = (v_real / inv_c) if inv_c > 0 else 0.0
+            rendimiento = ((v_real - c_vend) / v_real * 100) if v_real > 0 else (100.0 if v_real == 0 else 0.0)
+    
+            resultado.append({
+                "categoria": cat_nombre,
+                "inventario_costo": inv_c,
+                "ventas_realizadas": v_real,
+                "proyeccion_venta": proy_v,
+                "cumplimiento_pct": cumplimiento,
+                "rotacion": rotacion,
+                "rendimiento_pct": rendimiento
+            })
+    
+        # Ordenar por costo de inventario descendente
+        resultado.sort(key=lambda x: (x["inventario_costo"], x["ventas_realizadas"]), reverse=True)
+        return resultado
 ````
