@@ -48,20 +48,19 @@ class AjustesInventarioView(ft.Container):
         self.search_input = ft.TextField(
             hint_text="Buscar código o nombre...",
             prefix_icon=ft.icons.SEARCH,
-            height=40,
+            height=38,
             expand=2,
-            content_padding=10,
-            on_change=lambda e: self._on_filter_change()
+            dense=True,
+            text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+            on_submit=lambda e: self._on_filter_change()
         )
         
         self.date_picker = ft.DatePicker(on_change=lambda e: self._on_filter_change())
-        self.btn_date = ft.OutlinedButton(
-            text="Filtro Fecha",
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=lambda e: self.date_picker.pick_date(),
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=40,
-            width=150
+        self.btn_date = ft.IconButton(
+            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
+            tooltip="Filtrar por Fecha de Ajuste",
+            on_click=lambda e: self.date_picker.pick_date()
         )
         self.btn_clear_date = ft.IconButton(
             icon=ft.icons.CLEAR,
@@ -72,13 +71,15 @@ class AjustesInventarioView(ft.Container):
 
         self.drop_tipo = ft.Dropdown(
             options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("Entrada"), ft.dropdown.Option("Salida")],
-            value="Todos", label="Tipo", dense=True, width=150, height=40, content_padding=10, on_change=lambda e: self._on_filter_change()
+            value="Todos", label="Tipo", dense=True, width=150, height=38, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8), on_change=lambda e: self._on_filter_change()
         )
         
         motivos_combinados = ["Todos"] + list(self.mapa_motivos.keys())
         self.drop_motivo = ft.Dropdown(
             options=[ft.dropdown.Option(m) for m in motivos_combinados],
-            value="Todos", label="Motivo", dense=True, width=200, height=40, content_padding=10, on_change=lambda e: self._on_filter_change()
+            value="Todos", label="Motivo", dense=True, width=200, height=38, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8), on_change=lambda e: self._on_filter_change()
         )
 
         self.btn_prev = ft.IconButton(icon=ft.icons.ARROW_BACK_IOS, on_click=self._prev_page, disabled=True)
@@ -377,14 +378,16 @@ class AjustesInventarioView(ft.Container):
 
     def _clear_date(self, e):
         self.date_picker.value = None
-        self.btn_date.text = "Filtro Fecha"
+        self.btn_date.tooltip = "Filtrar por Fecha de Ajuste"
+        self.btn_date.icon_color = None
         self.btn_clear_date.visible = False
         self._on_filter_change()
         
     def _on_filter_change(self):
         self.current_page = 1
         if self.date_picker.value:
-            self.btn_date.text = self.date_picker.value.strftime("%Y-%m-%d")
+            self.btn_date.tooltip = f"Fecha: {self.date_picker.value.strftime('%Y-%m-%d')}"
+            self.btn_date.icon_color = "blue"
             self.btn_clear_date.visible = True
         self.render_table()
         

@@ -49,13 +49,15 @@ class InventarioView(ft.Container):
         self.category_dropdown = ft.Dropdown(
             options=[ft.dropdown.Option("Todas")],
             value="Todas",
-            label="Categoría",
-            width=220,
+            hint_text="Categoría",
+            width=170,
+            dense=True,
             border_radius=8,
             bgcolor="white",
-            height=40,
-            border_color=ft.colors.with_opacity(0.2, Config.COLOR_PRIMARY),
-            content_padding=10,
+            text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=12, vertical=8),
+            border_color=ft.colors.with_opacity(0.15, "black"),
+            focused_border_color=Config.COLOR_PRIMARY,
             on_change=self.on_search
         )
         
@@ -64,13 +66,29 @@ class InventarioView(ft.Container):
             on_change=self.on_date_change,
             on_dismiss=self.on_date_dismiss,
         )
-        self.btn_date = ft.OutlinedButton(
-            text="Filtrar por Fecha",
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=self.open_date_picker,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=40,
-            width=200
+        
+        self.btn_date_icon = ft.IconButton(
+            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
+            tooltip="Filtrar por Fecha de Corte",
+            on_click=self.abrir_modal_info_fecha
+        )
+
+        self.dlg_filtro_fecha_info = ft.AlertDialog(
+            title=ft.Text("Filtrar información por fecha", weight="bold", color=Config.COLOR_PRIMARY, size=16),
+            content=ft.Container(
+                width=400,
+                content=ft.Column([
+                    ft.Text(
+                        "Selecciona una fecha de corte para calcular la fotografía exacta del inventario en ese día.\n\n"
+                        "El sistema reconstruirá el Stock Inicial, Compras, Ventas y Ajustes acumulados hasta la fecha seleccionada.",
+                        size=12, color="grey"
+                    )
+                ], tight=True)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: self.cerrar_modal_info_fecha()),
+                ft.ElevatedButton("Seleccionar Fecha", icon=ft.icons.DATE_RANGE, bgcolor=Config.COLOR_PRIMARY, color="white", on_click=self.lanzar_date_picker)
+            ]
         )
         self.btn_clear_date = ft.IconButton(
             icon=ft.icons.CLEAR,
@@ -331,10 +349,94 @@ class InventarioView(ft.Container):
         
         self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
         
+        self.panel_abierto = False
+        self.fecha_historial_activa = datetime.now().strftime("%Y-%m-%d")
+        self.filtro_tipo_timeline = "TODO" # "TODO", "COMPRAS", "VENTAS", "AJUSTES"
+        self.codigos_filtro_activos = None
+
+        self.date_picker_timeline = ft.DatePicker(on_change=self.on_date_timeline_change)
+
+        self.lbl_tot_compras_dia = ft.Text("$0", size=11, weight="bold", color="teal700")
+        self.lbl_tot_ventas_dia = ft.Text("$0", size=11, weight="bold", color="blue700")
+        self.lbl_tot_neto_dia = ft.Text("$0", size=11, weight="bold")
+
+        kpis_dia_row = ft.Container(
+            content=ft.Row([
+                ft.Column([ft.Text("Compras Día", size=9, color="grey"), self.lbl_tot_compras_dia], spacing=1),
+                ft.Container(width=1, height=20, bgcolor="#e0e0e0"),
+                ft.Column([ft.Text("Ventas Día", size=9, color="grey"), self.lbl_tot_ventas_dia], spacing=1),
+                ft.Container(width=1, height=20, bgcolor="#e0e0e0"),
+                ft.Column([ft.Text("Balance", size=9, color="grey"), self.lbl_tot_neto_dia], spacing=1),
+            ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
+            padding=8, bgcolor="#f8f9fa", border_radius=6, border=ft.border.all(1, "#e0e0e0")
+        )
+
+        self.chip_filtro_timeline = ft.SegmentedButton(
+            segments=[
+                ft.Segment(value="TODO", label=ft.Text("Todo", size=10)),
+                ft.Segment(value="COMPRAS", label=ft.Text("Compras", size=10)),
+                ft.Segment(value="VENTAS", label=ft.Text("Ventas", size=10)),
+                ft.Segment(value="AJUSTES", label=ft.Text("Ajustes", size=10)),
+            ],
+            selected={"TODO"},
+            on_change=self.on_tipo_timeline_change,
+            show_selected_icon=False
+        )
+
+        self.btn_fecha_timeline = ft.OutlinedButton(
+            self.fecha_historial_activa,
+            icon=ft.icons.CALENDAR_TODAY,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), padding=5),
+            height=30,
+            on_click=lambda e: self.date_picker_timeline.pick_date()
+        )
+
+        self.panel_timeline_list = ft.ListView(expand=True, spacing=6)
+
+        self.right_panel = ft.Container(
+            width=0, visible=False, bgcolor="white", border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color=ft.colors.with_opacity(0.05, "black")),
+            animate=ft.animation.Animation(250, ft.AnimationCurve.EASE_OUT),
+            content=ft.Column([
+                # Cabecera Panel
+                ft.Container(
+                    content=ft.Row([
+                        ft.Text("Historial Diario", weight="bold", size=13, color=Config.COLOR_PRIMARY, expand=True),
+                        self.btn_fecha_timeline,
+                        ft.IconButton(ft.icons.CLOSE, icon_size=16, on_click=self.toggle_right_panel)
+                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    padding=10, bgcolor="#f4f6f8", border_radius=ft.border_radius.only(top_left=8, top_right=8)
+                ),
+                ft.Container(content=kpis_dia_row, padding=ft.padding.symmetric(horizontal=10)),
+                ft.Container(content=self.chip_filtro_timeline, padding=ft.padding.symmetric(horizontal=10), alignment=ft.alignment.center),
+                ft.Divider(height=1, color="#e0e0e0"),
+                ft.Container(content=self.panel_timeline_list, expand=True, padding=10)
+            ], spacing=8)
+        )
+
+        self.btn_toggle_panel = ft.IconButton(
+            icon=ft.icons.HISTORY_TOGGLE_OFF,
+            tooltip="Ver Historial del Día",
+            on_click=self.toggle_right_panel
+        )
+
+        self.filtro_badge = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.FILTER_ALT, size=16, color="white"),
+                ft.Text("", size=12, color="white", weight="bold"),
+                ft.IconButton(ft.icons.CLOSE, icon_size=14, icon_color="white", on_click=self.limpiar_filtro_factura, style=ft.ButtonStyle(padding=0), width=24, height=24)
+            ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor="blue700",
+            padding=ft.padding.symmetric(horizontal=10, vertical=4),
+            border_radius=15,
+            visible=False
+        )
+
         self.lbl_titulo = ft.Text("Catálogo de Insumos", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.content = ft.Column([
+        main_column = ft.Column([
             self.progress_bar,
-            self.lbl_titulo,
+            ft.Row([self.lbl_titulo, self.filtro_badge], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             self.summary_container,
             
             # Toolbar de Filtros
@@ -342,18 +444,10 @@ class InventarioView(ft.Container):
                 content=ft.Row([
                     self.search_input,
                     self.category_dropdown,
-                    self.btn_date,
+                    self.btn_date_icon,
                     self.btn_clear_date,
-                    ft.ElevatedButton(
-                        text="Buscar", 
-                        icon=ft.icons.SEARCH,
-                        bgcolor=Config.COLOR_PRIMARY,
-                        color="white",
-                        height=40,
-                        on_click=self.on_search,
-                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-                    ),
                     self.btn_toggle_view,
+                    self.btn_toggle_panel,
                     self.btn_fullscreen
                 ]),
                 bgcolor="white",
@@ -378,6 +472,11 @@ class InventarioView(ft.Container):
                 padding=ft.padding.only(top=10)
             ),
             self.action_bar
+        ], expand=True, spacing=10)
+
+        self.content = ft.Row([
+            main_column,
+            self.right_panel
         ], expand=True, spacing=10)
         
         # No llamamos a los métodos aquí porque el control no está en la página todavía
@@ -404,7 +503,11 @@ class InventarioView(ft.Container):
         """Se ejecuta cuando la vista se agrega a la pantalla."""
         if self.date_picker not in self.page.overlay:
             self.page.overlay.append(self.date_picker)
-            self.safe_update()
+        if hasattr(self, "date_picker_timeline") and self.date_picker_timeline not in self.page.overlay:
+            self.page.overlay.append(self.date_picker_timeline)
+        if hasattr(self, "dlg_filtro_fecha_info") and self.dlg_filtro_fecha_info not in self.page.overlay:
+            self.page.overlay.append(self.dlg_filtro_fecha_info)
+        self.safe_update()
             
         # Lógica responsiva para la tabla
         def handle_resize(e):
@@ -494,7 +597,8 @@ class InventarioView(ft.Container):
             categoria=cat_val,
             fecha_corte=self.fecha_corte,
             sort_col=self.sort_col_name,
-            sort_asc=self.sort_is_asc
+            sort_asc=self.sort_is_asc,
+            codigos_filtro=self.codigos_filtro_activos
         )
         
         self.total_records = total
@@ -512,7 +616,8 @@ class InventarioView(ft.Container):
             categoria=cat_val,
             fecha_corte=self.fecha_corte,
             sort_col=self.sort_col_name,
-            sort_asc=self.sort_is_asc
+            sort_asc=self.sort_is_asc,
+            codigos_filtro=self.codigos_filtro_activos
         )
 
         proyeccion_global = 0.0
@@ -809,7 +914,8 @@ class InventarioView(ft.Container):
     def on_date_change(self, e):
         if self.date_picker.value:
             self.fecha_corte = self.date_picker.value.strftime("%Y-%m-%d")
-            self.btn_date.text = f"Fecha: {self.fecha_corte}"
+            self.btn_date_icon.tooltip = f"Fecha: {self.fecha_corte}"
+            self.btn_date_icon.icon_color = "blue"
             self.btn_clear_date.visible = True
             self.current_page = 1
             self.load_data()
@@ -821,11 +927,24 @@ class InventarioView(ft.Container):
     def clear_date(self, e):
         self.fecha_corte = None
         self.date_picker.value = None
-        self.btn_date.text = "Filtrar por Fecha"
+        self.btn_date_icon.tooltip = "Filtrar por Fecha de Corte"
+        self.btn_date_icon.icon_color = None
         self.btn_clear_date.visible = False
         self.current_page = 1
         self.load_data()
         self.safe_update()
+
+    def abrir_modal_info_fecha(self, e):
+        self.dlg_filtro_fecha_info.open = True
+        self.safe_update()
+
+    def cerrar_modal_info_fecha(self, e=None):
+        self.dlg_filtro_fecha_info.open = False
+        self.safe_update()
+
+    def lanzar_date_picker(self, e):
+        self.cerrar_modal_info_fecha()
+        self.date_picker.pick_date()
 
     def on_sort_table(self, e: ft.DataColumnSortEvent):
         """Delega el ordenamiento a la base de datos solicitando una nueva carga de datos."""
@@ -892,37 +1011,63 @@ class InventarioView(ft.Container):
         proyeccion_venta = stock_actual * p_venta if stock_actual > 0 else 0
         participacion = (costo_total_insumo / self.valor_total_inventario) * 100 if getattr(self, 'valor_total_inventario', 0) > 0 else 0
         
-        # Badges
-        badge_costo = ft.Container(content=ft.Text(f"Costo U: ${costo_u:,.0f}", size=11, weight="bold", color="black87"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="grey100", border_radius=15)
-        badge_pventa = ft.Container(content=ft.Text(f"Precio de Venta: ${p_venta:,.0f}", size=11, weight="bold", color="black87"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="grey100", border_radius=15)
-        badge_peso = ft.Container(content=ft.Text(f"Peso Inv: {participacion:.1f}%", size=11, weight="bold", color="purple900"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="#f3e5f5", border_radius=15)
-        badge_proy = ft.Container(content=ft.Text(f"Proyección de Venta: ${proyeccion_venta:,.0f}", size=11, weight="bold", color="blue900"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="#e3f2fd", border_radius=15)
-        badge_stock = ft.Container(content=ft.Text(f"Stock Actual: {stock_actual:g} unds ($ {costo_total_insumo:,.0f})", size=11, weight="bold", color="green900"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="#e8f5e9", border_radius=15)
+        # Badges Pastel
+        badge_costo = ft.Container(content=ft.Text(f"Costo U: ${costo_u:,.0f}", size=11, weight="bold", color="grey800"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="grey100", border_radius=15)
+        badge_pventa = ft.Container(content=ft.Text(f"Precio Venta: ${p_venta:,.0f}", size=11, weight="bold", color="grey800"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="grey100", border_radius=15)
+        badge_peso = ft.Container(content=ft.Text(f"Peso Inv: {participacion:.1f}%", size=11, weight="bold", color="purple800"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="#f3e5f5", border_radius=15)
+        badge_proy = ft.Container(content=ft.Text(f"Proy Venta: ${proyeccion_venta:,.0f}", size=11, weight="bold", color="blue800"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="#e3f2fd", border_radius=15)
+        
+        color_bg_stock = "#e8f5e9" if stock_actual > 0 else "#ffebee"
+        color_txt_stock = "green800" if stock_actual > 0 else "red800"
+        badge_stock = ft.Container(content=ft.Text(f"Stock Actual: {stock_actual:g} unds ($ {costo_total_insumo:,.0f})", size=11, weight="bold", color=color_txt_stock), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor=color_bg_stock, border_radius=15)
         
         contenedor_badges = ft.Row(
             [badge_costo, badge_pventa, badge_peso, badge_proy, badge_stock], 
             spacing=5, 
-            alignment=ft.MainAxisAlignment.END,
+            alignment=ft.MainAxisAlignment.START,
             wrap=True
         )
         
         def crear_bloque_metricas(titulo, cantidad, valor, color_cant, color_valor):
-            return ft.Column([
-                ft.Text(titulo, size=10, color="grey", weight="bold"),
-                ft.Text(f"{cantidad:g} unds", size=12, weight="bold", color=color_cant),
-                ft.Text(f"${valor:,.0f}", size=12, color=color_valor)
-            ], spacing=2, alignment=ft.MainAxisAlignment.START)
+            return ft.Container(
+                expand=True,
+                content=ft.Column([
+                    ft.Text(titulo, size=9, color="grey", weight="bold"),
+                    ft.Text(f"{cantidad:g} unds", size=11, weight="bold", color=color_cant, no_wrap=True),
+                    ft.Text(f"${valor:,.0f}", size=11, color=color_valor, weight="w500", no_wrap=True)
+                ], spacing=1, alignment=ft.MainAxisAlignment.CENTER),
+                padding=ft.padding.symmetric(horizontal=4)
+            )
+
+        def crear_separador_vertical():
+            return ft.Container(
+                width=1,
+                height=28,
+                bgcolor="#e0e0e0",
+                margin=ft.padding.symmetric(horizontal=6)
+            )
             
         color_neto = "red" if valor_neto_ajustes < 0 else ("green" if valor_neto_ajustes > 0 else "grey")
             
-        fila_resultados = ft.Row([
-            crear_bloque_metricas("INICIAL", stock_inicial, valor_inicial, "grey", "grey"),
-            crear_bloque_metricas("COMPRAS", compras, valor_compras, "#2ecca0", "black87"),
-            crear_bloque_metricas("VENTAS", ventas, valor_ventas, "#42a5f5", "black87"),
-            crear_bloque_metricas("AJUSTES ENTRANTES", ajustes_entrantes, valor_ajustes_entrantes, "green", "green"),
-            crear_bloque_metricas("AJUSTES SALIENTES", ajustes_salientes, valor_ajustes_salientes, "red", "red"),
-            crear_bloque_metricas("NETO DEL AJUSTE", neto_ajustes, valor_neto_ajustes, color_neto, color_neto)
-        ], spacing=20, wrap=True)
+        fila_resultados = ft.Container(
+            content=ft.Row([
+                crear_bloque_metricas("INICIAL", stock_inicial, valor_inicial, "grey", "grey"),
+                crear_separador_vertical(),
+                crear_bloque_metricas("COMPRAS", compras, valor_compras, "green700", "black87"),
+                crear_separador_vertical(),
+                crear_bloque_metricas("VENTAS", ventas, valor_ventas, "blue700", "black87"),
+                crear_separador_vertical(),
+                crear_bloque_metricas("AJUSTES (+)", ajustes_entrantes, valor_ajustes_entrantes, "green700", "green700"),
+                crear_separador_vertical(),
+                crear_bloque_metricas("AJUSTES (-)", ajustes_salientes, valor_ajustes_salientes, "red700", "red700"),
+                crear_separador_vertical(),
+                crear_bloque_metricas("NETO", neto_ajustes, valor_neto_ajustes, color_neto, color_neto)
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor="#fafafa",
+            padding=10,
+            border_radius=8,
+            border=ft.border.all(1, "#f0f0f0")
+        )
         
         tarjeta = ft.Container(
             bgcolor="white",
@@ -931,15 +1076,149 @@ class InventarioView(ft.Container):
             border=ft.border.all(1, "#e0e0e0"),
             content=ft.Column([
                 ft.Row([
-                    ft.Text(f"{categoria} | {ubicacion}", size=12, color="grey"),
-                    contenedor_badges
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Row([
-                    ft.Text(f"[{codigo}] {nombre}", size=15, weight="bold", expand=True),
-                    ft.OutlinedButton(text="Editar Insumo", icon=ft.icons.EDIT, on_click=lambda e, i=item, r=row: self.abrir_edicion_desde_tarjeta(i, r))
-                ]),
+                    ft.Container(
+                        content=ft.Text(f"{categoria} | {ubicacion}", size=10, weight="bold", color="grey700"),
+                        bgcolor="#f5f5f5", padding=ft.padding.symmetric(horizontal=8, vertical=2), border_radius=4
+                    ),
+                    ft.Text(f"[{codigo}] {nombre}", size=14, weight="bold", color="black87", expand=True),
+                    ft.IconButton(icon=ft.icons.EDIT, icon_size=16, tooltip="Editar Insumo", on_click=lambda e, i=item, r=row: self.abrir_edicion_desde_tarjeta(i, r))
+                ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                contenedor_badges,
                 fila_resultados
-            ], spacing=8)
+            ], spacing=10)
         )
         return tarjeta
+
+    def toggle_right_panel(self, e):
+        self.panel_abierto = not self.panel_abierto
+        self.right_panel.width = 340 if self.panel_abierto else 0
+        self.right_panel.visible = self.panel_abierto
+        self.right_panel.padding = 0
+        self.btn_toggle_panel.icon = ft.icons.HISTORY if self.panel_abierto else ft.icons.HISTORY_TOGGLE_OFF
+        if self.panel_abierto:
+            self.cargar_historial_panel()
+        self.safe_update()
+
+    def on_date_timeline_change(self, e):
+        if self.date_picker_timeline.value:
+            self.fecha_historial_activa = self.date_picker_timeline.value.strftime("%Y-%m-%d")
+            self.btn_fecha_timeline.text = self.fecha_historial_activa
+            self.cargar_historial_panel()
+
+    def on_tipo_timeline_change(self, e):
+        if e.control.selected:
+            self.filtro_tipo_timeline = list(e.control.selected)[0]
+            self.cargar_historial_panel()
+
+    def cargar_historial_panel(self):
+        if not getattr(self, "page", None): return
+
+        def worker():
+            facturas = self.db.get_historial_facturas_dia(self.fecha_historial_activa)
+
+            tot_compras = sum([f["total"] for f in facturas if f["tipo"] == "COMPRA"])
+            tot_ventas = sum([f["total"] for f in facturas if f["tipo"].startswith("VENTA")])
+            neto = tot_ventas - tot_compras
+
+            self.lbl_tot_compras_dia.value = f"${tot_compras:,.0f}"
+            self.lbl_tot_ventas_dia.value = f"${tot_ventas:,.0f}"
+            self.lbl_tot_neto_dia.value = f"${neto:,.0f}"
+            self.lbl_tot_neto_dia.color = "green700" if neto >= 0 else "red700"
+
+            self.panel_timeline_list.controls.clear()
+
+            for f in facturas:
+                tipo = f["tipo"]
+                # Aplicar filtro de pestaña
+                if self.filtro_tipo_timeline == "COMPRAS" and tipo != "COMPRA": continue
+                if self.filtro_tipo_timeline == "VENTAS" and not tipo.startswith("VENTA"): continue
+                if self.filtro_tipo_timeline == "AJUSTES" and not tipo.startswith("AJUSTE"): continue
+
+                self.panel_timeline_list.controls.append(self._crear_card_factura_timeline(f))
+
+            if not self.panel_timeline_list.controls:
+                self.panel_timeline_list.controls.append(
+                    ft.Container(content=ft.Text("Sin movimientos registrados en esta fecha.", size=11, color="grey"), padding=20, alignment=ft.alignment.center)
+                )
+
+            self.safe_update()
+
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _crear_card_factura_timeline(self, f):
+        tipo = f["tipo"]
+
+        # Estilos por tipo
+        if tipo == "COMPRA":
+            badge_bg, badge_col, badge_txt = "#e6f4ea", "teal800", f"COMPRA | {f['proveedor']}"
+            icon_mat, icon_col = ft.icons.SHOPPING_CART, "teal"
+        elif "VENTA" in tipo:
+            subtipo = f.get("subtipo", "POS")
+            badge_bg, badge_col = ("#e8f0fe", "blue800") if "POS" in tipo else ("#f3e8fd", "purple800")
+            badge_txt = f"VENTA ({subtipo})"
+            icon_mat, icon_col = ft.icons.RECEIPT_LONG, "blue"
+        else:
+            is_ent = tipo == "AJUSTE_ENTRADA"
+            badge_bg, badge_col = ("#e6f4ea", "green800") if is_ent else ("#fce8e6", "red800")
+            badge_txt = f"AJUSTE {'ENTRADA' if is_ent else 'SALIDA'}"
+            icon_mat, icon_col = ft.icons.TUNE, "orange"
+
+        badge = ft.Container(
+            content=ft.Text(badge_txt, size=9, weight="bold", color=badge_col, no_wrap=True),
+            padding=ft.padding.symmetric(horizontal=6, vertical=2), bgcolor=badge_bg, border_radius=10
+        )
+
+        ref = f["ref"]
+        desc_fact = f"Fact/Doc: {f['factura']}"
+
+        card = ft.Container(
+            content=ft.Row([
+                ft.Icon(icon_mat, size=20, color=icon_col),
+                # Detalle Factura
+                ft.Column([
+                    badge,
+                    ft.Text(desc_fact, size=11, weight="bold", color="black87", no_wrap=True),
+                ], expand=True, spacing=2),
+
+                # Total Monetario
+                ft.Text(f"${f['total']:,.0f}", size=11, weight="bold", color="black87")
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+            padding=8,
+            border_radius=6,
+            bgcolor="#ffffff",
+            border=ft.border.all(1, "#eeeeee"),
+            on_click=lambda e, t=tipo, r=ref, d=desc_fact: self.aplicar_filtro_factura(t, r, d),
+            ink=True
+        )
+        return card
+
+    def aplicar_filtro_factura(self, tipo, ref, desc):
+        self.progress_bar.visible = True
+        self.safe_update()
+
+        def worker():
+            codigos = self.db.get_codigos_factura_especifica(tipo, ref)
+            self.codigos_filtro_activos = codigos if codigos else []
+            self.current_page = 1
+
+            # Actualizar Badge superior
+            lbl = self.filtro_badge.content.controls[1]
+            lbl.value = f"Filtrado por: {desc}"
+            self.filtro_badge.visible = True
+
+            self._fetch_data_worker()
+
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
+
+    def limpiar_filtro_factura(self, e=None):
+        self.codigos_filtro_activos = None
+        self.current_page = 1
+        self.filtro_badge.visible = False
+        self.progress_bar.visible = True
+        self.safe_update()
+        
+        import threading
+        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
 

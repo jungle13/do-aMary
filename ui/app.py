@@ -16,16 +16,8 @@ class AppLayout(ft.Row):
         self.expand = True
         self.spacing = 0
         
-        # Vistas
-        self.views = {
-            "dashboard": DashboardView(),
-            "inventario": InventarioView(),
-            "compras": ComprasView(),
-            "ventas": VentasView(),
-            "ajustes_inventario": AjustesInventarioView(),
-            "cierre_mes": CierreInventarioView(),
-            "informes": InformesView(),
-        }
+        # Vistas cacheadas
+        self.views = {"dashboard": DashboardView()}
         
         # Contenedor principal de la vista activa
         self.active_view = ft.Container(
@@ -45,7 +37,35 @@ class AppLayout(ft.Row):
             self.active_view
         ]
         
+    def did_mount(self):
+        # Actualizar estado activo en el sidebar para la vista inicial
+        if hasattr(self.sidebar, "actualizar_estado_activo"):
+            self.sidebar.actualizar_estado_activo("dashboard")
+            
+        # Iniciar carga de datos
+        def load_data_bg():
+            vista = self.views["dashboard"]
+            if hasattr(vista, 'load_data'):
+                try: vista.load_data()
+                except Exception as e: pass
+            if hasattr(vista, 'load_summary'):
+                try: vista.load_summary()
+                except Exception as e: pass
+        threading.Thread(target=load_data_bg, daemon=True).start()
+        
     def on_route_change(self, route_name):
+        if not route_name: return
+        
+        # Instanciar de forma perezosa (Lazy Loading) para evitar lag inicial
+        if route_name not in self.views:
+            if route_name == "dashboard": self.views[route_name] = DashboardView()
+            elif route_name == "inventario": self.views[route_name] = InventarioView()
+            elif route_name == "compras": self.views[route_name] = ComprasView()
+            elif route_name == "ventas": self.views[route_name] = VentasView()
+            elif route_name == "ajustes_inventario": self.views[route_name] = AjustesInventarioView()
+            elif route_name == "cierre_mes": self.views[route_name] = CierreInventarioView()
+            elif route_name == "informes": self.views[route_name] = InformesView()
+            
         # Cambiar el contenido del contenedor principal
         if route_name in self.views:
             vista = self.views[route_name]
@@ -53,7 +73,8 @@ class AppLayout(ft.Row):
             self.active_view.update()
             
             # Resaltar la ruta activa en el menú lateral
-            self.sidebar.update_active_route(route_name)
+            if hasattr(self.sidebar, "actualizar_estado_activo"):
+                self.sidebar.actualizar_estado_activo(route_name)
             
             # Forzar recarga de datos al navegar para evitar caché estancada
             # Se ejecuta en hilo secundario para evitar congelar la interfaz

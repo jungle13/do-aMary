@@ -25,9 +25,9 @@ class CierreInventarioView(ft.Container):
         self.filtro_estado = "Todos"
         
         # Filtros Visuales
-        self.input_search = ft.TextField(hint_text="Buscar código o nombre...", prefix_icon=ft.icons.SEARCH, height=40, expand=True, on_change=self.on_filter_change)
-        self.drop_categoria = ft.Dropdown(label="Categoría", options=[ft.dropdown.Option("Todas")], height=40, width=150, on_change=self.on_filter_change)
-        self.drop_estado = ft.Dropdown(label="Estado", options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("PENDIENTE"), ft.dropdown.Option("AUDITADO"), ft.dropdown.Option("AJUSTADO")], value="Todos", height=40, width=150, on_change=self.on_filter_change)
+        self.input_search = ft.TextField(hint_text="Buscar código o nombre...", prefix_icon=ft.icons.SEARCH, height=38, expand=True, dense=True, text_size=12, on_submit=self.on_filter_change)
+        self.drop_categoria = ft.Dropdown(label="Categoría", options=[ft.dropdown.Option("Todas")], height=38, width=150, dense=True, text_size=12, content_padding=ft.padding.symmetric(horizontal=10, vertical=8), on_change=self.on_filter_change)
+        self.drop_estado = ft.Dropdown(label="Estado", options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("PENDIENTE"), ft.dropdown.Option("AUDITADO"), ft.dropdown.Option("AJUSTADO")], value="Todos", height=38, width=150, dense=True, text_size=12, content_padding=ft.padding.symmetric(horizontal=10, vertical=8), on_change=self.on_filter_change)
         
         self.btn_masivo = ft.ElevatedButton("Aceptar Stock Seleccionado", icon=ft.icons.CHECK_BOX, bgcolor="green", color="white", on_click=self.abrir_modal_masivo)
         self.action_bar_masiva = ft.Row([self.btn_masivo], visible=False)
@@ -122,31 +122,45 @@ class CierreInventarioView(ft.Container):
 
         # Controles Paginación Interfaz
         self.lbl_page_info = ft.Text('Página 1 de 1')
-        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, on_click=self.on_prev_page, disabled=True)
-        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, on_click=self.on_next_page, disabled=True)
+        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, tooltip="Página Anterior", on_click=self.on_prev_page, disabled=True)
+        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, tooltip="Página Siguiente", on_click=self.on_next_page, disabled=True)
 
         # Controles Dashboard Financiero
-        self.lbl_valor_sistema = ft.Text('$0.00', size=16, weight='bold', color=Config.COLOR_PRIMARY)
+        self.lbl_valor_sistema = ft.Text("$0.00", size=15, weight="bold", color=Config.COLOR_PRIMARY)
         self.lbl_ajustes_entrada = ft.Text('$0.00', size=16, weight='bold', color='green')
         self.lbl_cant_entrada = ft.Text('0 unds', size=10, color='grey')
         self.lbl_ajustes_salida = ft.Text('$0.00', size=16, weight='bold', color='red')
         self.lbl_cant_salida = ft.Text('0 unds', size=10, color='grey')
         self.lbl_neto_ajustes = ft.Text('$0.00', size=16, weight='bold')
-        self.lbl_valor_fisico = ft.Text('$0.00', size=18, weight='bold', color=Config.COLOR_SECONDARY)
-        
+        self.lbl_valor_fisico = ft.Text("$0.00", size=15, weight="bold", color="blue700")
+
         self.kpi_compacto = ft.Container(
-            content=ft.Column([
-                ft.Row([
-                    ft.Text("Valor del Sistema:", weight="bold", color="grey"), self.lbl_valor_sistema,
-                    ft.Text(" | Valor Físico Proyectado:", weight="bold", color="grey"), self.lbl_valor_fisico,
-                ]),
-                ft.Row([
-                    ft.Text("Sobrantes (+):", weight="bold", color="grey"), self.lbl_ajustes_entrada,
-                    ft.Text(" | Faltantes (-):", weight="bold", color="grey"), self.lbl_ajustes_salida,
-                    ft.Text(" | Neto Ajustes:", weight="bold", color="grey"), self.lbl_neto_ajustes,
-                ])
-            ], spacing=2),
-            bgcolor="#f8f9fa", padding=10, border_radius=8, border=ft.border.all(1, "#e0e0e0")
+            content=ft.Row([
+                # Columna 1: Valorizaciones
+                ft.Column([
+                    ft.Text("COSTO DE INVENTARIO", size=10, weight="bold", color="grey"),
+                    ft.Row([
+                        ft.Column([ft.Text("Sistema Actual", size=10, color="grey"), self.lbl_valor_sistema]),
+                        ft.Container(width=1, height=25, bgcolor="#e0e0e0", margin=ft.padding.symmetric(horizontal=10)),
+                        ft.Column([ft.Text("Proyectado Tras Ajustes", size=10, color="grey"), self.lbl_valor_fisico]),
+                    ])
+                ], expand=True),
+                
+                ft.Container(width=1, height=35, bgcolor="#cccccc", margin=ft.padding.symmetric(horizontal=15)),
+                
+                # Columna 2: Impacto Auditado
+                ft.Column([
+                    ft.Text("DESVIACIONES Y AUDITORÍA", size=10, weight="bold", color="grey"),
+                    ft.Row([
+                        ft.Column([ft.Text("Sobrantes (+)", size=10, color="grey"), self.lbl_ajustes_entrada]),
+                        ft.Container(width=1, height=25, bgcolor="#e0e0e0", margin=ft.padding.symmetric(horizontal=10)),
+                        ft.Column([ft.Text("Faltantes (-)", size=10, color="grey"), self.lbl_ajustes_salida]),
+                        ft.Container(width=1, height=25, bgcolor="#e0e0e0", margin=ft.padding.symmetric(horizontal=10)),
+                        ft.Column([ft.Text("Neto Ajustes", size=10, color="grey"), self.lbl_neto_ajustes]),
+                    ])
+                ], expand=True)
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor="white", padding=12, border_radius=8, border=ft.border.all(1, "#e0e0e0")
         )
 
         # Controles vista_lista (Maestro)
@@ -419,7 +433,7 @@ class CierreInventarioView(ft.Container):
                 ft.DataCell(ft.Text(month)),
                 ft.DataCell(ft.Text(year)),
                 ft.DataCell(ft.Text(estado, color=color_estado.get(estado, 'black'), weight='bold')),
-                ft.DataCell(ft.ElevatedButton('Ver', on_click=lambda e, m=mes_periodo: self.mostrar_detalle(m)))
+                ft.DataCell(ft.ElevatedButton('Ver', tooltip="Ver Detalles del Cierre", on_click=lambda e, m=mes_periodo: self.mostrar_detalle(m)))
             ])
             self.dt_periodos.rows.append(row)
             
@@ -787,8 +801,8 @@ class CierreInventarioView(ft.Container):
         
         botones_accion = []
         if estado_insumo == "PENDIENTE":
-            botones_accion.append(ft.ElevatedButton("Aceptar", icon=ft.icons.CHECK, bgcolor="green50", color="green900", on_click=lambda e, i_id=id_auditoria: self.procesar_aceptar_sistema(i_id), scale=0.85, disabled=(estado_periodo == 'CERRADO' or estado_insumo == 'APROBADO')))
-            btn_ajuste_pendiente = ft.OutlinedButton("Ingresar Ajuste", icon=ft.icons.TUNE, on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value), scale=0.85, disabled=True)
+            botones_accion.append(ft.ElevatedButton("Aceptar", tooltip="Aceptar sin diferencias", icon=ft.icons.CHECK, bgcolor="green50", color="green900", on_click=lambda e, i_id=id_auditoria: self.procesar_aceptar_sistema(i_id), scale=0.85, disabled=(estado_periodo == 'CERRADO' or estado_insumo == 'APROBADO')))
+            btn_ajuste_pendiente = ft.OutlinedButton("Ingresar Ajuste", tooltip="Registrar diferencia", icon=ft.icons.TUNE, on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value), scale=0.85, disabled=True)
             botones_accion.append(btn_ajuste_pendiente)
             if txt_conteo.value:
                 try:
@@ -799,17 +813,17 @@ class CierreInventarioView(ft.Container):
             # Update the original btn_ajuste reference used by on_txt_conteo_change closure
             btn_ajuste = btn_ajuste_pendiente
         elif estado_insumo == "AUDITADO":
-            btn_ajuste = ft.OutlinedButton("Editar Ajuste", icon=ft.icons.EDIT, on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value), scale=0.85, disabled=(estado_periodo == 'CERRADO'))
+            btn_ajuste = ft.OutlinedButton("Editar Ajuste", tooltip="Modificar ajuste", icon=ft.icons.EDIT, on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value), scale=0.85, disabled=(estado_periodo == 'CERRADO'))
             botones_accion.append(btn_ajuste)
             btn_ajuste.disabled = False if txt_conteo.value else True
         elif estado_insumo == "AJUSTADO":
-            btn_ajuste = ft.OutlinedButton("Editar Ajuste", icon=ft.icons.EDIT, on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value), scale=0.85, disabled=(estado_periodo == 'CERRADO'))
+            btn_ajuste = ft.OutlinedButton("Editar Ajuste", tooltip="Modificar ajuste", icon=ft.icons.EDIT, on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value), scale=0.85, disabled=(estado_periodo == 'CERRADO'))
             botones_accion.append(btn_ajuste)
-            botones_accion.append(ft.OutlinedButton("Eliminar Ajuste", icon=ft.icons.DELETE, icon_color="red", style=ft.ButtonStyle(color="red"), on_click=lambda e, i_id=id_auditoria: self.procesar_eliminar_ajuste(i_id), scale=0.85, disabled=(estado_periodo == 'CERRADO')))
+            botones_accion.append(ft.OutlinedButton("Eliminar Ajuste", tooltip="Descartar ajuste", icon=ft.icons.DELETE, icon_color="red", style=ft.ButtonStyle(color="red"), on_click=lambda e, i_id=id_auditoria: self.procesar_eliminar_ajuste(i_id), scale=0.85, disabled=(estado_periodo == 'CERRADO')))
             btn_ajuste.disabled = False if txt_conteo.value else True
         else:
             # Fallback (e.g., APROBADO) - disabled buttons or none
-            btn_ajuste = ft.OutlinedButton("Bloqueado", disabled=True, scale=0.85)
+            btn_ajuste = ft.OutlinedButton("Bloqueado", tooltip="Acción no permitida", disabled=True, scale=0.85)
             botones_accion.append(btn_ajuste)
 
         cant_final = float(insumo.get("cantidad_fisica") if insumo.get("cantidad_fisica") is not None else insumo.get("cantidad_sistema", 0))

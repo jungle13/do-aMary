@@ -23,7 +23,9 @@ class InformesView(ft.Container):
                 ft.dropdown.Option("Resumen de KPIs")
             ],
             value="Valorización de Inventario",
-            dense=True, border_radius=8
+            dense=True, border_radius=8,
+            height=38, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8)
         )
         
         self.drop_filtro_fecha = ft.Dropdown(
@@ -34,7 +36,9 @@ class InformesView(ft.Container):
                 ft.dropdown.Option("Histórico Completo")
             ],
             value="Histórico Completo",
-            dense=True, border_radius=8
+            dense=True, border_radius=8,
+            height=38, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8)
         )
         
         self.opcion_detalle = ft.RadioGroup(
@@ -285,6 +289,10 @@ class InformesView(ft.Container):
             gran_total += costo_total
             gran_total_cant += cant
 
+        self.current_data = agrupacion
+        self.current_total = gran_total
+        self.current_periodo = self.doc_header_periodo.value
+
         if detalle == "Resumido":
             self._dibujar_resumido(agrupacion, "PROVEEDOR", gran_total, gran_total_cant)
         else:
@@ -318,6 +326,10 @@ class InformesView(ft.Container):
             agrupacion[cat]["cant_total"] += cant
             gran_total += total
             gran_total_cant += cant
+
+        self.current_data = agrupacion
+        self.current_total = gran_total
+        self.current_periodo = self.doc_header_periodo.value
 
         if detalle == "Resumido":
             self._dibujar_resumido(agrupacion, "CATEGORÍA", gran_total, gran_total_cant)
@@ -362,6 +374,10 @@ class InformesView(ft.Container):
             agrupacion[tipo]["cant_total"] += cant
             gran_total_neto += costo if tipo == "ENTRADAS (+)" else -costo
             gran_total_cant += cant if tipo == "ENTRADAS (+)" else -cant
+
+        self.current_data = agrupacion
+        self.current_total = gran_total_neto
+        self.current_periodo = self.doc_header_periodo.value
 
         if detalle == "Resumido":
             self._dibujar_resumido(agrupacion, "TIPO DE AJUSTE", gran_total_neto, gran_total_cant, "IMPACTO NETO")

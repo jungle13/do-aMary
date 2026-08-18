@@ -83,20 +83,26 @@ class Sidebar(ft.Container):
             title=ft.Text(text, color="white70", size=text_size),
             hover_color=ft.colors.with_opacity(0.1, "white"),
             content_padding=ft.padding.only(left=pad_left, right=15),
-            on_click=lambda _: self.on_route_change(route),
+            on_click=lambda _, r=route: self.on_route_change(r),
+            tooltip=text,
             data={"is_sub_item": is_sub_item, "pad_left": pad_left}
         )
         self.menu_items[route] = item
         return item
         
-    def update_active_route(self, route_name):
+    def actualizar_estado_activo(self, ruta_actual):
+        self.ruta_activa = ruta_actual
         for route, item in self.menu_items.items():
-            is_active = (route == route_name)
+            is_active = (route == ruta_actual)
             item.bgcolor = ft.colors.with_opacity(0.2, "white") if is_active else None
             item.leading.color = "white" if is_active else "white70"
             item.title.color = "white" if is_active else "white70"
             item.title.weight = "bold" if is_active else "normal"
-        self.update()
+            
+        try:
+            self.update()
+        except Exception:
+            pass
 
     def toggle_sidebar(self, e):
         """Alterna el ancho del sidebar y oculta/muestra los textos."""

@@ -30,6 +30,16 @@ class VentasView(ft.Container):
         
         self.parsed_data = None # Para guardar temporalmente los datos extraídos
         
+        # --- ESTADO PANEL HISTÓRICO VENTAS ---
+        self.panel_abierto = False
+        self.fecha_historial_activa = datetime.date.today().strftime("%Y-%m-%d")
+        self.modo_agrupacion_ventas = "CATEGORIA" # "CATEGORIA" o "FACTURA"
+        self.filtro_categoria_activo = None
+        self.filtro_factura_activo = None
+
+        self.date_picker_ventas_timeline = ft.DatePicker(on_change=self.on_date_ventas_timeline_change)
+        # ---------------------------------------
+        
         # Controles de Búsqueda
         self.search_input = ft.TextField(
             hint_text="Buscar por código, descripción o factura...", 
@@ -37,7 +47,10 @@ class VentasView(ft.Container):
             border_radius=8,
             expand=True,
             bgcolor="white",
-            height=40,
+            height=38,
+            dense=True,
+            text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
             on_submit=self.on_search
         )
         
@@ -47,12 +60,10 @@ class VentasView(ft.Container):
             on_change=self.on_date_change,
             on_dismiss=self.on_date_dismiss,
         )
-        self.btn_date = ft.OutlinedButton(
-            text="Filtrar por Fecha",
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=self.open_date_picker,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=40
+        self.btn_date = ft.IconButton(
+            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
+            tooltip="Filtrar por Fecha",
+            on_click=self.open_date_picker
         )
         self.btn_clear_date = ft.IconButton(
             icon=ft.icons.CLEAR,
@@ -165,8 +176,8 @@ class VentasView(ft.Container):
         # Controles Paginación
         self.lbl_page_info = ft.Text("Página 1 de 1")
         self.lbl_total = ft.Text("0 registros en total", color="grey")
-        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, on_click=self.on_prev_page, disabled=True)
-        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, on_click=self.on_next_page, disabled=True)
+        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, tooltip="Página Anterior", on_click=self.on_prev_page, disabled=True)
+        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, tooltip="Página Siguiente", on_click=self.on_next_page, disabled=True)
         
         # Inicializar memoria local
         self.cargas_file = "cargas_locales.json"
@@ -179,12 +190,10 @@ class VentasView(ft.Container):
         self.fecha_filtro_cargas = None
         self.date_picker_filtro_cargas = ft.DatePicker(on_change=self.on_date_filtro_cargas_change)
         
-        self.btn_filtro_fecha_cargas = ft.OutlinedButton(
-            text="Filtrar por Fecha",
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=lambda e: self.date_picker_filtro_cargas.pick_date(),
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=45
+        self.btn_filtro_fecha_cargas = ft.IconButton(
+            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
+            tooltip="Filtrar por Fecha",
+            on_click=lambda e: self.date_picker_filtro_cargas.pick_date()
         )
         self.btn_clear_filtro_cargas = ft.IconButton(
             icon=ft.icons.CLEAR, tooltip="Limpiar Fecha",
@@ -194,12 +203,14 @@ class VentasView(ft.Container):
         # Dropdowns con height ajustado y content_padding para evitar que el label se corte
         self.drop_filtro_tipo_cargas = ft.Dropdown(
             options=[ft.dropdown.Option("Todas"), ft.dropdown.Option("Remisiones"), ft.dropdown.Option("Ventas POS")],
-            value="Todas", label="Tipo", dense=True, width=160, border_radius=8, content_padding=10, height=45,
+            value="Todas", label="Tipo", dense=True, width=160, border_radius=8, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8), height=38,
             on_change=lambda e: self._render_tabla_cargas()
         )
         self.drop_filtro_estado_cargas = ft.Dropdown(
             options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("Nuevo"), ft.dropdown.Option("Procesado con éxito"), ft.dropdown.Option("Falló"), ft.dropdown.Option("Guardado"), ft.dropdown.Option("Sobreescrito")],
-            value="Todos", label="Estado", dense=True, width=170, border_radius=8, content_padding=10, height=45,
+            value="Todos", label="Estado", dense=True, width=170, border_radius=8, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8), height=38,
             on_change=lambda e: self._render_tabla_cargas()
         )
 
@@ -235,10 +246,6 @@ class VentasView(ft.Container):
             self.search_input,
             self.btn_date,
             self.btn_clear_date,
-            ft.ElevatedButton(
-                text="Buscar", icon=ft.icons.SEARCH, bgcolor=Config.COLOR_PRIMARY, color="white", height=40,
-                on_click=self.on_search, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-            ),
             btn_nueva_venta
         ])
 
@@ -310,17 +317,224 @@ class VentasView(ft.Container):
             expand=True
         )
 
+        # --- DISEÑO DEL PANEL HISTÓRICO ---
+        self.lbl_tot_ventas_panel = ft.Text("$0 COP", size=14, weight="bold", color="blue800")
+        self.lbl_cant_ventas_panel = ft.Text("0 unds", size=10, color="grey")
+
+        kpi_ventas_panel = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.POINT_OF_SALE, color="blue700", size=20),
+                ft.Column([
+                    ft.Text("TOTAL VENTAS DEL DÍA", size=9, weight="bold", color="grey"),
+                    self.lbl_tot_ventas_panel
+                ], spacing=0, expand=True),
+                self.lbl_cant_ventas_panel
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=10, bgcolor="#e8f0fe", border_radius=8, border=ft.border.all(1, "#d2e3fc")
+        )
+
+        self.segment_agrupacion_ventas = ft.SegmentedButton(
+            segments=[
+                ft.Segment(value="CATEGORIA", label=ft.Text("Por Categoría", size=10)),
+                ft.Segment(value="FACTURA", label=ft.Text("Por Factura", size=10)),
+            ],
+            selected={"CATEGORIA"},
+            on_change=self.on_agrupacion_ventas_change,
+            show_selected_icon=False
+        )
+
+        self.btn_fecha_ventas_panel = ft.OutlinedButton(
+            self.fecha_historial_activa,
+            icon=ft.icons.CALENDAR_TODAY,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), padding=5),
+            height=30,
+            on_click=lambda e: self.date_picker_ventas_timeline.pick_date()
+        )
+
+        self.panel_ventas_list = ft.ListView(expand=True, spacing=6)
+
+        self.right_panel = ft.Container(
+            width=0, visible=False, bgcolor="white", border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color=ft.colors.with_opacity(0.05, "black")),
+            animate=ft.animation.Animation(250, ft.AnimationCurve.EASE_OUT),
+            content=ft.Column([
+                ft.Container(
+                    content=ft.Row([
+                        ft.Text("Histórico de Ventas", weight="bold", size=13, color=Config.COLOR_PRIMARY, expand=True),
+                        self.btn_fecha_ventas_panel,
+                        ft.IconButton(ft.icons.CLOSE, icon_size=16, on_click=self.toggle_right_panel)
+                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    padding=10, bgcolor="#f4f6f8", border_radius=ft.border_radius.only(top_left=8, top_right=8)
+                ),
+                ft.Container(content=kpi_ventas_panel, padding=ft.padding.symmetric(horizontal=10)),
+                ft.Container(content=self.segment_agrupacion_ventas, padding=ft.padding.symmetric(horizontal=10), alignment=ft.alignment.center),
+                ft.Divider(height=1, color="#e0e0e0"),
+                ft.Container(content=self.panel_ventas_list, expand=True, padding=10)
+            ], spacing=8)
+        )
+
+        self.filtro_badge_ventas = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.FILTER_ALT, size=14, color="white"),
+                ft.Text("Filtro Activo", color="white", weight="bold", size=11),
+                ft.IconButton(
+                    ft.icons.CLOSE, icon_size=14, icon_color="white",
+                    on_click=self.limpiar_filtro_ventas,
+                    style=ft.ButtonStyle(padding=0), width=20, height=20
+                )
+            ], tight=True),
+            bgcolor="blue700", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=12, visible=False
+        )
+
+        self.btn_toggle_panel = ft.IconButton(
+            icon=ft.icons.HISTORY_TOGGLE_OFF,
+            tooltip="Ver Histórico de Ventas del Día",
+            on_click=self.toggle_right_panel
+        )
+
         # --- ENSAMBLAJE FINAL DE LA VISTA ---
         self.lbl_titulo = ft.Text("Registro de Ventas (Salidas)", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.content = ft.Column([
+        main_column = ft.Column([
             self.progress_bar,
-            self.lbl_titulo,
+            ft.Row([self.lbl_titulo, self.filtro_badge_ventas, ft.Container(expand=True), self.btn_toggle_panel, self.btn_fullscreen]),
             self.summary_container,
             self.tabs
         ], expand=True, spacing=10)
 
+        self.content = ft.Row([
+            main_column,
+            self.right_panel
+        ], expand=True, spacing=10)
+
         # Llamar al método de renderizado en lugar del mock
         self._render_tabla_cargas()
+
+    def toggle_right_panel(self, e):
+        self.panel_abierto = not self.panel_abierto
+        self.right_panel.width = 330 if self.panel_abierto else 0
+        self.right_panel.visible = self.panel_abierto
+        self.right_panel.padding = 0
+        self.btn_toggle_panel.icon = ft.icons.HISTORY if self.panel_abierto else ft.icons.HISTORY_TOGGLE_OFF
+        if self.panel_abierto:
+            self.cargar_historial_panel()
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        elif self.page:
+            self.page.update()
+
+    def on_date_ventas_timeline_change(self, e):
+        if self.date_picker_ventas_timeline.value:
+            self.fecha_historial_activa = self.date_picker_ventas_timeline.value.strftime("%Y-%m-%d")
+            self.btn_fecha_ventas_panel.text = self.fecha_historial_activa
+            self.cargar_historial_panel()
+
+    def on_agrupacion_ventas_change(self, e):
+        if e.control.selected:
+            self.modo_agrupacion_ventas = list(e.control.selected)[0]
+            self.cargar_historial_panel()
+
+    def cargar_historial_panel(self):
+        if not self.page: return
+
+        def worker():
+            items = self.db.get_historial_ventas_dia(self.fecha_historial_activa, self.modo_agrupacion_ventas)
+
+            tot_pesos = sum([item["total"] for item in items])
+            tot_unds = sum([item["unidades"] for item in items])
+
+            self.lbl_tot_ventas_panel.value = f"${tot_pesos:,.0f} COP"
+            self.lbl_cant_ventas_panel.value = f"{tot_unds:g} unds"
+
+            self.panel_ventas_list.controls.clear()
+
+            for item in items:
+                self.panel_ventas_list.controls.append(self._crear_card_item_ventas(item))
+
+            if not self.panel_ventas_list.controls:
+                self.panel_ventas_list.controls.append(
+                    ft.Container(content=ft.Text("Sin ventas registradas en esta fecha.", size=11, color="grey"), padding=20, alignment=ft.alignment.center)
+                )
+
+            if hasattr(self, "safe_update"):
+                self.safe_update()
+            else:
+                self.page.update()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _crear_card_item_ventas(self, item):
+        tipo = item["tipo"]
+
+        if tipo == "CATEGORIA_RESUMEN":
+            badge_txt = f"CATEGORÍA: {item['categoria']}"
+            badge_bg, badge_col = "#e8f0fe", "blue800"
+            sub_txt = f"{item['items_count']} ítems vendidos"
+            icon_mat = ft.icons.CATEGORY
+        else:
+            # FACTURA_VENTA
+            subtipo = item.get("subtipo", "POS")
+            badge_txt = f"DOC: {item['factura']} ({subtipo})"
+            badge_bg, badge_col = "#e6f4ea" if "POS" in subtipo.upper() else "#f3e8fd", "teal800" if "POS" in subtipo.upper() else "purple800"
+            sub_txt = f"Venta {subtipo}"
+            icon_mat = ft.icons.RECEIPT_LONG
+
+        badge = ft.Container(
+            content=ft.Text(badge_txt, size=9, weight="bold", color=badge_col, no_wrap=True),
+            padding=ft.padding.symmetric(horizontal=6, vertical=2), bgcolor=badge_bg, border_radius=10
+        )
+
+        card = ft.Container(
+            content=ft.Row([
+                ft.Icon(icon_mat, size=16, color="blue700"),
+                ft.Column([
+                    badge,
+                    ft.Text(sub_txt, size=11, weight="bold", color="black87", no_wrap=True, tooltip=sub_txt),
+                ], expand=True, spacing=2),
+                ft.Column([
+                    ft.Text(f"${item['total']:,.0f}", size=11, weight="bold", color="black87"),
+                    ft.Text(f"{item['unidades']:g} unds", size=9, color="grey", text_align=ft.TextAlign.RIGHT)
+                ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=1)
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+            padding=8,
+            border_radius=6,
+            bgcolor="#ffffff",
+            border=ft.border.all(1, "#eeeeee"),
+            on_click=lambda e, i=item: self.aplicar_filtro_cruzado_ventas(i),
+            ink=True
+        )
+        return card
+
+    def aplicar_filtro_cruzado_ventas(self, item):
+        tipo = item["tipo"]
+        self.progress_bar.visible = True
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        else:
+            self.page.update()
+
+        if tipo == "CATEGORIA_RESUMEN":
+            self.filtro_categoria_activo = item["categoria"]
+            self.filtro_factura_activo = None
+            desc = f"Categoría: {item['categoria']}"
+        else:
+            self.filtro_factura_activo = item["ref"]
+            self.filtro_categoria_activo = None
+            desc = f"Factura/Doc: {item['factura']}"
+
+        lbl = self.filtro_badge_ventas.content.controls[1]
+        lbl.value = desc
+        self.filtro_badge_ventas.visible = True
+
+        self.current_page = 1
+        self.load_data()
+
+    def limpiar_filtro_ventas(self, e=None):
+        self.filtro_categoria_activo = None
+        self.filtro_factura_activo = None
+        self.filtro_badge_ventas.visible = False
+        self.current_page = 1
+        self.load_data()
 
     def toggle_fullscreen(self, e):
         self.is_fullscreen = not getattr(self, "is_fullscreen", False)
@@ -341,6 +555,8 @@ class VentasView(ft.Container):
             self.page.update()
 
     def did_mount(self):
+        if hasattr(self, "date_picker_ventas_timeline") and self.date_picker_ventas_timeline not in self.page.overlay:
+            self.page.overlay.append(self.date_picker_ventas_timeline)
         if self.file_picker not in self.page.overlay:
             self.page.overlay.append(self.file_picker)
         if hasattr(self, "dlg_loading") and self.dlg_loading not in self.page.overlay:
@@ -374,7 +590,8 @@ class VentasView(ft.Container):
     def on_date_filtro_cargas_change(self, e):
         if self.date_picker_filtro_cargas.value:
             self.fecha_filtro_cargas = self.date_picker_filtro_cargas.value.strftime("%Y-%m-%d")
-            self.btn_filtro_fecha_cargas.text = self.fecha_filtro_cargas
+            self.btn_filtro_fecha_cargas.tooltip = f"Fecha: {self.fecha_filtro_cargas}"
+            self.btn_filtro_fecha_cargas.icon_color = "blue"
             self.btn_clear_filtro_cargas.visible = True
             if self.page:
                 self.page.update()
@@ -383,7 +600,8 @@ class VentasView(ft.Container):
     def clear_filtro_fecha_cargas(self, e):
         self.fecha_filtro_cargas = None
         self.date_picker_filtro_cargas.value = None
-        self.btn_filtro_fecha_cargas.text = "Filtrar por Fecha"
+        self.btn_filtro_fecha_cargas.tooltip = "Filtrar por Fecha"
+        self.btn_filtro_fecha_cargas.icon_color = None
         self.btn_clear_filtro_cargas.visible = False
         if self.page:
             self.page.update()
@@ -585,7 +803,8 @@ class VentasView(ft.Container):
     def on_date_change(self, e):
         if self.date_picker.value:
             self.fecha_corte = self.date_picker.value.strftime("%Y-%m-%d")
-            self.btn_date.text = self.fecha_corte
+            self.btn_date.tooltip = f"Fecha: {self.fecha_corte}"
+            self.btn_date.icon_color = "blue"
             self.btn_clear_date.visible = True
             if self.page:
                 self.page.update()
@@ -597,7 +816,8 @@ class VentasView(ft.Container):
         
     def clear_date(self, e):
         self.fecha_corte = None
-        self.btn_date.text = "Filtrar por Fecha"
+        self.btn_date.tooltip = "Filtrar por Fecha"
+        self.btn_date.icon_color = None
         self.btn_clear_date.visible = False
         self.date_picker.value = None
         if self.page:
@@ -1097,13 +1317,19 @@ class VentasView(ft.Container):
         threading.Thread(target=self._fetch_data_worker, daemon=True).start()
 
     def _fetch_data_worker(self):
-        search_val = self.search_input.value or ""
+        search_val = self.search_input.value.strip() if self.search_input.value else ""
         
+        cat_filtro = getattr(self, 'filtro_categoria_activo', None)
+        fact_filtro = getattr(self, 'filtro_factura_activo', None)
+        f_corte = getattr(self, 'fecha_corte', None)
+
         data, total = self.db.get_ventas(
             page=self.current_page, 
             page_size=self.page_size, 
             search=search_val,
-            fecha_corte=getattr(self, 'fecha_corte', None)
+            fecha_corte=f_corte,
+            categoria_filtro=cat_filtro,
+            factura_filtro=fact_filtro
         )
         
         self.total_records = total

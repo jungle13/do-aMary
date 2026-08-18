@@ -1,5 +1,6 @@
 import requests
 import datetime
+import urllib.parse
 from config import Config
 
 _client_instance = None
@@ -62,7 +63,7 @@ class SupabaseClient:
             return sorted(list(categorias))
         return []
 
-    def get_insumos(self, page=1, page_size=20, search="", categoria="", fecha_corte=None, sort_col="Insumo", sort_asc=True):
+    def get_insumos(self, page=1, page_size=20, search="", categoria="", fecha_corte=None, sort_col="Insumo", sort_asc=True, codigos_filtro=None):
         """
         Obtiene los insumos con paginación, filtros y ordenamiento desde el servidor.
         Retorna (lista_datos, total_count)
@@ -73,6 +74,13 @@ class SupabaseClient:
             url = f"{self.url}/vista_inventario_completo?select=*"
         
         filtros = []
+        if codigos_filtro is not None:
+            if not codigos_filtro:
+                filtros.append("codigo_insumo=in.(INVALID_FORCE_EMPTY)")
+            else:
+                codigos_str = ",".join(codigos_filtro)
+                filtros.append(f"codigo_insumo=in.({codigos_str})")
+                
         if categoria and categoria != "Todas":
             filtros.append(f"categoria=eq.{categoria}")
             
@@ -153,15 +161,29 @@ class SupabaseClient:
             print(f"Excepción en update_insumo: {e}")
             return False
 
-    def get_compras(self, page=1, page_size=20, search="", fecha_corte=None):
+    def get_compras(self, page=1, page_size=20, search="", fecha_corte=None, factura_filtro=None, proveedor_filtro=None):
         url = f"{self.url}/registro_compras?select=*,catalogo_insumos(nombre,categoria)"
         
         filtros = []
-        if search:
-            filtros.append(f"or=(codigo_insumo.ilike.*{search}*,proveedor.ilike.*{search}*,numero_factura.ilike.*{search}*)")
         
+        # 1. Búsqueda por texto general
+        if search:
+            search_enc = urllib.parse.quote(search.strip())
+            filtros.append(f"or=(codigo_insumo.ilike.*{search_enc}*,proveedor.ilike.*{search_enc}*,numero_factura.ilike.*{search_enc}*)")
+        
+        # 2. Fecha de corte
         if fecha_corte:
             filtros.append(f"fecha=eq.{fecha_corte}")
+
+        # 3. Filtro cruzado por Factura / Entrada
+        if factura_filtro:
+            factura_enc = urllib.parse.quote(str(factura_filtro).strip())
+            filtros.append(f"or=(numero_entrada.eq.{factura_enc},numero_factura.eq.{factura_enc})")
+
+        # 4. Filtro cruzado por Proveedor (Con ilike y quote para tolerar espacios y mayúsculas/minúsculas)
+        if proveedor_filtro:
+            prov_enc = urllib.parse.quote(str(proveedor_filtro).strip())
+            filtros.append(f"proveedor.ilike.*{prov_enc}*")
             
         if filtros:
             url += "&" + "&".join(filtros)
@@ -182,13 +204,75 @@ class SupabaseClient:
                     total_count = int(content_range.split("/")[1])
                 return data, total_count
             else:
-                print(f"Error en consulta compras: {response.text}")
+                print(f"Error HTTP {response.status_code} en get_compras: {response.text}")
                 return [], 0
         except requests.exceptions.RequestException as req_e:
             print(f"Error de conexión con Supabase en get_compras: el servidor no responde")
         except Exception as e:
             print(f"Excepción en get_compras: {e}")
             return [], 0
+
+    def get_historial_compras_dia(self, fecha_dia: str, agrupar_por: str = "FACTURA") -> list:
+        """
+        Recupera todas las compras de un día (YYYY-MM-DD),
+        agrupados por 'FACTURA' o por 'PROVEEDOR'.
+        """
+        items_resultado = []
+        try:
+            # Consulta exclusiva a compras del día
+            url_c = f"{self.url}/registro_compras?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=numero_entrada,numero_factura,proveedor,costo_total,fecha,cantidad&order=fecha.desc"
+            res_c = self.session.get(url_c, headers=self.headers, timeout=10)
+    
+            if res_c.status_code == 200:
+                data_c = res_c.json()
+    
+                if agrupar_por == "FACTURA":
+                    agrupado = {}
+                    for r in data_c:
+                        ref = r.get("numero_entrada") or r.get("numero_factura") or "S/N"
+                        if ref not in agrupado:
+                            agrupado[ref] = {
+                                "tipo": "COMPRA",
+                                "ref": ref,
+                                "factura": r.get("numero_factura") or ref,
+                                "proveedor": r.get("proveedor") or "Clientes Varios",
+                                "total": 0.0,
+                                "unidades": 0.0,
+                                "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
+                            }
+                        agrupado[ref]["total"] += float(r.get("costo_total") or 0)
+                        agrupado[ref]["unidades"] += float(r.get("cantidad") or 0)
+                    items_resultado.extend(list(agrupado.values()))
+    
+                elif agrupar_por == "PROVEEDOR":
+                    agrupado = {}
+                    for r in data_c:
+                        prov = r.get("proveedor") or "Clientes Varios"
+                        if prov not in agrupado:
+                            agrupado[prov] = {
+                                "tipo": "PROVEEDOR_RESUMEN",
+                                "ref": prov,
+                                "proveedor": prov,
+                                "facturas_count": set(),
+                                "total": 0.0,
+                                "unidades": 0.0,
+                                "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
+                            }
+                        agrupado[prov]["facturas_count"].add(r.get("numero_factura") or r.get("numero_entrada"))
+                        agrupado[prov]["total"] += float(r.get("costo_total") or 0)
+                        agrupado[prov]["unidades"] += float(r.get("cantidad") or 0)
+    
+                    for p in agrupado.values():
+                        p["facturas_cant"] = len(p["facturas_count"])
+                        del p["facturas_count"]
+                        items_resultado.append(p)
+    
+        except Exception as ex:
+            print(f"Error en historial de compras del día: {ex}")
+    
+        # Ordenar por hora/valor descendente
+        items_resultado.sort(key=lambda x: x["total"], reverse=True)
+        return items_resultado
 
 
     def insert_compras(self, compras_list: list):
@@ -304,19 +388,33 @@ class SupabaseClient:
             return {}
 
 
-    def get_ventas(self, page=1, page_size=20, search="", fecha_corte=None):
-        """
-        Obtiene el historial de ventas con paginación y búsqueda.
-        Cruza con catalogo_insumos para obtener el nombre real del producto.
-        """
-        url = f"{self.url}/registro_ventas?select=*,catalogo_insumos(nombre,categoria)"
+    def get_ventas(self, page=1, page_size=20, search="", fecha_corte=None, categoria_filtro=None, factura_filtro=None):
+        # Si hay filtro de categoría, necesitamos !inner para que PostgREST aplique un INNER JOIN
+        if categoria_filtro:
+            url = f"{self.url}/registro_ventas?select=*,catalogo_insumos!inner(nombre,categoria)"
+        else:
+            url = f"{self.url}/registro_ventas?select=*,catalogo_insumos(nombre,categoria)"
         
         filtros = []
+        
+        # 1. Buscador por texto general
         if search:
-            filtros.append(f"or=(codigo_insumo.ilike.*{search}*,factura_no.ilike.*{search}*,descripcion.ilike.*{search}*)")
+            s_enc = urllib.parse.quote(search.strip())
+            filtros.append(f"or=(codigo_insumo.ilike.*{s_enc}*,factura_no.ilike.*{s_enc}*,descripcion.ilike.*{s_enc}*)")
             
+        # 2. Fecha
         if fecha_corte:
-            filtros.append(f"fecha=eq.{fecha_corte}")
+            filtros.append(f"fecha=gte.{fecha_corte}T00:00:00&fecha=lte.{fecha_corte}T23:59:59")
+
+        # 3. Filtro por Categoría (Requiere catalogo_insumos.categoria)
+        if categoria_filtro:
+            cat_enc = urllib.parse.quote(str(categoria_filtro).strip())
+            filtros.append(f"catalogo_insumos.categoria=eq.{cat_enc}")
+
+        # 4. Filtro por Nro. Factura / Documento (Uso de ilike para coincidencia flexible)
+        if factura_filtro:
+            fact_enc = urllib.parse.quote(str(factura_filtro).strip())
+            filtros.append(f"factura_no.ilike.*{fact_enc}*")
             
         if filtros:
             url += "&" + "&".join(filtros)
@@ -337,13 +435,68 @@ class SupabaseClient:
                     total_count = int(content_range.split("/")[1])
                 return data, total_count
             else:
-                print(f"Error en consulta ventas: {response.text}")
+                print(f"Error HTTP {response.status_code} en get_ventas: {response.text}")
                 return [], 0
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_ventas: el servidor no responde")
         except Exception as e:
             print(f"Excepción en get_ventas: {e}")
             return [], 0
+
+    def get_historial_ventas_dia(self, fecha_dia: str, agrupar_por: str = "CATEGORIA") -> list:
+        """
+        Recupera todas las ventas de un día (YYYY-MM-DD),
+        agrupadas por 'CATEGORIA' o por 'FACTURA'.
+        """
+        items_resultado = []
+        try:
+            url_v = f"{self.url}/registro_ventas?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=factura_no,tipo_documento,descripcion,total,cantidad,codigo_insumo,fecha,catalogo_insumos(categoria,nombre)&order=fecha.desc"
+            res_v = self.session.get(url_v, headers=self.headers, timeout=10)
+            
+            if res_v.status_code == 200:
+                data_v = res_v.json()
+                
+                if agrupar_por == "CATEGORIA":
+                    agrupado = {}
+                    for r in data_v:
+                        cat = r.get("catalogo_insumos", {}).get("categoria") if r.get("catalogo_insumos") else None
+                        if not cat: cat = "SIN CATEGORÍA"
+                        
+                        if cat not in agrupado:
+                            agrupado[cat] = {
+                                "tipo": "CATEGORIA_RESUMEN",
+                                "ref": cat,
+                                "categoria": cat,
+                                "total": 0.0,
+                                "unidades": 0.0,
+                                "items_count": 0
+                            }
+                        agrupado[cat]["total"] += float(r.get("total") or 0)
+                        agrupado[cat]["unidades"] += float(r.get("cantidad") or 0)
+                        agrupado[cat]["items_count"] += 1
+                    items_resultado.extend(list(agrupado.values()))
+    
+                elif agrupar_por == "FACTURA":
+                    agrupado = {}
+                    for r in data_v:
+                        ref = r.get("factura_no") or "S/N"
+                        tipo_doc = r.get("tipo_documento") or "Factura POS"
+                        if ref not in agrupado:
+                            agrupado[ref] = {
+                                "tipo": "FACTURA_VENTA",
+                                "ref": ref,
+                                "factura": ref,
+                                "subtipo": tipo_doc,
+                                "total": 0.0,
+                                "unidades": 0.0
+                            }
+                        agrupado[ref]["total"] += float(r.get("total") or 0)
+                        agrupado[ref]["unidades"] += float(r.get("cantidad") or 0)
+                    items_resultado.extend(list(agrupado.values()))
+    
+        except Exception as ex:
+            print(f"Error en historial de ventas del día: {ex}")
+    
+        items_resultado.sort(key=lambda x: x["total"], reverse=True)
+        return items_resultado
 
 
     def get_ventas_existentes(self, lista_facturas: list) -> set:
@@ -546,9 +699,9 @@ class SupabaseClient:
         return resultado[:limit]
         
 
-    def get_compras_summary(self) -> dict:
+    def get_compras_summary(self, fecha_corte=None) -> dict:
         """Invoca RPC para totales de compras"""
-        hoy = datetime.date.today().strftime("%Y-%m-%d")
+        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
         mes_actual = hoy[:7]
         
         url = f"{self.url}/rpc/get_compras_summary_rpc"
@@ -562,9 +715,9 @@ class SupabaseClient:
             print(f"Error RPC compras_summary: {e}")
         return {"total_mes": 0.0, "total_hoy": 0.0, "cantidad_total": 0.0}
 
-    def get_ventas_summary(self) -> dict:
+    def get_ventas_summary(self, fecha_corte=None) -> dict:
         """Invoca RPC para totales de ingresos e IVA"""
-        hoy = datetime.date.today().strftime("%Y-%m-%d")
+        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
         mes_actual = hoy[:7]
         
         url = f"{self.url}/rpc/get_ventas_summary_rpc"
@@ -578,11 +731,14 @@ class SupabaseClient:
             print(f"Error RPC ventas_summary: {e}")
         return {"total_historico": 0.0, "total_mes": 0.0, "total_hoy": 0.0, "iva_historico": 0.0, "iva_hoy": 0.0}
 
-    def get_catalogo_summary(self) -> dict:
+    def get_catalogo_summary(self, fecha_corte=None) -> dict:
         """Invoca RPC para compras totales y ventas totales en pesos"""
         url = f"{self.url}/rpc/get_catalogo_summary_rpc"
         try:
-            res = self.session.post(url, headers=self.headers, timeout=10)
+            payload = {}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.session.post(url, json=payload if payload else None, headers=self.headers, timeout=10)
             if res.status_code == 200:
                 return res.json()
         except requests.exceptions.RequestException as req_e:
@@ -591,11 +747,12 @@ class SupabaseClient:
             print(f"Error RPC catalogo_summary: {e}")
         return {"total_compras": 0.0, "total_ventas": 0.0}
 
-    def get_top_ventas_mes(self, limit=10) -> list:
-        mes_actual = datetime.date.today().strftime("%Y-%m")
+    def get_top_ventas_mes(self, limit=10, fecha_corte=None) -> list:
+        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
+        mes_actual = hoy[:7]
         url = f"{self.url}/rpc/get_top_ventas_mes_rpc"
         try:
-            res = self.session.post(url, json={"mes_actual": mes_actual, "limite": limit}, headers=self.headers, timeout=10)
+            res = self.session.post(url, json={"mes_actual": mes_actual, "limite": limit, "fecha_corte": fecha_corte} if fecha_corte else {"mes_actual": mes_actual, "limite": limit}, headers=self.headers, timeout=10)
             if res.status_code == 200:
                 return res.json()
         except requests.exceptions.RequestException as req_e:
@@ -604,9 +761,12 @@ class SupabaseClient:
             print(f"Error RPC top_ventas: {e}")
         return []
 
-    def get_tendencia_diaria(self) -> dict:
+    def get_tendencia_diaria(self, fecha_corte=None) -> dict:
         """Invoca RPC para obtener ventas y compras agrupadas por día"""
-        hoy = datetime.date.today()
+        if fecha_corte:
+            hoy = datetime.datetime.strptime(fecha_corte, "%Y-%m-%d").date()
+        else:
+            hoy = datetime.date.today()
         mes_actual = hoy.strftime("%Y-%m")
         
         # Pre-poblar el diccionario con ceros para todos los días transcurridos
@@ -614,7 +774,10 @@ class SupabaseClient:
         
         url = f"{self.url}/rpc/get_tendencia_diaria_rpc"
         try:
-            res = self.session.post(url, json={"mes_actual": mes_actual}, headers=self.headers, timeout=10)
+            payload = {"mes_actual": mes_actual}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.session.post(url, json=payload, headers=self.headers, timeout=10)
             if res.status_code == 200:
                 for row in res.json():
                     dia = row.get("dia")
@@ -627,11 +790,12 @@ class SupabaseClient:
             print(f"Error RPC tendencia_diaria: {e}")
         return tendencia
 
-    def get_inventario_kpis(self) -> dict:
-        mes_actual = datetime.date.today().strftime("%Y-%m")
+    def get_inventario_kpis(self, fecha_corte=None) -> dict:
+        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
+        mes_actual = hoy[:7]
         url = f"{self.url}/rpc/get_inventario_kpis_rpc"
         try:
-            res = self.session.post(url, json={"mes_actual": mes_actual}, headers=self.headers, timeout=10)
+            res = self.session.post(url, json={"mes_actual": mes_actual, "fecha_corte": fecha_corte} if fecha_corte else {"mes_actual": mes_actual}, headers=self.headers, timeout=10)
             if res.status_code == 200:
                 return res.json()
         except requests.exceptions.RequestException as req_e:
@@ -640,11 +804,14 @@ class SupabaseClient:
             print(f"Error RPC inventario_kpis: {e}")
         return {"valor_inventario": 0.0, "alertas_criticas": 0}
 
-    def get_kpis_por_categoria(self) -> list:
+    def get_kpis_por_categoria(self, fecha_corte=None) -> list:
         """Invoca RPC para extraer rendimiento y rotación agrupada por categoría."""
         url = f"{self.url}/rpc/get_kpis_por_categoria_rpc"
         try:
-            res = self.session.post(url, headers=self.headers, timeout=5)
+            payload = {}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.session.post(url, json=payload if payload else None, headers=self.headers, timeout=5)
             if res.status_code == 200:
                 return res.json()
         except:
@@ -798,6 +965,89 @@ class SupabaseClient:
             print(f"Error de conexión con Supabase en get_ajustes_inventario: el servidor no responde")
         except Exception as e:
             pass
+
+    def get_historial_facturas_dia(self, fecha_dia: str) -> list:
+        """
+        Recupera todas las facturas y documentos cargados en un día específico (YYYY-MM-DD),
+        agrupados por número de factura/entrada con su hora de registro y valor total.
+        """
+        facturas = []
+        try:
+            # 1. Compras del día
+            url_c = f"{self.url}/registro_compras?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=numero_entrada,numero_factura,proveedor,costo_total,fecha&order=fecha.desc"
+            res_c = self.session.get(url_c, headers=self.headers, timeout=10)
+            if res_c.status_code == 200:
+                agrupado_c = {}
+                for r in res_c.json():
+                    ref = r.get("numero_entrada") or r.get("numero_factura")
+                    if not ref: continue
+                    if ref not in agrupado_c:
+                        agrupado_c[ref] = {
+                            "tipo": "COMPRA",
+                            "ref": ref,
+                            "factura": r.get("numero_factura", "N/A"),
+                            "proveedor": r.get("proveedor") or "Clientes Varios",
+                            "total": 0.0,
+                            "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
+                        }
+                    agrupado_c[ref]["total"] += float(r.get("costo_total") or 0)
+                facturas.extend(list(agrupado_c.values()))
+
+            # 2. Ventas del día (Diferenciando POS y Remisión)
+            url_v = f"{self.url}/registro_ventas?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=factura_no,tipo_documento,total,fecha&order=fecha.desc"
+            res_v = self.session.get(url_v, headers=self.headers, timeout=10)
+            if res_v.status_code == 200:
+                agrupado_v = {}
+                for r in res_v.json():
+                    ref = r.get("factura_no")
+                    if not ref: continue
+                    if ref not in agrupado_v:
+                        tipo_doc = r.get("tipo_documento") or "Factura POS"
+                        agrupado_v[ref] = {
+                            "tipo": f"VENTA_{'POS' if 'POS' in tipo_doc.upper() else 'REVISION'}",
+                            "ref": ref,
+                            "factura": ref,
+                            "subtipo": tipo_doc,
+                            "total": 0.0,
+                            "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
+                        }
+                    agrupado_v[ref]["total"] += float(r.get("total") or 0)
+                facturas.extend(list(agrupado_v.values()))
+
+            # 3. Ajustes del día
+            url_a = f"{self.url}/registro_ajustes_inventario?fecha_ajuste=gte.{fecha_dia}T00:00:00&fecha_ajuste=lte.{fecha_dia}T23:59:59&select=id_ajuste,tipo_ajuste,motivo_observacion,costo_total_ajuste,fecha_ajuste&order=fecha_ajuste.desc"
+            res_a = self.session.get(url_a, headers=self.headers, timeout=10)
+            if res_a.status_code == 200:
+                for r in res_a.json():
+                    es_entrada = r.get("tipo_ajuste") in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
+                    facturas.append({
+                        "tipo": "AJUSTE_ENTRADA" if es_entrada else "AJUSTE_SALIDA",
+                        "ref": r.get("id_ajuste"),
+                        "factura": r.get("motivo_observacion") or "Ajuste Directo",
+                        "total": float(r.get("costo_total_ajuste") or 0),
+                        "hora": r.get("fecha_ajuste", "") if len(r.get("fecha_ajuste", "")) >= 16 else "12:00"
+                    })
+
+        except Exception as ex:
+            print(f"Error cargando historial del día: {ex}")
+
+        # Ordenar por hora descendente (más reciente arriba)
+        facturas.sort(key=lambda x: x["hora"], reverse=True)
+        return facturas
+
+    def get_codigos_factura_especifica(self, tipo: str, ref: str) -> list:
+        try:
+            if tipo == "COMPRA":
+                res = self.session.get(f"{self.url}/registro_compras?numero_entrada=eq.{ref}&select=codigo_insumo", headers=self.headers, timeout=5)
+            elif tipo.startswith("VENTA"):
+                res = self.session.get(f"{self.url}/registro_ventas?factura_no=eq.{ref}&select=codigo_insumo", headers=self.headers, timeout=5)
+            else:
+                res = self.session.get(f"{self.url}/registro_ajustes_inventario?id_ajuste=eq.{ref}&select=codigo_insumo", headers=self.headers, timeout=5)
+            
+            if res.status_code == 200:
+                return list(set([r.get("codigo_insumo") for r in res.json() if r.get("codigo_insumo")]))
+        except: pass
+        return []
         return []
 
     def insert_ajuste_individual(self, datos: dict) -> bool:
@@ -836,11 +1086,14 @@ class SupabaseClient:
         except Exception as e:
             return []
 
-    def get_proyeccion_ventas(self) -> float:
+    def get_proyeccion_ventas(self, fecha_corte=None) -> float:
         """Invoca RPC get_proyeccion_ventas_rpc"""
         url = f"{self.url}/rpc/get_proyeccion_ventas_rpc"
         try:
-            res = self.session.post(url, headers=self.headers, timeout=10)
+            payload = {}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.session.post(url, json=payload if payload else None, headers=self.headers, timeout=10)
             if res.status_code == 200:
                 data = res.json()
                 return float(data) if data is not None else 0.0
@@ -851,11 +1104,14 @@ class SupabaseClient:
         except Exception:
             return 0.0
 
-    def get_ajustes_mes(self, mes_actual: str) -> list:
+    def get_ajustes_mes(self, mes_actual: str, fecha_corte=None) -> list:
         """Invoca RPC get_ajustes_mes_rpc"""
         url = f"{self.url}/rpc/get_ajustes_mes_rpc"
         try:
-            res = self.session.post(url, json={"mes_actual": mes_actual}, headers=self.headers, timeout=10)
+            payload = {"mes_actual": mes_actual}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.session.post(url, json=payload, headers=self.headers, timeout=10)
             if res.status_code == 200:
                 data = res.json()
                 return data if data is not None else []
@@ -881,3 +1137,88 @@ class SupabaseClient:
             if res.status_code == 200: return res.json()
             return {"exito": False, "error": res.text}
         except Exception as e: return {"exito": False, "error": str(e)}
+
+    def get_rendimiento_categorias_periodo(self, fecha_inicio=None, fecha_fin=None) -> list:
+        """Calcula el rendimiento real, rotación y cumplimiento por categoría."""
+        categorias = {}
+        
+        # 1. Insumos
+        try:
+            res_cat = self.session.get(f"{self.url}/catalogo_insumos?select=categoria,stock_actual,costo_unitario,precio_venta,codigo_insumo", headers=self.headers, timeout=10)
+            if res_cat.status_code == 200:
+                for r in res_cat.json():
+                    cat = r.get("categoria") or "SIN CATEGORÍA"
+                    if cat not in categorias:
+                        categorias[cat] = {
+                            "categoria": cat,
+                            "inventario_costo": 0.0,
+                            "proyeccion_venta": 0.0,
+                            "ventas_realizadas": 0.0,
+                            "costo_vendido": 0.0,
+                            "cumplimiento_pct": 0.0,
+                            "rotacion": 0.0,
+                            "rendimiento_pct": 0.0
+                        }
+                    stock = float(r.get("stock_actual") or 0)
+                    costo = float(r.get("costo_unitario") or 0)
+                    precio = float(r.get("precio_venta") or 0)
+                    
+                    categorias[cat]["inventario_costo"] += (stock * costo)
+                    categorias[cat]["proyeccion_venta"] += (stock * precio)
+        except Exception as e:
+            print(f"Error en get_rendimiento_categorias_periodo (insumos): {e}")
+
+        # 2. Ventas Realizadas
+        url_v = f"{self.url}/registro_ventas?select=total,cantidad,codigo_insumo,catalogo_insumos(categoria,costo_unitario)"
+        filtros_v = []
+        if fecha_inicio:
+            filtros_v.append(f"fecha=gte.{fecha_inicio}T00:00:00")
+        if fecha_fin:
+            filtros_v.append(f"fecha=lte.{fecha_fin}T23:59:59")
+        if filtros_v:
+            url_v += "&" + "&".join(filtros_v)
+            
+        try:
+            res_v = self.session.get(url_v, headers=self.headers, timeout=10)
+            if res_v.status_code == 200:
+                for v in res_v.json():
+                    cat_info = v.get("catalogo_insumos") or {}
+                    cat = cat_info.get("categoria") or "SIN CATEGORÍA"
+                    if cat not in categorias:
+                        categorias[cat] = {
+                            "categoria": cat,
+                            "inventario_costo": 0.0,
+                            "proyeccion_venta": 0.0,
+                            "ventas_realizadas": 0.0,
+                            "costo_vendido": 0.0,
+                            "cumplimiento_pct": 0.0,
+                            "rotacion": 0.0,
+                            "rendimiento_pct": 0.0
+                        }
+                        
+                    total_venta = float(v.get("total") or 0)
+                    cantidad_vendida = float(v.get("cantidad") or 0)
+                    costo_unit = float(cat_info.get("costo_unitario") or 0)
+                    
+                    categorias[cat]["ventas_realizadas"] += total_venta
+                    categorias[cat]["costo_vendido"] += (cantidad_vendida * costo_unit)
+        except Exception as e:
+            print(f"Error en get_rendimiento_categorias_periodo (ventas): {e}")
+
+        # 3. Cálculos
+        resultado = []
+        for cat, data in categorias.items():
+            inv_costo = data["inventario_costo"]
+            proy = data["proyeccion_venta"]
+            ventas = data["ventas_realizadas"]
+            costo_vendido = data["costo_vendido"]
+            
+            data["cumplimiento_pct"] = (ventas / proy * 100) if proy > 0 else 0.0
+            data["rotacion"] = (ventas / inv_costo) if inv_costo > 0 else 0.0
+            data["rendimiento_pct"] = ((ventas - costo_vendido) / ventas * 100) if ventas > 0 else 0.0
+            
+            resultado.append(data)
+            
+        # Ordenar por ventas realizadas (descendente)
+        resultado.sort(key=lambda x: x["ventas_realizadas"], reverse=True)
+        return resultado
