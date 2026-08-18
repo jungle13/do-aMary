@@ -4,6 +4,7 @@ from config import Config
 from core.supabase_client import SupabaseClient
 import math
 from datetime import datetime
+from ui.components.autocomplete import CustomAutoComplete
 
 class InventarioView(ft.Container):
     def __init__(self):
@@ -34,16 +35,22 @@ class InventarioView(ft.Container):
         )
         
         # Controles de Búsqueda
-        self.search_input = ft.TextField(
-            hint_text="Buscar por código o nombre...", 
-            prefix_icon=ft.icons.SEARCH,
-            border_radius=8,
-            expand=True,
-            bgcolor="white",
-            height=40,
-            border_color=ft.colors.with_opacity(0.2, Config.COLOR_PRIMARY),
-            content_padding=10,
-            on_submit=self.on_search
+        def on_select_busqueda_inv(e):
+            texto = e.selection.value if hasattr(e, 'selection') and e.selection else str(e.control.value or "")
+            if "[" in texto and "]" in texto:
+                query = texto.split("]")[0].replace("[", "").strip()
+            else:
+                query = texto.strip()
+            self.search_input_text.value = query
+            self.on_search(None)
+
+        self.search_input_text = ft.TextField(visible=False)
+
+        self.search_autocomplete = CustomAutoComplete(
+            hint_text="Buscar por código o nombre...",
+            on_select=on_select_busqueda_inv,
+            text_size=12,
+            expand=True
         )
         
         self.category_dropdown = ft.Dropdown(
@@ -442,7 +449,7 @@ class InventarioView(ft.Container):
             # Toolbar de Filtros
             ft.Container(
                 content=ft.Row([
-                    self.search_input,
+                    self.search_autocomplete,
                     self.category_dropdown,
                     self.btn_date_icon,
                     self.btn_clear_date,
@@ -532,7 +539,16 @@ class InventarioView(ft.Container):
             
         self.load_categories()
         self.load_summary()
+        self.cargar_sugerencias_buscador()
         self.load_data()
+        
+    def cargar_sugerencias_buscador(self):
+        insumos, _ = self.db.get_insumos(page=1, page_size=99999)
+        self.search_autocomplete.suggestions = [
+            {"key": i["codigo_insumo"], "value": f"[{i['codigo_insumo']}] {i['nombre']}"}
+            for i in insumos
+        ]
+        self.safe_update()
         
 
     def safe_update(self):
@@ -587,7 +603,7 @@ class InventarioView(ft.Container):
         threading.Thread(target=self._fetch_data_worker, daemon=True).start()
 
     def _fetch_data_worker(self):
-        search_val = self.search_input.value or ""
+        search_val = self.search_input_text.value or self.search_autocomplete.value or ""
         cat_val = self.category_dropdown.value or "Todas"
         
         data, total = self.db.get_insumos(

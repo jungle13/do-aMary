@@ -9,6 +9,7 @@ from core.supabase_client import SupabaseClient
 from core.gemini_parser import GeminiParser
 import math
 import datetime
+from ui.components.autocomplete import CustomAutoComplete
 
 class VentasView(ft.Container):
     def __init__(self):
@@ -41,17 +42,24 @@ class VentasView(ft.Container):
         # ---------------------------------------
         
         # Controles de Búsqueda
-        self.search_input = ft.TextField(
-            hint_text="Buscar por código, descripción o factura...", 
-            prefix_icon=ft.icons.SEARCH,
-            border_radius=8,
-            expand=True,
-            bgcolor="white",
-            height=38,
-            dense=True,
+        def on_select_busqueda_ventas(e):
+            texto = e.selection.value if hasattr(e, 'selection') and e.selection else str(e.control.value or "")
+            if "[" in texto and "]" in texto:
+                query = texto.split("]")[0].replace("[", "").strip()
+            elif "Factura: " in texto:
+                query = texto.replace("Factura: ", "").strip()
+            else:
+                query = texto.strip()
+            self.search_input_text.value = query
+            self.on_search(None)
+
+        self.search_input_text = ft.TextField(visible=False)
+
+        self.search_autocomplete = CustomAutoComplete(
+            hint_text="Buscar por código, descripción o factura...",
+            on_select=on_select_busqueda_ventas,
             text_size=12,
-            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
-            on_submit=self.on_search
+            expand=True
         )
         
         # Filtro de fecha
@@ -243,7 +251,7 @@ class VentasView(ft.Container):
         )
         
         row_filtros_ventas = ft.Row([
-            self.search_input,
+            self.search_autocomplete,
             self.btn_date,
             self.btn_clear_date,
             btn_nueva_venta
@@ -587,7 +595,29 @@ class VentasView(ft.Container):
             
         self.page.update()
         self.load_summary()
+        self.cargar_sugerencias_ventas()
         self.load_data()
+
+    def cargar_sugerencias_ventas(self):
+        ventas, _ = self.db.get_ventas(page=1, page_size=1000)
+        sug_set = set()
+        for v in ventas:
+            cat_info = v.get("catalogo_insumos") or {}
+            cod = v.get("codigo_insumo")
+            nom = cat_info.get("nombre")
+            fact = v.get("factura_no")
+            
+            if cod and nom: sug_set.add(f"[{cod}] {nom}")
+            if fact and fact != "N/A": sug_set.add(f"Factura: {fact}")
+
+        self.search_autocomplete.suggestions = [
+            {"key": str(idx), "value": val}
+            for idx, val in enumerate(sorted(sug_set))
+        ]
+        if hasattr(self, 'safe_update'):
+            self.safe_update()
+        elif self.page:
+            self.page.update()
         self._render_tabla_cargas()
 
     def _abrir_modal_metadatos(self, e):
@@ -1328,7 +1358,7 @@ class VentasView(ft.Container):
         threading.Thread(target=self._fetch_data_worker, daemon=True).start()
 
     def _fetch_data_worker(self):
-        search_val = self.search_input.value.strip() if self.search_input.value else ""
+        search_val = self.search_input_text.value or self.search_autocomplete.value or ""
         
         cat_filtro = getattr(self, 'filtro_categoria_activo', None)
         fact_filtro = getattr(self, 'filtro_factura_activo', None)

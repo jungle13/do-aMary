@@ -9,6 +9,7 @@ from config import Config
 from core.supabase_client import SupabaseClient
 from core.gemini_parser import GeminiParser
 import math
+from ui.components.autocomplete import CustomAutoComplete
 
 class ComprasView(ft.Container):
     def __init__(self):
@@ -40,17 +41,26 @@ class ComprasView(ft.Container):
         # ------------------------------
         
         # Controles de Búsqueda
-        self.search_input = ft.TextField(
-            hint_text="Buscar por código, proveedor o factura...", 
-            prefix_icon=ft.icons.SEARCH,
-            border_radius=8,
-            expand=True,
-            bgcolor="white",
-            height=38,
-            dense=True,
+        def on_select_busqueda_compras(e):
+            texto = e.selection.value if hasattr(e, 'selection') and e.selection else str(e.control.value or "")
+            if "[" in texto and "]" in texto:
+                query = texto.split("]")[0].replace("[", "").strip()
+            elif "Factura: " in texto:
+                query = texto.replace("Factura: ", "").strip()
+            elif "Proveedor: " in texto:
+                query = texto.replace("Proveedor: ", "").strip()
+            else:
+                query = texto.strip()
+            self.search_input_text.value = query
+            self.on_search(None)
+
+        self.search_input_text = ft.TextField(visible=False)
+
+        self.search_autocomplete = CustomAutoComplete(
+            hint_text="Buscar por código, proveedor o factura...",
+            on_select=on_select_busqueda_compras,
             text_size=12,
-            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
-            on_submit=self.on_search
+            expand=True
         )
         
         # Filtro de fecha
@@ -211,7 +221,7 @@ class ComprasView(ft.Container):
         
         # 1. Contenido Tab 1: Registro Compras
         row_filtros_compras = ft.Row([
-            self.search_input,
+            self.search_autocomplete,
             self.btn_date,
             self.btn_clear_date
         ])
@@ -734,7 +744,31 @@ class ComprasView(ft.Container):
             
         self.page.update()
         self.load_summary()
+        self.cargar_sugerencias_compras()
         self.load_data()
+
+    def cargar_sugerencias_compras(self):
+        compras, _ = self.db.get_compras(page=1, page_size=1000)
+        sug_set = set()
+        for c in compras:
+            cat_info = c.get("catalogo_insumos") or {}
+            cod = c.get("codigo_insumo")
+            nom = cat_info.get("nombre")
+            prov = c.get("proveedor")
+            fact = c.get("numero_factura")
+            
+            if cod and nom: sug_set.add(f"[{cod}] {nom}")
+            if prov and prov != "N/A": sug_set.add(f"Proveedor: {prov}")
+            if fact: sug_set.add(f"Factura: {fact}")
+
+        self.search_autocomplete.suggestions = [
+            {"key": str(idx), "value": val}
+            for idx, val in enumerate(sorted(sug_set))
+        ]
+        if hasattr(self, 'safe_update'):
+            self.safe_update()
+        elif self.page:
+            self.page.update()
         
     def load_summary(self):
         res = self.db.get_compras_summary()
@@ -1219,7 +1253,7 @@ class ComprasView(ft.Container):
         threading.Thread(target=self._fetch_data_worker, daemon=True).start()
 
     def _fetch_data_worker(self):
-        search_val = self.search_input.value.strip() if self.search_input.value else ""
+        search_val = self.search_input_text.value or self.search_autocomplete.value or ""
         
         fact_filtro = getattr(self, 'filtro_factura_activo', None)
         prov_filtro = getattr(self, 'filtro_proveedor_activo', None)

@@ -1,7 +1,9 @@
 import flet as ft
 import threading
 from config import Config
+from config import Config
 from core.supabase_client import SupabaseClient
+from ui.components.autocomplete import CustomAutoComplete
 
 class AjustesInventarioView(ft.Container):
     def __init__(self):
@@ -45,15 +47,23 @@ class AjustesInventarioView(ft.Container):
         self.total_pages = 1
         self.total_records = 0
 
-        self.search_input = ft.TextField(
+        def on_select_filtro_ajustes(e):
+            texto = e.selection.value if hasattr(e, 'selection') and e.selection else str(e.control.value or "")
+            if "[" in texto and "]" in texto:
+                query = texto.split("]")[0].replace("[", "").strip()
+            else:
+                query = texto.strip()
+            self.search_input_text.value = query
+            self._on_filter_change()
+
+        self.search_input_text = ft.TextField(visible=False)
+
+        self.search_filter_autocomplete = CustomAutoComplete(
             hint_text="Buscar código o nombre...",
-            prefix_icon=ft.icons.SEARCH,
-            height=38,
-            expand=2,
-            dense=True,
+            on_select=on_select_filtro_ajustes,
             text_size=12,
-            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
-            on_submit=lambda e: self._on_filter_change()
+            height=38,
+            expand=2
         )
         
         self.date_picker = ft.DatePicker(on_change=lambda e: self._on_filter_change())
@@ -110,7 +120,7 @@ class AjustesInventarioView(ft.Container):
         )
         
         filtros_row = ft.Row([
-            self.search_input,
+            self.search_filter_autocomplete,
             self.btn_date,
             self.btn_clear_date,
             self.drop_tipo,
@@ -157,56 +167,28 @@ class AjustesInventarioView(ft.Container):
                 self.lbl_valor_inv_modal.value = "Valor del Inv: $0"
             self.safe_update()
 
-        self.sug_list = ft.ListView(expand=True, spacing=0, height=150)
-        self.sug_container = ft.Container(
-            content=self.sug_list,
-            visible=False,
-            bgcolor="white",
-            border_radius=8,
-            border=ft.border.all(1, "#e0e0e0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.1, "black"))
-        )
-
-        def on_search_change(e):
-            query = e.control.value.lower()
-            self.sug_list.controls.clear()
-            if query:
-                for i in getattr(self, 'catalogo_cache', {}).values():
-                    texto_busqueda = f"[{i['codigo_insumo']}] {i['nombre']}"
-                    if query in texto_busqueda.lower():
-                        self.sug_list.controls.append(
-                            ft.ListTile(
-                                title=ft.Text(texto_busqueda, size=12),
-                                on_click=lambda e, code=i['codigo_insumo']: on_seleccionar_insumo_manual(code),
-                                dense=True,
-                            )
-                        )
-                self.sug_container.visible = len(self.sug_list.controls) > 0
-            else:
-                self.sug_container.visible = False
-            self.safe_update()
-
-        def on_seleccionar_insumo_manual(codigo):
+        def on_seleccionar_insumo_manual(e):
+            texto = e.selection.value if hasattr(e, 'selection') and e.selection else str(e.control.value or "")
+            codigo = e.selection.key if hasattr(e, 'selection') and hasattr(e.selection, 'key') and e.selection.key else ""
+            if not codigo:
+                if "[" in texto and "]" in texto:
+                    codigo = texto.split("]")[0].replace("[", "").strip()
+                else:
+                    codigo = texto.strip()
             self.form_codigo.value = codigo
             self.buscar_detalle_insumo(None)
-            self.txt_buscador_insumo.value = f"[{codigo}] {self.catalogo_cache[codigo]['nombre']}"
-            self.sug_container.visible = False
             self.safe_update()
 
         self.form_tipo_ajuste = ft.Dropdown(label="Tipo de Movimiento", options=[ft.dropdown.Option("ENTRADA"), ft.dropdown.Option("SALIDA")], dense=True, expand=True, border_radius=8, on_change=on_tipo_change)
 
         self.form_codigo = ft.TextField(visible=False) # Guard de código en segundo plano
 
-        # Envolver en TextField embebido con diseño estilizado
-        self.txt_buscador_insumo = ft.TextField(
-            label="Buscar por Código o Nombre...",
-            prefix_icon=ft.icons.SEARCH_ROUNDED,
-            dense=True,
-            border_radius=8,
-            height=40,
+        self.txt_buscador_insumo = CustomAutoComplete(
+            hint_text="Buscar por Código o Nombre...",
+            on_select=on_seleccionar_insumo_manual,
             text_size=12,
-            expand=True,
-            on_change=on_search_change
+            height=40,
+            expand=True
         )
 
         self.form_nombre = ft.Text("Selecciona o busca un insumo...", color="grey", italic=True, size=13)
@@ -228,8 +210,7 @@ class AjustesInventarioView(ft.Container):
                 content=ft.Column([
                     # Buscador Inteligente
                     ft.Column([
-                        ft.Row([self.txt_buscador_insumo]),
-                        self.sug_container
+                        ft.Row([self.txt_buscador_insumo])
                     ], spacing=0),
                     # Tarjeta de Insumo Seleccionado
                     ft.Container(
@@ -331,6 +312,11 @@ class AjustesInventarioView(ft.Container):
         # Cargar catálogo para sugerencias inteligentes
         insumos, _ = self.db.get_insumos(page=1, page_size=99999)
         self.catalogo_cache = {i["codigo_insumo"]: i for i in insumos}
+        self.txt_buscador_insumo.suggestions = [
+            {"key": i["codigo_insumo"], "value": f"[{i['codigo_insumo']}] {i['nombre']}"}
+            for i in insumos
+        ]
+        self.search_filter_autocomplete.suggestions = self.txt_buscador_insumo.suggestions
 
         # Limpiar valores del formulario
         self.form_tipo_ajuste.value = None
@@ -485,7 +471,7 @@ class AjustesInventarioView(ft.Container):
 
         self.lista_ajustes.controls.clear()
         
-        filtro_texto = self.search_input.value.lower().strip() if self.search_input.value else ""
+        filtro_texto = self.search_input_text.value.lower().strip() if self.search_input_text.value else ""
         filtro_fecha = self.date_picker.value.strftime("%Y-%m-%d") if self.date_picker.value else None
         filtro_tipo = self.drop_tipo.value
         filtro_motivo = self.drop_motivo.value
