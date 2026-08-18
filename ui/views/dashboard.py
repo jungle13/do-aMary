@@ -346,12 +346,14 @@ class DashboardView(ft.Container):
         self.lbl_fecha_hora.value = ahora.strftime("%d/%m/%Y - %I:%M %p")
 
         # 1. Load KPIs
+        kpis_cat = self.db.get_rendimiento_categorias_periodo(fecha_inicio=None, fecha_fin=self.fecha_filtro_dash)
+        val_inv_real = sum([c["inventario_costo"] for c in kpis_cat])
+        val_inv = val_inv_real
+        self.val_inventario.value = f"$ {val_inv:,.0f}"
+        
         res_cat = self.db.get_catalogo_summary(fecha_corte=self.fecha_filtro_dash)
         res_ven = self.db.get_ventas_summary(fecha_corte=self.fecha_filtro_dash)
         res_com = self.db.get_compras_summary(fecha_corte=self.fecha_filtro_dash)
-        
-        val_inv = float(res_cat.get('total_compras') or 0) - float(res_cat.get('total_ventas') or 0)
-        self.val_inventario.value = f"$ {val_inv:,.0f}"
         
         ingresos = float(res_ven.get('total_mes') or 0)
         compras = float(res_com.get('total_mes') or 0)
@@ -633,7 +635,6 @@ class DashboardView(ft.Container):
             print(f"Error crítico en tabla costos: {e}")
             
         try:
-            kpis_cat = self.db.get_rendimiento_categorias_periodo(fecha_inicio=None, fecha_fin=self.fecha_filtro_dash)
             self.categorias_row.controls.clear()
             for cat in kpis_cat:
                 self.categorias_row.controls.append(self._crear_card_categoria(cat))

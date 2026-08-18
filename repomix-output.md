@@ -72,266 +72,6 @@ supabase_schema.sql
 
 # Files
 
-## File: ui/views/informes.py
-````python
-import flet as ft
-from config import Config
-from core.supabase_client import SupabaseClient
-import datetime
-from calendar import monthrange
-import threading
-
-class InformesView(ft.Container):
-    def __init__(self):
-        super().__init__()
-        self.expand = True
-        self.db = SupabaseClient()
-        
-        # --- PANEL IZQUIERDO: CONSTRUCTOR DE INFORMES ---
-        self.drop_tipo_informe = ft.Dropdown(
-            label="Tipo de Informe",
-            options=[ft.dropdown.Option("Valorización de Inventario")],
-            value="Valorización de Inventario",
-            dense=True, border_radius=8
-        )
-        
-        self.drop_filtro_fecha = ft.Dropdown(
-            label="Periodo",
-            options=[
-                ft.dropdown.Option("Día de Hoy"),
-                ft.dropdown.Option("Mes Actual"),
-                ft.dropdown.Option("Histórico Completo")
-            ],
-            value="Histórico Completo",
-            dense=True, border_radius=8
-        )
-        
-        self.drop_categoria = ft.Dropdown(
-            label="Categoría Específica",
-            options=[ft.dropdown.Option("Todas")],
-            value="Todas",
-            dense=True, border_radius=8
-        )
-        
-        self.btn_generar = ft.ElevatedButton(
-            "Generar Previsualización", 
-            icon=ft.icons.PLAY_ARROW, 
-            bgcolor=Config.COLOR_PRIMARY, 
-            color="white",
-            on_click=self.generar_informe,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-        )
-        
-        self.btn_pdf = ft.OutlinedButton("Exportar a PDF", icon=ft.icons.PICTURE_AS_PDF, icon_color="red", on_click=self.exportar_pdf)
-        self.btn_excel = ft.OutlinedButton("Exportar a Excel", icon=ft.icons.TABLE_VIEW, icon_color="green", on_click=self.exportar_excel)
-        
-        panel_controles = ft.Container(
-            content=ft.Column([
-                ft.Text("Parámetros del Informe", weight="bold", color=Config.COLOR_PRIMARY),
-                ft.Divider(height=1, color="#eeeeee"),
-                self.drop_tipo_informe,
-                self.drop_filtro_fecha,
-                self.drop_categoria,
-                ft.Container(height=10),
-                self.btn_generar,
-                ft.Divider(height=20, color="transparent"),
-                ft.Text("Exportación", weight="bold", color=Config.COLOR_PRIMARY),
-                ft.Divider(height=1, color="#eeeeee"),
-                self.btn_pdf,
-                self.btn_excel
-            ], spacing=15),
-            bgcolor="white", padding=20, border_radius=8, width=300,
-            border=ft.border.all(1, "#e0e0e0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))
-        )
-        
-        # --- PANEL DERECHO: LIENZO DEL DOCUMENTO (A4) ---
-        self.doc_header_empresa = ft.Text("TIENDA Y ABARROTES LOS DESECHABLES DE DOÑA MARY SAS", weight="bold", size=16, text_align=ft.TextAlign.CENTER)
-        self.doc_header_titulo = ft.Text("INFORME DE VALORIZACIÓN DE INVENTARIO", weight="bold", size=14, text_align=ft.TextAlign.CENTER)
-        self.doc_header_periodo = ft.Text("Periodo: Histórico Completo", size=11, color="grey", text_align=ft.TextAlign.CENTER)
-        self.doc_header_fecha = ft.Text(f"Fecha de Generación: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", size=11, color="grey", text_align=ft.TextAlign.CENTER)
-        
-        self.doc_cuerpo = ft.Column(spacing=5)
-        
-        self.lienzo_documento = ft.Container(
-            content=ft.Column([
-                ft.Container(
-                    content=ft.Column([
-                        self.doc_header_empresa,
-                        self.doc_header_titulo,
-                        self.doc_header_periodo,
-                        self.doc_header_fecha
-                    ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    alignment=ft.alignment.center,
-                    padding=ft.padding.only(bottom=20)
-                ),
-                ft.Divider(height=2, color="black"),
-                self.doc_cuerpo
-            ]),
-            bgcolor="white",
-            padding=40,
-            border_radius=5,
-            shadow=ft.BoxShadow(spread_radius=2, blur_radius=10, color=ft.colors.with_opacity(0.1, "black"))
-        )
-        
-        scroll_lienzo = ft.Column([self.lienzo_documento], scroll=ft.ScrollMode.ALWAYS, expand=True)
-        
-        # --- ENSAMBLAJE FINAL ---
-        self.content = ft.Row([
-            panel_controles,
-            scroll_lienzo
-        ], expand=True, spacing=20, vertical_alignment=ft.CrossAxisAlignment.START)
-
-    def did_mount(self):
-        self.cargar_categorias()
-        
-    def cargar_categorias(self):
-        cats = self.db.get_categorias()
-        opciones = [ft.dropdown.Option("Todas")]
-        for c in cats:
-            if c: opciones.append(ft.dropdown.Option(c))
-        self.drop_categoria.options = opciones
-        if self.page:
-            self.page.update()
-
-    def generar_informe(self, e):
-        self.doc_cuerpo.controls.clear()
-        self.doc_cuerpo.controls.append(ft.Container(content=ft.ProgressRing(), alignment=ft.alignment.center, padding=50))
-        if self.page: self.page.update()
-        threading.Thread(target=self._worker_generar_informe, daemon=True).start()
-
-    def _worker_generar_informe(self):
-        tipo_informe = self.drop_tipo_informe.value
-        cat_filtro = self.drop_categoria.value
-        periodo_filtro = self.drop_filtro_fecha.value
-
-        # 1. Cálculo del Rango de Fechas
-        hoy = datetime.date.today()
-        if periodo_filtro == "Día de Hoy":
-            fecha_inicio = hoy.strftime("%Y-%m-%d")
-            fecha_fin = hoy.strftime("%Y-%m-%d")
-        elif periodo_filtro == "Mes Actual":
-            fecha_inicio = hoy.replace(day=1).strftime("%Y-%m-%d")
-            ultimo_dia = monthrange(hoy.year, hoy.month)[1]
-            fecha_fin = hoy.replace(day=ultimo_dia).strftime("%Y-%m-%d")
-        else:
-            # Histórico Completo
-            fecha_inicio = "2000-01-01"
-            fecha_fin = "2100-12-31"
-
-        # 2. Actualizar Cabecera del Documento
-        self.doc_header_titulo.value = f"INFORME DE {tipo_informe.upper()}"
-        self.doc_header_periodo.value = f"Periodo: {fecha_inicio} al {fecha_fin} | Filtro: {cat_filtro}"
-        self.doc_header_fecha.value = f"Fecha de Generación: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')}"
-
-        self.doc_cuerpo.controls.clear()
-
-        # 3. Enrutador según el tipo de informe
-        if tipo_informe == "Valorización de Inventario":
-            self._generar_valorizacion(cat_filtro)
-        else:
-            # Espacio para futuros reportes (Ej. Entradas, Salidas, Rentabilidad)
-            self.doc_cuerpo.controls.append(ft.Text("Tipo de informe en construcción.", color="orange"))
-
-        if self.page:
-            self.page.update()
-
-    def _generar_valorizacion(self, cat_filtro):
-        # Obtener Datos
-        cat_param = "" if cat_filtro == "Todas" else cat_filtro
-        data, _ = self.db.get_insumos(page=1, page_size=10000, categoria=cat_param)
-
-        if not data:
-            self.doc_cuerpo.controls.append(
-                ft.Container(content=ft.Text("No hay datos para los filtros seleccionados.", size=14, color="grey"), padding=30, alignment=ft.alignment.center)
-            )
-            self.current_data = {}
-            self.current_total = 0
-            return
-
-        # Agrupar Datos
-        agrupacion = {}
-        gran_total_costo = 0.0
-
-        for item in data:
-            cat = item.get("categoria") or "SIN CATEGORIA"
-            stock = float(item.get("stock_actual") or item.get("stock_real") or 0)
-            costo = float(item.get("costo_unitario") or 0)
-
-            if stock > 0:
-                costo_total = stock * costo
-                if cat not in agrupacion:
-                    agrupacion[cat] = {"items": [], "subtotal": 0.0}
-
-                agrupacion[cat]["items"].append({
-                    "codigo": item.get("codigo_insumo"),
-                    "nombre": item.get("nombre"),
-                    "stock": stock,
-                    "costo_u": costo,
-                    "total": costo_total
-                })
-                agrupacion[cat]["subtotal"] += costo_total
-                gran_total_costo += costo_total
-
-        # Guardar en memoria para exportación
-        self.current_data = agrupacion
-        self.current_total = gran_total_costo
-        self.current_periodo = self.doc_header_periodo.value
-
-        # Construcción Visual en el Lienzo
-        self.doc_cuerpo.controls.append(
-            ft.Row([
-                ft.Text("CÓDIGO", weight="bold", size=11, width=60),
-                ft.Text("INSUMO", weight="bold", size=11, expand=True),
-                ft.Text("CANT.", weight="bold", size=11, width=60, text_align=ft.TextAlign.RIGHT),
-                ft.Text("COSTO U.", weight="bold", size=11, width=80, text_align=ft.TextAlign.RIGHT),
-                ft.Text("TOTAL", weight="bold", size=11, width=100, text_align=ft.TextAlign.RIGHT),
-            ])
-        )
-        self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
-
-        for cat, datos_cat in sorted(agrupacion.items()):
-            self.doc_cuerpo.controls.append(
-                ft.Container(content=ft.Text(f"GRUPO: {cat.upper()}", weight="bold", size=12, color=Config.COLOR_PRIMARY), padding=ft.padding.only(top=10, bottom=5))
-            )
-            for i in sorted(datos_cat["items"], key=lambda x: x["nombre"]):
-                self.doc_cuerpo.controls.append(
-                    ft.Row([
-                        ft.Text(i['codigo'], size=11, width=60),
-                        ft.Text(i['nombre'], size=11, expand=True, no_wrap=True),
-                        ft.Text(f"{i['stock']:g}", size=11, width=60, text_align=ft.TextAlign.RIGHT),
-                        ft.Text(f"${i['costo_u']:,.2f}", size=11, width=80, text_align=ft.TextAlign.RIGHT),
-                        ft.Text(f"${i['total']:,.2f}", size=11, width=100, text_align=ft.TextAlign.RIGHT),
-                    ])
-                )
-            self.doc_cuerpo.controls.append(
-                ft.Row([
-                    ft.Text(f"Total {cat}:", weight="bold", size=11, expand=True, text_align=ft.TextAlign.RIGHT),
-                    ft.Text(f"${datos_cat['subtotal']:,.2f}", weight="bold", size=12, width=100, text_align=ft.TextAlign.RIGHT),
-                ])
-            )
-            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="#eeeeee"))
-
-        self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
-        self.doc_cuerpo.controls.append(
-            ft.Row([
-                ft.Text("GRAN TOTAL VALORIZACIÓN:", weight="bold", size=14, expand=True, text_align=ft.TextAlign.RIGHT),
-                ft.Text(f"${gran_total_costo:,.2f}", weight="bold", size=14, width=150, text_align=ft.TextAlign.RIGHT),
-            ])
-        )
-        self.doc_cuerpo.controls.append(ft.Divider(height=4, color="black"))
-
-    def exportar_pdf(self, e):
-        self.page.snack_bar = ft.SnackBar(ft.Text("Generando PDF... (Módulo de exportación pendiente)"), bgcolor="orange")
-        self.page.snack_bar.open = True
-        self.page.update()
-
-    def exportar_excel(self, e):
-        self.page.snack_bar = ft.SnackBar(ft.Text("Generando Excel... (Módulo de exportación pendiente)"), bgcolor="green")
-        self.page.snack_bar.open = True
-        self.page.update()
-````
-
 ## File: core/excel_manager.py
 ````python
 import pandas as pd
@@ -1031,212 +771,6 @@ def crear_boton_primario(text, icon=None, on_click=None):
     )
 ````
 
-## File: ui/layout/sidebar.py
-````python
-import flet as ft
-from config import Config
-
-class Sidebar(ft.Container):
-    def __init__(self, on_route_change):
-        super().__init__()
-        self.on_route_change = on_route_change
-        self.is_expanded = True
-        
-        # Propiedades dinámicas del contenedor
-        self.width = 250
-        self.bgcolor = Config.COLOR_PRIMARY
-        self.padding = 15
-        self.border_radius = ft.border_radius.only(top_right=15, bottom_right=15)
-        self.animate = ft.animation.Animation(300, ft.AnimationCurve.DECELERATE)
-        
-        # Botón para colapsar/expandir
-        self.toggle_btn = ft.IconButton(
-            icon=ft.icons.MENU,
-            icon_color="white",
-            on_click=self.toggle_sidebar,
-            tooltip="Ocultar/Mostrar Menú"
-        )
-        
-        # Logo y textos
-        self.logo_icon = ft.Icon(ft.icons.STOREFRONT, color="white", size=40)
-        self.logo_title = ft.Text("Doña Mary", color="white", size=24, weight="bold")
-        self.logo_subtitle = ft.Text("Abarrotes & Desechables", color="white70", size=12)
-        
-        self.header_content = ft.Column([
-            self.logo_icon,
-            self.logo_title,
-            self.logo_subtitle,
-        ], horizontal_alignment="center", spacing=5)
-
-        self.toggle_row = ft.Row([self.toggle_btn], alignment=ft.MainAxisAlignment.END)
-
-        # Almacenar referencias de los botones del menú
-        self.menu_items = {}
-        
-        self.footer_text = ft.Text("Elaborado por: Eliana Garces 2026", color="white54", size=10, text_align=ft.TextAlign.CENTER)
-        
-        self.content = ft.Column(
-            controls=[
-                # Cabecera con botón de toggle
-                self.toggle_row,
-                ft.Container(
-                    content=self.header_content,
-                    padding=ft.padding.only(bottom=20),
-                    alignment=ft.alignment.center
-                ),
-                
-                # Menú
-                self._create_menu_item("Dashboard", ft.icons.DASHBOARD, "dashboard"),
-                self._create_menu_item("Inventario", ft.icons.INVENTORY_2, "inventario"),
-                self._create_menu_item("Compras", ft.icons.ADD_SHOPPING_CART, "compras"),
-                self._create_menu_item("Ventas", ft.icons.POINT_OF_SALE, "ventas"),
-                self._create_menu_item("Ajustes de Inventario", ft.icons.TUNE, "ajustes_inventario"),
-                self._create_menu_item("Cierre de Mes", ft.icons.FACT_CHECK, "cierre_mes"),
-                self._create_menu_item("Informes", ft.icons.PIE_CHART, "informes"),
-                
-                ft.Container(expand=True), # Spacer
-                
-                self._create_menu_item("Configuración", ft.icons.SETTINGS, "settings"),
-                
-                # Footer Copyright
-                ft.Container(
-                    content=self.footer_text,
-                    alignment=ft.alignment.center,
-                    padding=ft.padding.only(top=10, bottom=5)
-                )
-            ],
-            spacing=5
-        )
-        
-    def _create_menu_item(self, text, icon, route, is_sub_item=False):
-        icon_size = 20 if is_sub_item else 24
-        text_size = 13 if is_sub_item else 14
-        pad_left = 35 if is_sub_item else 15
-        
-        item = ft.ListTile(
-            leading=ft.Icon(icon, color="white70", size=icon_size),
-            title=ft.Text(text, color="white70", size=text_size),
-            hover_color=ft.colors.with_opacity(0.1, "white"),
-            content_padding=ft.padding.only(left=pad_left, right=15),
-            on_click=lambda _: self.on_route_change(route),
-            data={"is_sub_item": is_sub_item, "pad_left": pad_left}
-        )
-        self.menu_items[route] = item
-        return item
-        
-    def update_active_route(self, route_name):
-        for route, item in self.menu_items.items():
-            is_active = (route == route_name)
-            item.bgcolor = ft.colors.with_opacity(0.2, "white") if is_active else None
-            item.leading.color = "white" if is_active else "white70"
-            item.title.color = "white" if is_active else "white70"
-            item.title.weight = "bold" if is_active else "normal"
-        self.update()
-
-    def toggle_sidebar(self, e):
-        """Alterna el ancho del sidebar y oculta/muestra los textos."""
-        self.is_expanded = not self.is_expanded
-        
-        # Ajustar ancho
-        self.width = 250 if self.is_expanded else 70
-        
-        # Mostrar u ocultar elementos del header según el estado
-        self.logo_title.visible = self.is_expanded
-        self.logo_subtitle.visible = self.is_expanded
-        self.logo_icon.size = 40 if self.is_expanded else 24
-        
-        # Mostrar u ocultar el footer
-        self.footer_text.visible = self.is_expanded
-        
-        self.toggle_row.alignment = ft.MainAxisAlignment.END if self.is_expanded else ft.MainAxisAlignment.CENTER
-        
-        # Mostrar u ocultar el texto de los ListTile
-        for control in self.content.controls:
-            if isinstance(control, ft.ListTile):
-                control.title.visible = self.is_expanded
-                pad_left = control.data["pad_left"] if self.is_expanded else 8
-                control.content_padding = ft.padding.only(left=pad_left, right=15 if self.is_expanded else 8)
-                
-        self.update()
-````
-
-## File: ui/app.py
-````python
-import flet as ft
-import threading
-from ui.layout.sidebar import Sidebar
-from ui.views.dashboard import DashboardView
-from ui.views.inventario import InventarioView
-from ui.views.compras import ComprasView
-from ui.views.ventas import VentasView
-from ui.views.cierre_inventario import CierreInventarioView
-from ui.views.ajustes_inventario import AjustesInventarioView
-from ui.views.informes import InformesView
-
-class AppLayout(ft.Row):
-    def __init__(self, page: ft.Page):
-        super().__init__()
-        self.page = page
-        self.expand = True
-        self.spacing = 0
-        
-        # Vistas
-        self.views = {
-            "dashboard": DashboardView(),
-            "inventario": InventarioView(),
-            "compras": ComprasView(),
-            "ventas": VentasView(),
-            "ajustes_inventario": AjustesInventarioView(),
-            "cierre_mes": CierreInventarioView(),
-            "informes": InformesView(),
-        }
-        
-        # Contenedor principal de la vista activa
-        self.active_view = ft.Container(
-            content=self.views["dashboard"],
-            expand=True,
-            bgcolor="#F4F6F7",
-            padding=15,
-            alignment=ft.alignment.top_left
-        )
-        
-        # Sidebar
-        self.sidebar = Sidebar(self.on_route_change)
-        
-        # Componentes del Row
-        self.controls = [
-            self.sidebar,
-            self.active_view
-        ]
-        
-    def on_route_change(self, route_name):
-        # Cambiar el contenido del contenedor principal
-        if route_name in self.views:
-            vista = self.views[route_name]
-            self.active_view.content = vista
-            self.active_view.update()
-            
-            # Resaltar la ruta activa en el menú lateral
-            self.sidebar.update_active_route(route_name)
-            
-            # Forzar recarga de datos al navegar para evitar caché estancada
-            # Se ejecuta en hilo secundario para evitar congelar la interfaz
-            def load_data_bg():
-                if hasattr(vista, 'load_data'):
-                    try:
-                        vista.load_data()
-                    except Exception as e:
-                        print(f"Error reload load_data en {route_name}: {e}")
-                        
-                if hasattr(vista, 'load_summary'):
-                    try:
-                        vista.load_summary()
-                    except Exception as e:
-                        print(f"Error reload load_summary en {route_name}: {e}")
-            
-            threading.Thread(target=load_data_bg, daemon=True).start()
-````
-
 ## File: .gitignore
 ````
 # Entornos virtuales
@@ -1444,550 +978,6 @@ CREATE TABLE IF NOT EXISTS public.Registro_Ventas (
 ALTER TABLE public.Catalogo_Insumos DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.Registro_Compras DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.Registro_Ventas DISABLE ROW LEVEL SECURITY;
-````
-
-## File: ui/views/ajustes_inventario.py
-````python
-import flet as ft
-import threading
-from config import Config
-from core.supabase_client import SupabaseClient
-
-class AjustesInventarioView(ft.Container):
-    def __init__(self):
-        super().__init__()
-        self.is_fullscreen = False
-        self.btn_fullscreen = ft.IconButton(
-            icon=ft.icons.FULLSCREEN,
-            tooltip="Expandir Tabla (Modo Enfoque)",
-            on_click=self.toggle_fullscreen
-        )
-        self.expand = True
-        self.db = SupabaseClient()
-        self.tipo_ajuste_actual = "ENTRADA"
-        
-        # Mapeo estricto contra restricciones de BD
-        self.mapa_motivos = {
-            "Sobrante de Inventario": "ENTRADA_POR_SOBRANTE",
-            "Donación Entrante": "AJUSTE_ENTRADA",
-            "Devolución Cliente": "AJUSTE_ENTRADA",
-            "Daño / Merma": "AJUSTE_SALIDA",
-            "Vencimiento": "BAJA_VENCIMIENTO",
-            "Pérdida": "SALIDA_POR_FALTANTE",
-            "Consumo Familiar": "AJUSTE_SALIDA",
-            "Consumo Cliente (Cortesía)": "AJUSTE_SALIDA",
-            "Donación Saliente": "AJUSTE_SALIDA",
-            "Otro (Entrada)": "AJUSTE_ENTRADA",
-            "Otro (Salida)": "AJUSTE_SALIDA"
-        }
-
-        # --- Labels reactivos de Resumen ---
-        self.lbl_ent_actual = ft.Text("$0.00", weight="bold")
-        self.lbl_ent_pos = ft.Text("$0.00", weight="bold", color="green")
-        self.lbl_sal_neg = ft.Text("$0.00", weight="bold", color="red")
-        self.lbl_ent_neto = ft.Text("$0.00", weight="bold")
-        self.lbl_ent_proyectado = ft.Text("$0.00", weight="bold", color=Config.COLOR_PRIMARY)
-
-        # --- Paginación y Filtros ---
-        self.data_completa = []
-        self.page_size = 15
-        self.current_page = 1
-        self.total_pages = 1
-        self.total_records = 0
-
-        self.search_input = ft.TextField(
-            hint_text="Buscar código o nombre...",
-            prefix_icon=ft.icons.SEARCH,
-            height=40,
-            expand=2,
-            content_padding=10,
-            on_change=lambda e: self._on_filter_change()
-        )
-        
-        self.date_picker = ft.DatePicker(on_change=lambda e: self._on_filter_change())
-        self.btn_date = ft.OutlinedButton(
-            text="Filtro Fecha",
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=lambda e: self.date_picker.pick_date(),
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=40,
-            width=150
-        )
-        self.btn_clear_date = ft.IconButton(
-            icon=ft.icons.CLEAR,
-            icon_color="red",
-            visible=False,
-            on_click=self._clear_date
-        )
-
-        self.drop_tipo = ft.Dropdown(
-            options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("Entrada"), ft.dropdown.Option("Salida")],
-            value="Todos", label="Tipo", dense=True, width=150, height=40, content_padding=10, on_change=lambda e: self._on_filter_change()
-        )
-        
-        motivos_combinados = ["Todos"] + list(self.mapa_motivos.keys())
-        self.drop_motivo = ft.Dropdown(
-            options=[ft.dropdown.Option(m) for m in motivos_combinados],
-            value="Todos", label="Motivo", dense=True, width=200, height=40, content_padding=10, on_change=lambda e: self._on_filter_change()
-        )
-
-        self.btn_prev = ft.IconButton(icon=ft.icons.ARROW_BACK_IOS, on_click=self._prev_page, disabled=True)
-        self.btn_next = ft.IconButton(icon=ft.icons.ARROW_FORWARD_IOS, on_click=self._next_page, disabled=True)
-        self.lbl_page_info = ft.Text("Pág 1 de 1", weight="bold")
-
-        # --- Vista de Tarjetas (Lista) ---
-        self.lista_ajustes = ft.ListView(expand=True, spacing=10, auto_scroll=False)
-        self.btn_agregar_ajuste = ft.ElevatedButton("Registrar Ajuste", icon=ft.icons.ADD, bgcolor=Config.COLOR_PRIMARY, color="white", on_click=lambda e: self.abrir_modal_ajuste())
-
-        # --- Modal ---
-        self.modal_ajuste = self._crear_modal_formulario()
-
-        # --- Layout Principal Unificado ---
-        kpi_bar = ft.Container(
-            content=ft.Row([
-                ft.Column([ft.Text("Valor Inventario Base:", size=11, color="grey"), self.lbl_ent_actual], spacing=0),
-                ft.Container(width=1, height=30, bgcolor="#eeeeee"),
-                ft.Column([ft.Text("Valor Entradas (+):", size=11, color="grey"), self.lbl_ent_pos], spacing=0),
-                ft.Container(width=1, height=30, bgcolor="#eeeeee"),
-                ft.Column([ft.Text("Valor Salidas (-):", size=11, color="grey"), self.lbl_sal_neg], spacing=0),
-                ft.Container(width=1, height=30, bgcolor="#eeeeee"),
-                ft.Column([ft.Text("Impacto Neto:", size=11, color="grey"), self.lbl_ent_neto], spacing=0),
-                ft.Container(expand=True),
-                ft.Column([ft.Text("Inventario Proyectado:", size=11, color="grey"), self.lbl_ent_proyectado], spacing=0, horizontal_alignment="end"),
-            ], alignment=ft.MainAxisAlignment.START),
-            padding=15, bgcolor="#fafafa", border_radius=8, border=ft.border.all(1, "#eeeeee")
-        )
-        
-        filtros_row = ft.Row([
-            self.search_input,
-            self.btn_date,
-            self.btn_clear_date,
-            self.drop_tipo,
-            self.drop_motivo,
-            ft.Container(expand=True),
-            self.btn_agregar_ajuste
-        ], spacing=10)
-        
-        paginacion_row = ft.Row([
-            ft.Container(expand=True),
-            self.btn_prev,
-            self.lbl_page_info,
-            self.btn_next
-        ], alignment=ft.MainAxisAlignment.END)
-
-        self.content = ft.Column([
-            ft.Text("Gestión y Ajustes de Inventario", size=24, weight="bold", color=Config.COLOR_PRIMARY),
-            kpi_bar,
-            filtros_row,
-            ft.Container(content=self.lista_ajustes, expand=True, bgcolor="#f5f5f5", border_radius=10, padding=10, shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))),
-            paginacion_row
-        ], expand=True)
-
-    def _crear_modal_formulario(self):
-        def on_tipo_change(e):
-            tipo = self.form_tipo_ajuste.value
-            if tipo == "ENTRADA":
-                self.form_motivo.options = [ft.dropdown.Option(x) for x in ["Sobrante de Inventario", "Donación Entrante", "Devolución Cliente", "Otro (Entrada)"]]
-            elif tipo == "SALIDA":
-                self.form_motivo.options = [ft.dropdown.Option(x) for x in ["Daño / Merma", "Vencimiento", "Pérdida", "Consumo Familiar", "Consumo Cliente (Cortesía)", "Donación Saliente", "Otro (Salida)"]]
-            else:
-                self.form_motivo.options = []
-            self.form_motivo.value = None
-            if self.form_codigo.value:
-                self.buscar_detalle_insumo(None)
-            self.safe_update()
-
-        def on_costo_change(e):
-            try:
-                nuevo_costo = float(self.form_costo.value.replace(',', '.') or 0)
-                valor_inv = nuevo_costo * getattr(self, 'current_stock_modal', 0)
-                self.lbl_valor_inv_modal.value = f"Valor del Inv: ${valor_inv:,.0f}"
-            except ValueError:
-                self.lbl_valor_inv_modal.value = "Valor del Inv: $0"
-            self.safe_update()
-
-        self.form_tipo_ajuste = ft.Dropdown(label="Tipo de Movimiento", options=[ft.dropdown.Option("ENTRADA"), ft.dropdown.Option("SALIDA")], dense=True, expand=True, border_radius=8, on_change=on_tipo_change)
-
-        self.form_codigo = ft.TextField(label="Código Insumo", width=120, dense=True, border_radius=8, on_blur=self.buscar_detalle_insumo)
-        self.form_nombre = ft.Text("Nombre del Insumo...", color="grey", italic=True, size=13)
-        self.lbl_stock_actual = ft.Text("Stock Sist: 0", weight="bold", color=Config.COLOR_PRIMARY, size=12)
-
-        self.form_motivo = ft.Dropdown(label="Motivo del Ajuste", dense=True, expand=True, border_radius=8)
-        self.form_cant = ft.TextField(label="Cantidad", expand=True, dense=True, border_radius=8)
-
-        # Eliminamos el expand=True para evitar el desbordamiento vertical en la columna
-        self.form_costo = ft.TextField(label="Costo Unitario ($)", dense=True, border_radius=8, on_change=on_costo_change)
-        self.lbl_valor_inv_modal = ft.Text("Valor del Inv: $0", size=11, color="grey")
-
-        self.form_obs = ft.TextField(label="Observación (Opcional)", expand=True, dense=True, multiline=True, min_lines=2, border_radius=8)
-
-        return ft.AlertDialog(
-            title=ft.Text("Registrar Ajuste de Inventario"),
-            content=ft.Container(
-                width=500,
-                content=ft.Column([
-                    ft.Row([
-                        self.form_codigo, 
-                        ft.Container(
-                            content=ft.Row([
-                                ft.Icon(ft.icons.INVENTORY_2, size=16, color="grey"),
-                                ft.Column([self.form_nombre, self.lbl_stock_actual], spacing=0, expand=True)
-                            ]), 
-                            expand=True, padding=10, bgcolor="#f5f5f5", border_radius=8
-                        )
-                    ]),
-                    ft.Row([self.form_tipo_ajuste, self.form_motivo]),
-                    ft.Row([
-                        self.form_cant, 
-                        ft.Column([self.form_costo, self.lbl_valor_inv_modal], expand=True, spacing=2)
-                    ]),
-                    ft.Row([self.form_obs])
-                ], tight=True, spacing=15)
-            ),
-            actions=[
-                ft.TextButton("Cancelar", on_click=lambda e: self.cerrar_modal()),
-                ft.ElevatedButton("Guardar Ajuste", bgcolor=Config.COLOR_PRIMARY, color="white", on_click=self.on_guardar_ajuste)
-            ]
-        )
-
-    # --- Lógica de Negocio ---
-    def safe_update(self):
-        """Actualiza la UI solo si el control sigue montado en la página."""
-        try:
-            if self.page and self.uid:
-                self.page.update()
-        except Exception:
-            pass
-
-    def toggle_fullscreen(self, e):
-        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
-        visibilidad = not self.is_fullscreen
-
-        # Ocultar o mostrar elementos superiores si existen en la vista
-        if hasattr(self, "lbl_titulo"): self.lbl_titulo.visible = visibilidad
-        if hasattr(self, "summary_container"): self.summary_container.visible = visibilidad
-        if hasattr(self, "kpi_bar"): self.kpi_bar.visible = visibilidad
-
-        # Cambiar icono y tooltip
-        self.btn_fullscreen.icon = ft.icons.FULLSCREEN_EXIT if self.is_fullscreen else ft.icons.FULLSCREEN
-        self.btn_fullscreen.tooltip = "Contraer Vista" if self.is_fullscreen else "Expandir Tabla (Modo Enfoque)"
-
-        if hasattr(self, "safe_update"):
-            self.safe_update()
-        elif self.page:
-            self.page.update()
-
-    def did_mount(self):
-        if self.modal_ajuste not in self.page.overlay:
-            self.page.overlay.append(self.modal_ajuste)
-        if hasattr(self, "date_picker") and self.date_picker not in self.page.overlay:
-            self.page.overlay.append(self.date_picker)
-        self.load_data()
-
-    def buscar_detalle_insumo(self, e):
-        codigo = self.form_codigo.value.strip()
-        if not codigo: return
-        detalle = self.db.get_insumo_detalle(codigo)
-        if detalle:
-            self.form_nombre.value = detalle.get("nombre", "")
-            self.form_nombre.color = "black"
-            self.current_stock_modal = float(detalle.get('stock_actual') or 0)
-            self.lbl_stock_actual.value = f"Stock Sist: {self.current_stock_modal:g} unds"
-
-            tipo = self.form_tipo_ajuste.value
-            nuevo_costo = 0
-            if tipo == "ENTRADA":
-                nuevo_costo = float(detalle.get("costo_unitario") or 0)
-                self.form_costo.value = str(nuevo_costo)
-            elif tipo == "SALIDA":
-                nuevo_costo = float(detalle.get("precio_venta") or 0)
-                self.form_costo.value = str(nuevo_costo)
-            else:
-                nuevo_costo = float(detalle.get("costo_unitario") or 0)
-                self.form_costo.value = str(nuevo_costo)
-
-            valor_inv = nuevo_costo * self.current_stock_modal
-            self.lbl_valor_inv_modal.value = f"Valor del Inv: ${valor_inv:,.0f}"
-        else:
-            self.form_nombre.value = "Insumo no encontrado."
-            self.form_nombre.color = "red"
-            self.current_stock_modal = 0
-            self.lbl_stock_actual.value = "Stock Sist: 0"
-            self.lbl_valor_inv_modal.value = "Valor del Inv: $0"
-        self.safe_update()
-
-    def abrir_modal_ajuste(self):
-        self.modal_ajuste.title.value = "Registrar Ajuste de Inventario"
-        
-        # Limpiar valores y errores visuales
-        self.form_tipo_ajuste.value = None
-        self.form_tipo_ajuste.error_text = None
-        
-        self.form_motivo.options = []
-        self.form_motivo.value = None
-        self.form_motivo.error_text = None
-        
-        self.form_codigo.value = ""
-        self.form_codigo.error_text = None
-        
-        self.form_nombre.value = "Nombre del Insumo..."
-        self.form_nombre.color = "grey"
-        
-        self.form_cant.value = ""
-        self.form_cant.error_text = None
-        
-        self.form_costo.value = ""
-        self.form_costo.error_text = None
-        
-        self.form_obs.value = ""
-        self.form_obs.error_text = None
-        
-        self.modal_ajuste.open = True
-        self.page.update()
-
-    def cerrar_modal(self):
-        self.modal_ajuste.open = False
-        self.page.update()
-
-    def on_guardar_ajuste(self, e):
-        if hasattr(self, 'progress_bar'):
-            self.progress_bar.visible = True
-            
-        btn_control = e.control if e else None
-        if btn_control:
-            btn_control.disabled = True
-            
-        if self.page:
-            self.update()
-            
-        threading.Thread(target=self._on_guardar_ajuste_worker, args=(btn_control,), daemon=True).start()
-
-    def _on_guardar_ajuste_worker(self, btn_control):
-        try:
-            self.form_codigo.error_text = None
-            self.form_cant.error_text = None
-            self.form_costo.error_text = None
-            if self.page:
-                self.page.update()
-                
-            try:
-                codigo = self.form_codigo.value.strip()
-                motivo_ui = self.form_motivo.value
-                cant = float(self.form_cant.value.replace(',', '.'))
-                costo = float(self.form_costo.value.replace(',', '.'))
-                obs = self.form_obs.value.strip()
-            except ValueError:
-                self.mostrar_alerta("Error en los formatos numéricos. Usa números válidos para cantidad y costo.", "red")
-                return
-
-            if not codigo or not motivo_ui or cant <= 0:
-                self.mostrar_alerta("Completa los campos obligatorios y asegúrate que la cantidad sea mayor a cero.", "red")
-                return
-
-            tipo_bd = self.mapa_motivos.get(motivo_ui)
-            if not tipo_bd: return
-
-            datos = {
-                "codigo_insumo": codigo,
-                "tipo_ajuste": tipo_bd,
-                "cantidad": cant,
-                "costo_unitario_congelado": costo,
-                "costo_total_ajuste": cant * costo,
-                "motivo_observacion": obs if obs else motivo_ui,
-                "estado_registro": "VÁLIDO"
-            }
-
-            if self.db.insert_ajuste_individual(datos):
-                self.mostrar_alerta("Ajuste registrado exitosamente.", "green")
-                self.cerrar_modal()
-                self.load_data()
-            else:
-                self.mostrar_alerta("Error al registrar en la base de datos.", "red")
-        except Exception as ex:
-            if self.page:
-                self.mostrar_alerta(f"Error interno: {str(ex)}", "red")
-        finally:
-            if hasattr(self, 'progress_bar'):
-                self.progress_bar.visible = False
-            if btn_control:
-                btn_control.disabled = False
-            if self.page:
-                self.page.update()
-
-    def anular_registro(self, id_ajuste):
-        if self.db.anular_ajuste(id_ajuste):
-            self.mostrar_alerta("Registro anulado. El stock ha sido revertido.", "orange")
-            self.load_data()
-        else:
-            self.mostrar_alerta("Error al anular.", "red")
-
-    def mostrar_alerta(self, msj, color):
-        self.page.snack_bar = ft.SnackBar(ft.Text(msj), bgcolor=color)
-        self.page.snack_bar.open = True
-
-    def _clear_date(self, e):
-        self.date_picker.value = None
-        self.btn_date.text = "Filtro Fecha"
-        self.btn_clear_date.visible = False
-        self._on_filter_change()
-        
-    def _on_filter_change(self):
-        self.current_page = 1
-        if self.date_picker.value:
-            self.btn_date.text = self.date_picker.value.strftime("%Y-%m-%d")
-            self.btn_clear_date.visible = True
-        self.render_table()
-        
-    def _prev_page(self, e):
-        if self.current_page > 1:
-            self.current_page -= 1
-            self.render_table()
-            
-    def _next_page(self, e):
-        if self.current_page < self.total_pages:
-            self.current_page += 1
-            self.render_table()
-
-    def load_data(self):
-        # Actualizar resúmenes globales
-        kpis_inv = self.db.get_inventario_kpis()
-        val_inv_base = kpis_inv.get('valor_inventario', 0)
-        self.lbl_ent_actual.value = f"${val_inv_base:,.2f}"
-
-        self.data_completa = self.db.get_ajustes_inventario()
-        self.render_table(val_inv_base)
-
-    def render_table(self, val_inv_base=None):
-        if val_inv_base is None:
-            # Recuperar el valor base desde el label si no se provee (eliminando caracteres de moneda)
-            try:
-                val_inv_base = float(self.lbl_ent_actual.value.replace('$', '').replace(',', ''))
-            except:
-                val_inv_base = 0.0
-
-        self.lista_ajustes.controls.clear()
-        
-        filtro_texto = self.search_input.value.lower().strip() if self.search_input.value else ""
-        filtro_fecha = self.date_picker.value.strftime("%Y-%m-%d") if self.date_picker.value else None
-        filtro_tipo = self.drop_tipo.value
-        filtro_motivo = self.drop_motivo.value
-        
-        filtered_data = []
-        total_ent_pos = 0.0
-        total_sal_neg = 0.0
-
-        for aj in self.data_completa:
-            es_entrada = aj["tipo_ajuste"] in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
-            cat_info = aj.get("catalogo_insumos", {})
-            nombre = cat_info.get("nombre", "Desconocido") if isinstance(cat_info, dict) else "Desconocido"
-            
-            # Reglas de coincidencia
-            match_texto = filtro_texto in aj["codigo_insumo"].lower() or filtro_texto in nombre.lower()
-            match_fecha = filtro_fecha is None or aj["fecha_ajuste"][:10] == filtro_fecha
-            
-            tipo_ajuste_str = "Entrada" if es_entrada else "Salida"
-            match_tipo = filtro_tipo == "Todos" or filtro_tipo == tipo_ajuste_str
-            match_motivo = filtro_motivo == "Todos" or filtro_motivo == aj["motivo_observacion"]
-            
-            if match_texto and match_fecha and match_tipo and match_motivo:
-                filtered_data.append(aj)
-
-            # Acumular KPIs sobre todos los datos VÁLIDOS del historial general, sin importar los filtros visuales.
-            # (El usuario quiere ver el total global de impacto)
-            if aj["estado_registro"] == "VÁLIDO":
-                val_total = float(aj["costo_total_ajuste"])
-                if es_entrada: total_ent_pos += val_total
-                else: total_sal_neg += val_total
-
-        import math
-        self.total_records = len(filtered_data)
-        self.total_pages = math.ceil(self.total_records / self.page_size) if self.total_records > 0 else 1
-        
-        if self.current_page > self.total_pages:
-            self.current_page = self.total_pages
-            
-        start_idx = (self.current_page - 1) * self.page_size
-        end_idx = start_idx + self.page_size
-        page_data = filtered_data[start_idx:end_idx]
-
-        for aj in page_data:
-            es_entrada = aj["tipo_ajuste"] in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
-            val_total = float(aj["costo_total_ajuste"])
-            val_total_str = f"${val_total:,.2f}"
-            
-            cat_info = aj.get("catalogo_insumos", {})
-            nombre = cat_info.get("nombre", "Desconocido") if isinstance(cat_info, dict) else "Desconocido"
-
-            # Tarjeta de Ajuste (Card UI)
-            tipo_bg = "#e8f5e9" if es_entrada else "#ffebee"
-            tipo_color = "green" if es_entrada else "red"
-            badge_tipo = ft.Container(
-                content=ft.Text("Entrada" if es_entrada else "Salida", color=tipo_color, weight="bold", size=12),
-                padding=ft.padding.symmetric(horizontal=10, vertical=4),
-                bgcolor=tipo_bg,
-                border_radius=15
-            )
-
-            fila1_cabecera = ft.Row([
-                ft.Row([ft.Icon(ft.icons.CALENDAR_MONTH, size=16, color="grey"), ft.Text(aj["fecha_ajuste"][:10], color="grey")]),
-                badge_tipo
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-
-            fila2_principal = ft.Row([
-                ft.Container(content=ft.Text(f"[{aj['codigo_insumo']}] {nombre}", size=16, weight="bold"), expand=True),
-                ft.Text(val_total_str, size=16, weight="bold", color=tipo_color)
-            ])
-
-            fila3_detalles = ft.Row([
-                ft.Container(content=ft.Text(f"Motivo: {aj['motivo_observacion']}", size=13, color="grey"), expand=True),
-                ft.Text(f"Cant: {aj['cantidad']}", size=13, color="grey", weight="bold"),
-                ft.Text(f"Costo U: ${aj['costo_unitario_congelado']:,.2f}", size=13, color="grey")
-            ], alignment=ft.MainAxisAlignment.START, spacing=20)
-
-            tarjeta_content = [fila1_cabecera, fila2_principal, fila3_detalles]
-
-            if aj["estado_registro"] == "VÁLIDO":
-                fila4_acciones = ft.Column([
-                    ft.Divider(height=1, color="#f0f0f0"),
-                    ft.Row([
-                        ft.TextButton("Anular Registro", icon=ft.icons.CANCEL, icon_color="red", style=ft.ButtonStyle(color="red"), on_click=lambda e, id_aj=aj["id_ajuste"]: self.anular_registro(id_aj))
-                    ], alignment=ft.MainAxisAlignment.END)
-                ])
-                tarjeta_content.append(fila4_acciones)
-            else:
-                fila4_acciones = ft.Column([
-                    ft.Divider(height=1, color="#f0f0f0"),
-                    ft.Row([
-                        ft.Text("Registro Anulado", color="grey", italic=True)
-                    ], alignment=ft.MainAxisAlignment.END)
-                ])
-                tarjeta_content.append(fila4_acciones)
-
-            tarjeta = ft.Container(
-                content=ft.Column(tarjeta_content, spacing=8),
-                bgcolor="white",
-                padding=15,
-                border_radius=8,
-                border=ft.border.all(1, "#e0e0e0")
-            )
-            self.lista_ajustes.controls.append(tarjeta)
-            
-        # Actualización UI
-        self.btn_prev.disabled = self.current_page <= 1
-        self.btn_next.disabled = self.current_page >= self.total_pages
-        self.lbl_page_info.value = f"Pág {self.current_page} de {self.total_pages} ({self.total_records} reg.)"
-
-        # Configuración de KPIs Dinámicos
-        self.lbl_ent_pos.value = f"+${total_ent_pos:,.2f}"
-        self.lbl_sal_neg.value = f"-${total_sal_neg:,.2f}"
-        
-        impacto_neto = total_ent_pos - total_sal_neg
-        self.lbl_ent_neto.value = f"{'+' if impacto_neto >= 0 else '-'}${abs(impacto_neto):,.2f}"
-        
-        self.lbl_ent_proyectado.value = f"${(val_inv_base + impacto_neto):,.2f}"
-
-        if self.page:
-            self.page.update()
 ````
 
 ## File: ui/views/conteo_inicial.py
@@ -2388,1640 +1378,6 @@ class ConteoInicialView(ft.Container):
             
         self.page.snack_bar.open = True
         self.page.update()
-````
-
-## File: ui/views/dashboard.py
-````python
-import flet as ft
-import threading
-from config import Config
-from core.supabase_client import SupabaseClient
-import datetime
-
-class DashboardView(ft.Container):
-    def __init__(self):
-        super().__init__()
-        self.expand = True
-        self.db = SupabaseClient()
-        
-        self.lbl_periodo_dash = ft.Text("Periodo: ...", size=13, weight="bold", color=Config.COLOR_PRIMARY)
-        self.lbl_estado_dash = ft.Text("Estado: ...", size=13, weight="bold")
-        self.lbl_fecha_hora = ft.Text("...", size=12, color="grey")
-
-        badge_info = ft.Container(
-            content=ft.Column([
-                ft.Row([self.lbl_periodo_dash, ft.Text("|", color="grey", size=13), self.lbl_estado_dash], spacing=5),
-                ft.Row([ft.Icon(ft.icons.ACCESS_TIME, size=14, color="grey"), self.lbl_fecha_hora], spacing=5)
-            ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=2),
-            padding=ft.padding.symmetric(horizontal=15, vertical=10),
-            bgcolor="white",
-            border_radius=8,
-            border=ft.border.all(1, "#e0e0e0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-        )
-
-        header_row = ft.Row([
-            ft.Column([
-                ft.Text("Dashboard General", size=28, weight="bold", color=Config.COLOR_PRIMARY),
-                ft.Text("Resumen ejecutivo del sistema", size=14, color="grey"),
-            ], spacing=2),
-            badge_info
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-        
-        # Tarjetas de KPIs (Valores Iniciales) - SECCIÓN COSTOS
-        self.val_inventario = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_compras = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_rotacion = ft.Text("N/D", size=14, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_compras_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        
-        # SECCIÓN VENTAS
-        self.val_ingresos = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_ventas_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
-        self.val_proyeccion_ventas = ft.Text("$ 0", size=14, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_proyeccion_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
-        
-        self.kpi_costos_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("Costo Inv. Actual", self.val_inventario, ft.icons.INVENTORY_2), col={"xs": 12, "sm": 6, "md": 4}),
-            ft.Container(content=self._build_kpi_card("Total Compras (Mes)", self.val_compras, ft.icons.SHOPPING_BAG), col={"xs": 12, "sm": 6, "md": 4}),
-            ft.Container(content=self._build_kpi_card("Compras (Hoy)", self.val_compras_hoy, ft.icons.MONEY_OFF), col={"xs": 12, "sm": 6, "md": 4}),
-        ], spacing=10, run_spacing=10)
-
-        self.kpi_ventas_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("Total Ventas (Mes)", self.val_ingresos, ft.icons.TRENDING_UP), col={"xs": 12, "sm": 6, "md": 6}),
-            ft.Container(content=self._build_kpi_card("Ventas (Hoy)", self.val_ventas_hoy, ft.icons.ATTACH_MONEY), col={"xs": 12, "sm": 6, "md": 6}),
-        ], spacing=10, run_spacing=10)
-        
-        # Paso 3: Crear la Barra de Métricas Secundarias
-        self.kpi_secundarios = ft.Container(
-            content=ft.Row([
-                ft.Text("Métricas Secundarias:", weight="bold", color="grey", size=12),
-                ft.Text("Rotación:", size=12, color="grey"), self.val_rotacion,
-                ft.Text(" | Rentabilidad:", size=12, color="grey"), self.val_rentabilidad,
-                ft.Text(" | Proy. Ventas:", size=12, color="grey"), self.val_proyeccion_ventas,
-                ft.Text(" | Proy. Rentabilidad:", size=12, color="grey"), self.val_proyeccion_rentabilidad,
-            ], spacing=5, wrap=True),
-            padding=ft.padding.symmetric(horizontal=15, vertical=8),
-            bgcolor="#f8f9fa", border_radius=8, border=ft.border.all(1, "#e0e0e0")
-        )
-
-        # SECCIÓN AJUSTES
-        self.col_ajustes_salida = ft.Column(spacing=5)
-        self.col_ajustes_entrada = ft.Column(spacing=5)
-        
-        self.lbl_neto_ajustes_header = ft.Text("NETO: $0", weight="bold", size=16)
-        header_ajustes = ft.Row([
-            ft.Text("Impacto de Ajustes de Inventario (Mes Actual)", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-            self.lbl_neto_ajustes_header
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-
-        self.panel_ajustes = ft.Row([
-            # Panel Salida
-            ft.Container(
-                content=ft.Column([
-                    ft.Text("Ajustes de Salida (-)", size=16, weight="bold", color="red"),
-                    ft.Divider(height=1),
-                    self.col_ajustes_salida
-                ]),
-                bgcolor="white",
-                padding=15,
-                border_radius=8,
-                expand=True,
-                border=ft.border.all(1, "#f0f0f0"),
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-            ),
-            # Panel Entrada
-            ft.Container(
-                content=ft.Column([
-                    ft.Text("Ajustes de Entrada (+)", size=16, weight="bold", color="green"),
-                    ft.Divider(height=1),
-                    self.col_ajustes_entrada
-                ]),
-                bgcolor="white",
-                padding=15,
-                border_radius=8,
-                expand=True,
-                border=ft.border.all(1, "#f0f0f0"),
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-            )
-        ], spacing=15)
-
-        # Ensamblaje del Layout
-        self.seccion_kpis = ft.Column([
-            ft.Text("Resumen Financiero y Operativo", size=20, weight="bold", color=Config.COLOR_PRIMARY),
-            self.kpi_costos_row,
-            self.kpi_ventas_row,
-            self.kpi_secundarios
-        ], spacing=10)
-
-        self.seccion_ajustes = ft.Column([
-            header_ajustes,
-            self.panel_ajustes
-        ], spacing=10)
-
-        # Gráficos y Tablas
-        # Series de datos (Grosor y puntas redondeadas)
-        self.chart_ventas = ft.LineChartData(
-            data_points=[], 
-            color=ft.colors.BLUE_400,
-            stroke_width=4, 
-            curved=False,
-            stroke_cap_round=True,
-            below_line_bgcolor=ft.colors.with_opacity(0.1, ft.colors.BLUE_400)
-        )
-        self.chart_compras = ft.LineChartData(
-            data_points=[], 
-            color="#2ecca0", 
-            stroke_width=4, 
-            curved=False,
-            stroke_cap_round=True,
-            below_line_bgcolor=ft.colors.with_opacity(0.1, "#2ecca0")
-        )
-        
-        # Contenedor de Categorías (Grilla Responsiva)
-        self.categorias_row = ft.ResponsiveRow(columns=12, spacing=15, run_spacing=15)
-        self.categorias_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Rendimiento Detallado por Categoría", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                self.categorias_row
-            ]),
-            margin=ft.padding.only(top=10, bottom=10)
-        )
-
-        # Gráfico habilitando los ejes visuales
-        self.line_chart = ft.LineChart(
-            data_series=[self.chart_ventas, self.chart_compras],
-            border=ft.border.all(1, "#f0f0f0"),
-            min_y=0,
-            min_x=0,
-            expand=True,
-            tooltip_bgcolor="white",
-            left_axis=ft.ChartAxis(labels_size=50), 
-            bottom_axis=ft.ChartAxis(labels_size=40), 
-        )
-        
-        # Leyenda adaptada a fondo claro
-        leyenda = ft.Row([
-            ft.Row([ft.Container(width=12, height=12, bgcolor=ft.colors.BLUE_400, border_radius=6), ft.Text("Ingresos", size=12, weight="bold", color="black87")]),
-            ft.Row([ft.Container(width=12, height=12, bgcolor="#2ecca0", border_radius=6), ft.Text("Costos", size=12, weight="bold", color="black87")]),
-        ], spacing=30, alignment=ft.MainAxisAlignment.CENTER)
-        
-        self.chart_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Tendencia Diaria: Ingresos vs Costo de Ventas", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                leyenda,
-                ft.Container(content=self.line_chart, height=320, margin=ft.padding.only(top=10))
-            ]),
-            bgcolor="white",
-            padding=20,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-        )
-        
-        # Tables
-        self.dt_ventas = ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Código", size=12)),
-                ft.DataColumn(ft.Text("Producto", size=12)),
-                ft.DataColumn(ft.Text("Unidades", size=12), numeric=True),
-                ft.DataColumn(ft.Text("Ingreso Total", size=12), numeric=True)
-            ],
-            rows=[],
-            data_row_min_height=30,
-            data_row_max_height=30,
-            heading_row_height=40,
-            column_spacing=15,
-        )
-        
-        self.dt_costos = ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Código", size=12)),
-                ft.DataColumn(ft.Text("Producto", size=12)),
-                ft.DataColumn(ft.Text("Valor Inv.", size=12), numeric=True),
-                ft.DataColumn(ft.Text("Rotación", size=12))
-            ],
-            rows=[],
-            data_row_min_height=30,
-            data_row_max_height=30,
-            heading_row_height=40,
-            column_spacing=15,
-        )
-        
-        table_ventas_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Top 10 Productos con Mayor Ingreso", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                self.dt_ventas
-            ], scroll=ft.ScrollMode.AUTO),
-            bgcolor="white",
-            padding=15,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
-            col={"xs": 12, "md": 6}
-        )
-        
-        table_costos_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Top 10 Productos con Mayor Costo", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                self.dt_costos
-            ], scroll=ft.ScrollMode.AUTO),
-            bgcolor="white",
-            padding=15,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
-            col={"xs": 12, "md": 6}
-        )
-        
-        self.tables_row = ft.ResponsiveRow([
-            table_ventas_container,
-            table_costos_container
-        ], spacing=15, run_spacing=15)
-        
-        # Indicador de carga superior
-        self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
-
-        # 2. Main content Column
-        self.content = ft.Column([
-            self.progress_bar, 
-            header_row,
-            ft.Divider(height=10, color="transparent"),
-            self.seccion_kpis,
-            ft.Divider(height=10, color="transparent"),
-            self.seccion_ajustes,
-            ft.Divider(height=10, color="transparent"),
-            self.categorias_container,
-            ft.Divider(height=10, color="transparent"),
-            self.chart_container,
-            ft.Divider(height=10, color="transparent"),
-            self.tables_row,
-            ft.Container(height=30) # Bottom padding
-        ], scroll=ft.ScrollMode.AUTO, expand=True)
-
-    def did_mount(self):
-        self.load_data()
-
-    def safe_update(self):
-        """Actualiza la UI solo si el control sigue montado en la página."""
-        try:
-            if self.page and self.uid:
-                self.page.update()
-        except Exception:
-            pass
-
-    def load_data(self):
-        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
-        self.progress_bar.visible = True
-        self.safe_update()
-            
-        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
-
-    def _fetch_data_worker(self):
-        """Ejecuta todas las llamadas HTTP síncronas sin congelar la ventana."""
-        # Cargar contexto temporal
-        mes_actual = datetime.date.today().strftime("%Y-%m")
-        datos_cierre = self.db.obtener_estado_cierre(mes_actual)
-        estado_periodo = datos_cierre.get('periodo', {}).get('estado', 'ABIERTO') if datos_cierre and datos_cierre.get('periodo') else 'ABIERTO'
-
-        meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-        partes = mes_actual.split('-')
-        nombre_mes = f"{meses[int(partes[1]) - 1]} {partes[0]}"
-
-        self.lbl_periodo_dash.value = f"Periodo: {nombre_mes}"
-        self.lbl_estado_dash.value = f"Estado: {estado_periodo}"
-
-        colores_estado = {'ABIERTO': 'green', 'PRELIMINAR': 'orange', 'EN_AUDITORIA': 'blue', 'CERRADO': 'red'}
-        self.lbl_estado_dash.color = colores_estado.get(estado_periodo, 'black')
-
-        ahora = datetime.datetime.now()
-        self.lbl_fecha_hora.value = ahora.strftime("%d/%m/%Y - %I:%M %p")
-
-        # 1. Load KPIs
-        res_cat = self.db.get_catalogo_summary()
-        res_ven = self.db.get_ventas_summary()
-        res_com = self.db.get_compras_summary()
-        
-        val_inv = float(res_cat.get('total_compras') or 0) - float(res_cat.get('total_ventas') or 0)
-        self.val_inventario.value = f"$ {val_inv:,.0f}"
-        
-        ingresos = float(res_ven.get('total_mes') or 0)
-        compras = float(res_com.get('total_mes') or 0)
-        
-        ventas_hoy = float(res_ven.get('total_hoy') or 0)
-        compras_hoy = float(res_com.get('total_hoy') or 0)
-        
-        self.val_ingresos.value = f"$ {ingresos:,.0f}"
-        self.val_ventas_hoy.value = f"$ {ventas_hoy:,.0f}"
-        self.val_compras.value = f"$ {compras:,.0f}"
-        self.val_compras_hoy.value = f"$ {compras_hoy:,.0f}"
-        
-        rentabilidad = 0
-        if ingresos > 0:
-            rentabilidad = ((ingresos - compras) / ingresos) * 100
-            
-        self.val_rentabilidad.value = f"{rentabilidad:.1f}%"
-        self.val_rentabilidad.color = "#2ecca0" if rentabilidad >= 0 else "#f26c61"
-        
-        # Basic rotacion (Ventas / Inventario)
-        if val_inv > 0:
-            rotacion_global = ingresos / val_inv
-            self.val_rotacion.value = f"{rotacion_global:.2f}x"
-        else:
-            self.val_rotacion.value = "N/D"
-
-        # Nuevos KPIs y Ajustes
-        proyeccion_ventas = self.db.get_proyeccion_ventas()
-        self.val_proyeccion_ventas.value = f"$ {proyeccion_ventas:,.0f}"
-        
-        proy_rent = 0
-        if proyeccion_ventas > 0:
-            proy_rent = ((proyeccion_ventas - val_inv) / proyeccion_ventas) * 100
-        
-        self.val_proyeccion_rentabilidad.value = f"{proy_rent:.1f}%"
-        self.val_proyeccion_rentabilidad.color = "#2ecca0" if proy_rent >= 0 else "#f26c61"
-
-        mes_actual = datetime.date.today().strftime("%Y-%m")
-        ajustes_bd = self.db.get_ajustes_mes(mes_actual)
-        
-        tipos_salida = {
-            "Daño / Merma": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Vencimiento": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Pérdida": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Consumo Familiar": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Consumo Cliente (Cortesía)": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Donación Saliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Otro (Salida)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
-        }
-
-        tipos_entrada = {
-            "Sobrante de Inventario": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Donación Entrante": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Devolución Cliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Otro (Entrada)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
-        }
-        
-        for fila in ajustes_bd:
-            tipo_bd = fila.get("tipo_ajuste", "")
-            motivo_bd = fila.get("motivo_observacion", "")
-            cant = float(fila.get("cantidad_total") or 0)
-            costo = float(fila.get("costo_total") or 0)
-            conteo = int(fila.get("conteo") or 0)
-            
-            asignado = False
-            if tipo_bd in ("AJUSTE_ENTRADA", "ENTRADA_POR_SOBRANTE"):
-                for key in tipos_entrada.keys():
-                    if key.lower() in motivo_bd.lower():
-                        tipos_entrada[key]["conteo"] += conteo
-                        tipos_entrada[key]["cantidad"] += cant
-                        tipos_entrada[key]["costo"] += costo
-                        asignado = True
-                        break
-                if not asignado:
-                    tipos_entrada["Otro (Entrada)"]["conteo"] += conteo
-                    tipos_entrada["Otro (Entrada)"]["cantidad"] += cant
-                    tipos_entrada["Otro (Entrada)"]["costo"] += costo
-            else:
-                for key in tipos_salida.keys():
-                    if key.lower() in motivo_bd.lower():
-                        tipos_salida[key]["conteo"] += conteo
-                        tipos_salida[key]["cantidad"] += cant
-                        tipos_salida[key]["costo"] += costo
-                        asignado = True
-                        break
-                if not asignado:
-                    # Fallback por tipo
-                    if tipo_bd == "BAJA_VENCIMIENTO": k = "Vencimiento"
-                    elif tipo_bd == "SALIDA_POR_FALTANTE": k = "Pérdida"
-                    else: k = "Otro (Salida)"
-                    tipos_salida[k]["conteo"] += conteo
-                    tipos_salida[k]["cantidad"] += cant
-                    tipos_salida[k]["costo"] += costo
-
-        total_costo_entradas = sum([d["costo"] for d in tipos_entrada.values()])
-        total_costo_salidas = sum([d["costo"] for d in tipos_salida.values()])
-        
-        total_cant_entradas = sum([d["cantidad"] for d in tipos_entrada.values()])
-        total_cant_salidas = sum([d["cantidad"] for d in tipos_salida.values()])
-        
-        neto = total_costo_entradas - total_costo_salidas
-        if neto > 0:
-            self.lbl_neto_ajustes_header.value = f"NETO (POSITIVO): +${neto:,.0f}"
-            self.lbl_neto_ajustes_header.color = "#2ecca0"
-        elif neto < 0:
-            self.lbl_neto_ajustes_header.value = f"NETO (NEGATIVO): -${abs(neto):,.0f}"
-            self.lbl_neto_ajustes_header.color = "#f26c61"
-        else:
-            self.lbl_neto_ajustes_header.value = f"NETO: $0"
-            self.lbl_neto_ajustes_header.color = "grey"
-
-        # Limpiar columnas
-        self.col_ajustes_entrada.controls.clear()
-        self.col_ajustes_salida.controls.clear()
-
-        # Render Entrada
-        for key, datos in tipos_entrada.items():
-            self.col_ajustes_entrada.controls.append(
-                ft.Row([
-                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
-                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
-                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#2ecca0")
-                ])
-            )
-        self.col_ajustes_entrada.controls.append(ft.Divider(color="black12", height=10))
-        self.col_ajustes_entrada.controls.append(
-            ft.Row([
-                ft.Text("TOTAL ENTRADAS", size=12, weight="bold"),
-                ft.Text(f"{total_cant_entradas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
-                ft.Text(f"${total_costo_entradas:,.0f}", size=12, weight="bold", color="#2ecca0")
-            ])
-        )
-        
-        # Render Salida
-        for key, datos in tipos_salida.items():
-            self.col_ajustes_salida.controls.append(
-                ft.Row([
-                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
-                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
-                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#f26c61")
-                ])
-            )
-        self.col_ajustes_salida.controls.append(ft.Divider(color="black12", height=10))
-        self.col_ajustes_salida.controls.append(
-            ft.Row([
-                ft.Text("TOTAL SALIDAS", size=12, weight="bold"),
-                ft.Text(f"{total_cant_salidas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
-                ft.Text(f"${total_costo_salidas:,.0f}", size=12, weight="bold", color="#f26c61")
-            ])
-        )
-
-        # 2. Load Chart Data (Nativo Flet)
-        try:
-            tendencia = self.db.get_tendencia_diaria()
-            dias_ordenados = sorted(tendencia.keys())
-            max_val_y = 0
-            
-            pts_ventas = []
-            pts_compras = []
-            etiquetas_x = []
-            
-            for i, dia in enumerate(dias_ordenados):
-                v = float(tendencia[dia]["ventas"])
-                c = float(tendencia[dia]["compras"])
-                if v > max_val_y: max_val_y = v
-                if c > max_val_y: max_val_y = c
-                # Poner la fecha SOLO en el tooltip de arriba (compras) para que Flet no la duplique al apilar
-                tt_compras = f"{dia}\nCostos: ${c:,.0f}"
-                tt_ventas = f"Ingresos: ${v:,.0f}"
-                estilo_tt = ft.TextStyle(size=12, weight="bold", color="black87")
-                
-                pts_ventas.append(ft.LineChartDataPoint(i, v, tooltip=tt_ventas, tooltip_style=estilo_tt))
-                pts_compras.append(ft.LineChartDataPoint(i, c, tooltip=tt_compras, tooltip_style=estilo_tt))
-                
-                # Densidad en Eje X: Mostrar todos los días con la fecha completa rotada
-                etiquetas_x.append(
-                    ft.ChartAxisLabel(
-                        value=i, 
-                        label=ft.Container(
-                            content=ft.Text(dia, size=9, color="grey"),
-                            padding=ft.padding.only(top=10),
-                            rotate=-0.5
-                        )
-                    )
-                )
-                
-            if not pts_ventas:
-                pts_ventas = [ft.LineChartDataPoint(0, 0)]
-                pts_compras = [ft.LineChartDataPoint(0, 0)]
-                
-            self.chart_ventas.data_points = pts_ventas
-            self.chart_compras.data_points = pts_compras
-            
-            self.line_chart.max_x = len(dias_ordenados) - 1 if dias_ordenados else 0
-            max_y_calc = max_val_y * 1.15 if max_val_y > 0 else 1000
-            self.line_chart.max_y = max_y_calc
-            
-            def formato_moneda_corta(valor):
-                if valor >= 1000000: return f"${valor/1000000:.1f}M"
-                if valor >= 1000: return f"${valor/1000:.0f}k"
-                return f"${valor:.0f}"
-                
-            # Mayor densidad en Y: 8 divisiones en lugar de 5
-            intervalo_y = max_y_calc / 8 if max_y_calc > 0 else 100
-            etiquetas_y = [
-                ft.ChartAxisLabel(value=step * intervalo_y, label=ft.Text(formato_moneda_corta(step * intervalo_y), size=11, color="grey"))
-                for step in range(9)
-            ]
-            
-            self.line_chart.left_axis.labels = etiquetas_y
-            self.line_chart.left_axis.labels_interval = intervalo_y
-            self.line_chart.bottom_axis.labels = etiquetas_x
-            self.line_chart.bottom_axis.labels_interval = 1
-            
-            # Cuadrícula visible completa con efecto punteado
-            self.line_chart.horizontal_grid_lines = ft.ChartGridLines(
-                interval=intervalo_y,
-                color=ft.colors.with_opacity(0.05, "black"),
-                width=1,
-                dash_pattern=[4, 4]
-            )
-            self.line_chart.vertical_grid_lines = ft.ChartGridLines(
-                interval=2, # Línea vertical sincronizada con el eje X
-                color=ft.colors.with_opacity(0.05, "black"),
-                width=1,
-                dash_pattern=[4, 4]
-            )
-            
-        except Exception as e:
-            print(f"Error crítico construyendo Chart Flet: {e}")
-        
-        # 3. Load Tables Data (A prueba de fallos)
-        try:
-            top_ventas = self.db.get_top_ventas_mes(limit=10)
-            self.dt_ventas.rows.clear()
-            for item in top_ventas:
-                self.dt_ventas.rows.append(
-                    ft.DataRow(cells=[
-                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
-                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
-                        ft.DataCell(ft.Text(str(item.get('unidades_vendidas') or 0), size=11)),
-                        ft.DataCell(ft.Text(f"${float(item.get('ingreso_total') or 0):,.2f}", size=11))
-                    ])
-                )
-        except Exception as e:
-            print(f"Error crítico en tabla ventas: {e}")
-            
-        try:
-            top_costos = self.db.get_top_costo_inventario(limit=10)
-            self.dt_costos.rows.clear()
-            for item in top_costos:
-                self.dt_costos.rows.append(
-                    ft.DataRow(cells=[
-                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
-                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
-                        ft.DataCell(ft.Text(f"${float(item.get('valor_inventario') or 0):,.2f}", size=11)),
-                        ft.DataCell(ft.Text(str(item.get('rotacion') or ''), size=11))
-                    ])
-                )
-        except Exception as e:
-            print(f"Error crítico en tabla costos: {e}")
-            
-        try:
-            kpis_cat = self.db.get_kpis_por_categoria()
-            self.categorias_row.controls.clear()
-            for cat in kpis_cat:
-                self.categorias_row.controls.append(self._build_categoria_card(cat))
-        except Exception as e:
-            print(f"Error cargando KPIs por categoría: {e}")
-            
-        # Apagar indicador de carga al finalizar todo el trabajo
-        self.progress_bar.visible = False
-        
-        self.safe_update()
-
-    def _build_kpi_card(self, title, value_control, icon, subtext_control=None):
-        column_controls = [
-            ft.Row([
-                ft.Text(title, size=12, color="grey", weight="w500", expand=True),
-                ft.Icon(ft.icons.HELP_OUTLINE, size=12, color="grey")
-            ], spacing=5),
-            value_control,
-        ]
-        if subtext_control:
-            column_controls.append(subtext_control)
-            
-        value_control.size = 20
-            
-        return ft.Container(
-            content=ft.Row([
-                ft.Container(
-                    content=ft.Icon(icon, color=Config.COLOR_SECONDARY, size=24),
-                    bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_SECONDARY),
-                    padding=10,
-                    border_radius=8
-                ),
-                ft.Column(column_controls, spacing=2, expand=True)
-            ], alignment=ft.MainAxisAlignment.START),
-            bgcolor="white",
-            padding=15,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-        )
-
-    def _build_categoria_card(self, data):
-        rentabilidad = float(data.get('rentabilidad') or 0)
-        costo_inv = float(data.get('costo_inventario') or 0)
-        vtas_tot = float(data.get('ventas_totales') or 0)
-        rot = float(data.get('rotacion') or 0)
-        return ft.Container(
-            col={"sm": 12, "md": 6, "lg": 4},
-            bgcolor="white",
-            padding=15,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
-            content=ft.Column([
-                ft.Row([
-                    ft.Icon(ft.icons.CATEGORY, color=Config.COLOR_SECONDARY, size=20),
-                    ft.Text(str(data.get("categoria") or "N/A").upper(), weight="bold", size=13, color=Config.COLOR_PRIMARY, expand=True)
-                ]),
-                ft.Divider(height=1, color="#f0f0f0"),
-                ft.Row([ft.Text("Inventario:", size=11, color="grey"), ft.Text(f"${costo_inv:,.0f}", size=12, weight="bold")], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Row([ft.Text("Ventas:", size=11, color="grey"), ft.Text(f"${vtas_tot:,.0f}", size=12, weight="bold", color="green")], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Row([ft.Text("Rotación:", size=11, color="grey"), ft.Text(f"{rot:.2f}x", size=12, weight="bold")], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Row([ft.Text("Rendimiento:", size=11, color="grey"), ft.Text(f"{rentabilidad:.1f}%", size=12, weight="bold", color="#2ecca0" if rentabilidad >= 0 else "red")], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ], spacing=6)
-        )
-````
-
-## File: ui/views/inventario.py
-````python
-import flet as ft
-import threading
-from config import Config
-from core.supabase_client import SupabaseClient
-import math
-from datetime import datetime
-
-class InventarioView(ft.Container):
-    def __init__(self):
-        super().__init__()
-        self.is_fullscreen = False
-        self.btn_fullscreen = ft.IconButton(
-            icon=ft.icons.FULLSCREEN,
-            tooltip="Expandir Tabla (Modo Enfoque)",
-            on_click=self.toggle_fullscreen
-        )
-        self.expand = True
-        
-        self.db = SupabaseClient()
-        self.page_size = 15
-        self.current_page = 1
-        self.total_pages = 1
-        self.total_records = 0
-        
-        # Variables de Ordenamiento por Servidor
-        self.sort_col_name = "Insumo"
-        self.sort_is_asc = True
-        
-        self.view_mode = "table"
-        self.btn_toggle_view = ft.IconButton(
-            icon=ft.icons.GRID_VIEW,
-            tooltip="Cambiar a vista de Tarjetas",
-            on_click=self.toggle_view
-        )
-        
-        # Controles de Búsqueda
-        self.search_input = ft.TextField(
-            hint_text="Buscar por código o nombre...", 
-            prefix_icon=ft.icons.SEARCH,
-            border_radius=8,
-            expand=True,
-            bgcolor="white",
-            height=40,
-            border_color=ft.colors.with_opacity(0.2, Config.COLOR_PRIMARY),
-            content_padding=10,
-            on_submit=self.on_search
-        )
-        
-        self.category_dropdown = ft.Dropdown(
-            options=[ft.dropdown.Option("Todas")],
-            value="Todas",
-            label="Categoría",
-            width=220,
-            border_radius=8,
-            bgcolor="white",
-            height=40,
-            border_color=ft.colors.with_opacity(0.2, Config.COLOR_PRIMARY),
-            content_padding=10,
-            on_change=self.on_search
-        )
-        
-        self.fecha_corte = None
-        self.date_picker = ft.DatePicker(
-            on_change=self.on_date_change,
-            on_dismiss=self.on_date_dismiss,
-        )
-        self.btn_date = ft.OutlinedButton(
-            text="Filtrar por Fecha",
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=self.open_date_picker,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=40,
-            width=200
-        )
-        self.btn_clear_date = ft.IconButton(
-            icon=ft.icons.CLEAR,
-            tooltip="Limpiar Fecha",
-            on_click=self.clear_date,
-            visible=False,
-            icon_color="red"
-        )
-        
-        # Diccionario base de columnas
-        self.columnas_def = {
-            "": ft.DataColumn(ft.Container(width=25)),
-            "Código": ft.DataColumn(ft.Text("Código", weight="bold"), on_sort=self.on_sort_table),
-            "Insumo": ft.DataColumn(ft.Container(content=ft.Text("Insumo", weight="bold"), width=250), on_sort=self.on_sort_table),
-            "Categoría": ft.DataColumn(ft.Text("Categoría", weight="bold"), on_sort=self.on_sort_table),
-            "Ubicación": ft.DataColumn(ft.Text("Ubicación", weight="bold")),
-            "Stock Inicial": ft.DataColumn(ft.Container(content=ft.Text("Stock Ini.", weight="bold", size=11, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True),
-            "Stock Mínimo": ft.DataColumn(ft.Container(content=ft.Text("Stock Mín.", weight="bold", size=11, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True),
-            "Entradas": ft.DataColumn(ft.Container(content=ft.Text("Entradas", weight="bold", size=11, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True, on_sort=self.on_sort_table),
-            "Salidas": ft.DataColumn(ft.Container(content=ft.Text("Salidas", weight="bold", size=11, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True, on_sort=self.on_sort_table),
-            "Stock Real": ft.DataColumn(ft.Container(content=ft.Text("Stock Real", weight="bold", size=11, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True, on_sort=self.on_sort_table),
-            "Costo Unit.": ft.DataColumn(ft.Text("Costo Unit.", weight="bold"), numeric=True),
-            "Costo Total": ft.DataColumn(ft.Text("Costo Total", weight="bold"), numeric=True),
-            "Precio Venta": ft.DataColumn(ft.Text("Precio Venta", weight="bold"), numeric=True),
-            "Venta Total": ft.DataColumn(ft.Text("Venta Total", weight="bold"), numeric=True),
-        }
-        self.columnas_visibles = {k: True for k in self.columnas_def.keys()}
-        
-        self.btn_columns = ft.PopupMenuButton(
-            icon=ft.icons.VIEW_COLUMN,
-            tooltip="Mostrar/Ocultar Columnas",
-            items=[]
-        )
-        
-        # Definición de la Tabla de Datos (Ajuste de espacios y ordenamiento)
-        self.data_table = ft.DataTable(
-            column_spacing=10, # Reduce el espacio entre columnas
-            horizontal_margin=10,
-            data_row_min_height=30, # Reduce la altura de las filas
-            data_row_max_height=30,
-            heading_row_height=40,
-            sort_column_index=0,
-            sort_ascending=True,
-            columns=[],
-            rows=[],
-            heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
-            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
-            border_radius=8,
-            vertical_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
-        )
-        
-        self.table_container = ft.Container(
-            content=ft.Column(
-                [self.data_table],
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH
-            )
-        )
-        
-        self.table_wrapper = ft.Container(
-            content=ft.Row(
-                [
-                    ft.Column(
-                        [self.table_container],
-                        scroll=ft.ScrollMode.ALWAYS
-                    )
-                ],
-                scroll=ft.ScrollMode.ALWAYS,
-                expand=True,
-                vertical_alignment=ft.CrossAxisAlignment.START
-            ),
-            bgcolor="white",
-            padding=5,
-            border_radius=10,
-            expand=True,
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=ft.colors.with_opacity(0.05, "black")),
-            visible=True
-        )
-        
-        self.card_list_view = ft.ListView(expand=True, spacing=10, visible=False)
-        
-        # Controles Paginación
-        self.lbl_page_info = ft.Text("Página 1 de 1")
-        self.lbl_total = ft.Text("0 registros en total", color="grey")
-        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, on_click=self.on_prev_page, disabled=True)
-        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, on_click=self.on_next_page, disabled=True)
-        
-        self.current_edit_context = None
-        
-        self.edit_panel_title = ft.Text("Editando Insumo", color="white", weight="bold", size=16)
-        
-        input_style = {
-            "text_size": 13,
-            "height": 40,
-            "content_padding": 10,
-            "bgcolor": "white",
-            "color": "black",
-            "border_color": ft.colors.with_opacity(0.3, "white"),
-        }
-        
-        self.edit_stock_minimo = ft.TextField(width=120, **input_style)
-        self.edit_costo = ft.TextField(width=120, **input_style)
-        self.edit_margen = ft.Dropdown(
-            width=100, 
-            options=[ft.dropdown.Option(f"{p}%") for p in [10, 15, 20, 25, 30, 35]],
-            **input_style
-        )
-        self.edit_precio = ft.TextField(width=120, **input_style)
-        
-        self.edit_categoria = ft.Dropdown(
-            width=200, 
-            **input_style
-        )
-        
-        def calcular_precio(e):
-            try:
-                costo = float(self.edit_costo.value.replace(',', '.') or 0)
-                if self.edit_margen.value:
-                    margen_str = self.edit_margen.value.replace('%', '')
-                    margen_dec = float(margen_str) / 100.0
-                    if margen_dec < 1 and costo > 0:
-                        # Fórmula financiera de margen sobre precio de venta
-                        precio_calculado = costo / (1 - margen_dec)
-                        self.edit_precio.value = f"{precio_calculado:.2f}"
-            except ValueError:
-                pass
-            verificar_cambios_panel(e)
-
-        def verificar_cambios_panel(e):
-            if not self.current_edit_context: return
-            item = self.current_edit_context['item']
-            cambiado = False
-            try:
-                if str(int(self.edit_stock_minimo.value)) != str(int(item.get('stock_minimo', 5) or 5)): cambiado = True
-                if str(float(self.edit_costo.value)) != str(float(item.get('costo_unitario') or 0)): cambiado = True
-                if str(float(self.edit_precio.value)) != str(float(item.get('precio_venta') or 0)): cambiado = True
-                if self.edit_categoria.value != str(item.get('categoria', '')): cambiado = True
-            except ValueError:
-                cambiado = False
-                
-            self.btn_guardar_edicion.disabled = not cambiado
-            self.action_bar.update()
-
-        self.edit_margen.on_change = calcular_precio
-        self.edit_costo.on_change = calcular_precio
-        self.edit_precio.on_change = verificar_cambios_panel
-        self.edit_stock_minimo.on_change = verificar_cambios_panel
-        self.edit_categoria.on_change = verificar_cambios_panel
-        
-        self.btn_guardar_edicion = ft.ElevatedButton(
-            "Guardar Cambios",
-            disabled=True,
-            on_click=self.on_guardar_global,
-            style=ft.ButtonStyle(
-                bgcolor={ft.MaterialState.DISABLED: "#495057", ft.MaterialState.DEFAULT: "green"},
-                color={ft.MaterialState.DISABLED: "white70", ft.MaterialState.DEFAULT: "white"},
-                shape=ft.RoundedRectangleBorder(radius=8)
-            )
-        )
-        
-        self.btn_gestionar_ajustes = ft.OutlinedButton(
-            "Gestionar Ajustes",
-            icon=ft.icons.TUNE,
-            style=ft.ButtonStyle(color="white"),
-            on_click=self.on_gestionar_ajustes
-        )
-        
-        self.action_bar = ft.Container(
-            content=ft.Column([
-                ft.Row([self.edit_panel_title, self.btn_gestionar_ajustes], alignment=ft.MainAxisAlignment.START, spacing=15),
-                ft.Row([
-                    ft.Column([
-                        ft.Text("Stock Mínimo", color="white70", size=11, weight="bold"),
-                        self.edit_stock_minimo
-                    ], spacing=4),
-                    ft.Column([
-                        ft.Text("Costo Unit.", color="white70", size=11, weight="bold"),
-                        self.edit_costo
-                    ], spacing=4),
-                    ft.Column([
-                        ft.Text("Ganancia", color="white70", size=11, weight="bold"),
-                        self.edit_margen
-                    ], spacing=4),
-                    ft.Column([
-                        ft.Text("Precio Venta", color="white70", size=11, weight="bold"),
-                        self.edit_precio
-                    ], spacing=4),
-                    ft.Column([
-                        ft.Text("Categoría", color="white70", size=11, weight="bold"),
-                        self.edit_categoria
-                    ], spacing=4),
-                    ft.Container(expand=True),
-                    ft.OutlinedButton("Cancelar", style=ft.ButtonStyle(color="white"), on_click=self.on_cancelar_global),
-                    self.btn_guardar_edicion
-                ], spacing=15, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-            ], spacing=10),
-            bgcolor=Config.COLOR_PRIMARY,
-            padding=15,
-            border_radius=10,
-            visible=False,
-            margin=ft.padding.only(top=10)
-        )
-        
-        # Dashboard Resumen
-        self.lbl_valor_inventario = ft.Text("$0", size=20, weight="bold", color="blue")
-        self.lbl_ventas_total = ft.Text("$0", size=20, weight="bold", color="green")
-        self.lbl_proyeccion_ventas = ft.Text("$0", size=20, weight="bold", color="blue")
-        
-        self.summary_container = ft.Row([
-            ft.Container(
-                content=ft.Row([
-                    ft.Container(
-                        content=ft.Icon(ft.icons.INVENTORY, color="blue", size=24),
-                        padding=15,
-                        bgcolor=ft.colors.with_opacity(0.1, "blue"),
-                        border_radius=10
-                    ),
-                    ft.Column([
-                        ft.Text("Valorización del Inventario", size=12, color="grey", weight="bold"),
-                        self.lbl_valor_inventario
-                    ], spacing=2)
-                ]),
-                bgcolor="white",
-                padding=15,
-                border_radius=10,
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black")),
-                expand=True
-            ),
-            ft.Container(
-                content=ft.Row([
-                    ft.Container(
-                        content=ft.Icon(ft.icons.ATTACH_MONEY, color="green", size=24),
-                        padding=15,
-                        bgcolor=ft.colors.with_opacity(0.1, "green"),
-                        border_radius=10
-                    ),
-                    ft.Column([
-                        ft.Text("Ingreso Total (Ventas)", size=12, color="grey", weight="bold"),
-                        self.lbl_ventas_total
-                    ], spacing=2)
-                ]),
-                bgcolor="white",
-                padding=15,
-                border_radius=10,
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black")),
-                expand=True
-            ),
-            ft.Container(
-                content=ft.Row([
-                    ft.Container(
-                        content=ft.Icon(ft.icons.MONETIZATION_ON, color="blue", size=24),
-                        padding=15,
-                        bgcolor=ft.colors.with_opacity(0.1, "blue"),
-                        border_radius=10
-                    ),
-                    ft.Column([
-                        ft.Text("Proyección de Ventas", size=12, color="grey", weight="bold"),
-                        self.lbl_proyeccion_ventas
-                    ], spacing=2)
-                ]),
-                bgcolor="white",
-                padding=15,
-                border_radius=10,
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black")),
-                expand=True
-            )
-        ], alignment=ft.MainAxisAlignment.START, spacing=20)
-        
-        self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
-        
-        self.lbl_titulo = ft.Text("Catálogo de Insumos", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.content = ft.Column([
-            self.progress_bar,
-            self.lbl_titulo,
-            self.summary_container,
-            
-            # Toolbar de Filtros
-            ft.Container(
-                content=ft.Row([
-                    self.search_input,
-                    self.category_dropdown,
-                    self.btn_date,
-                    self.btn_clear_date,
-                    ft.ElevatedButton(
-                        text="Buscar", 
-                        icon=ft.icons.SEARCH,
-                        bgcolor=Config.COLOR_PRIMARY,
-                        color="white",
-                        height=40,
-                        on_click=self.on_search,
-                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-                    ),
-                    self.btn_toggle_view,
-                    self.btn_columns,
-                    self.btn_fullscreen
-                ]),
-                bgcolor="white",
-                padding=10,
-                border_radius=8,
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))
-            ),
-            
-            # Contenedores de Vista Dual
-            self.table_wrapper,
-            self.card_list_view,
-            
-            # Footer Paginación
-            ft.Container(
-                content=ft.Row([
-                    self.lbl_total,
-                    ft.Container(expand=True),
-                    self.btn_prev,
-                    self.lbl_page_info,
-                    self.btn_next,
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                padding=ft.padding.only(top=10)
-            ),
-            self.action_bar
-        ], expand=True, spacing=10)
-        
-        # No llamamos a los métodos aquí porque el control no está en la página todavía
-        
-    def toggle_fullscreen(self, e):
-        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
-        visibilidad = not self.is_fullscreen
-
-        # Ocultar o mostrar elementos superiores si existen en la vista
-        if hasattr(self, "lbl_titulo"): self.lbl_titulo.visible = visibilidad
-        if hasattr(self, "summary_container"): self.summary_container.visible = visibilidad
-        if hasattr(self, "kpi_bar"): self.kpi_bar.visible = visibilidad
-
-        # Cambiar icono y tooltip
-        self.btn_fullscreen.icon = ft.icons.FULLSCREEN_EXIT if self.is_fullscreen else ft.icons.FULLSCREEN
-        self.btn_fullscreen.tooltip = "Contraer Vista" if self.is_fullscreen else "Expandir Tabla (Modo Enfoque)"
-
-        if hasattr(self, "safe_update"):
-            self.safe_update()
-        elif self.page:
-            self.page.update()
-
-    def did_mount(self):
-        """Se ejecuta cuando la vista se agrega a la pantalla."""
-        if self.date_picker not in self.page.overlay:
-            self.page.overlay.append(self.date_picker)
-            self.safe_update()
-            
-        # Cargar configuración de columnas guardada
-        if self.page.client_storage.contains_key("inventario_columnas"):
-            stored_cols = self.page.client_storage.get("inventario_columnas")
-            if stored_cols and isinstance(stored_cols, dict):
-                self.columnas_visibles.update(stored_cols)
-        self.update_columns_ui()
-            
-        # Lógica responsiva para la tabla
-        def handle_resize(e):
-            if getattr(self, "page", None) and getattr(self, "table_container", None):
-                available = self.page.width - 320
-                self.table_container.width = max(1300, available)
-                try:
-                    self.table_container.update()
-                except Exception:
-                    pass
-                
-        self.handle_resize = handle_resize
-        
-        # Suscribir de manera segura según la versión de Flet
-        if hasattr(self.page.on_resize, "subscribe"):
-            self.page.on_resize.subscribe(self.handle_resize)
-        else:
-            self.original_on_resize = self.page.on_resize
-            self.page.on_resize = self.handle_resize
-            
-        handle_resize(None) # Ejecutar una vez para inicializar tamaño
-            
-        self.load_categories()
-        self.load_summary()
-        self.load_data()
-        
-
-    def safe_update(self):
-        """Actualiza la UI solo si el control sigue montado en la página."""
-        try:
-            if self.page and self.uid:
-                self.page.update()
-        except Exception:
-            pass
-    def load_summary(self):
-        res_v = self.db.get_ventas_summary()
-        res_i = self.db.get_inventario_kpis()
-        self.lbl_valor_inventario.value = f"${res_i.get('valor_inventario', 0):,.2f}"
-        self.lbl_ventas_total.value = f"${res_v.get('total_mes', 0):,.2f}"
-        # La proyección se calcula localmente en _fetch_data_worker
-        self.safe_update()
-            
-    def will_unmount(self):
-        """Se ejecuta cuando se destruye la vista."""
-        if hasattr(self.page, "on_resize") and hasattr(self.page.on_resize, "unsubscribe") and hasattr(self, "handle_resize"):
-            self.page.on_resize.unsubscribe(self.handle_resize)
-        elif hasattr(self, "original_on_resize"):
-            self.page.on_resize = self.original_on_resize
-        
-    def load_categories(self):
-        cats = self.db.get_categorias()
-        options = [ft.dropdown.Option("Todas")]
-        for c in cats:
-            if c: options.append(ft.dropdown.Option(c))
-        self.category_dropdown.options = options
-        
-    def update_columns_ui(self):
-        # Actualiza las columnas de la tabla
-        self.data_table.columns = [col for name, col in self.columnas_def.items() if self.columnas_visibles.get(name, True)]
-        
-        # Reconstruye el menú del Popup
-        items = []
-        for name in self.columnas_def.keys():
-            is_visible = self.columnas_visibles.get(name, True)
-            items.append(
-                ft.PopupMenuItem(
-                    text=name,
-                    checked=is_visible,
-                    on_click=lambda e, n=name: self.toggle_column(n)
-                )
-            )
-        self.btn_columns.items = items
-        
-    def toggle_column(self, name):
-        self.columnas_visibles[name] = not self.columnas_visibles.get(name, True)
-        self.page.client_storage.set("inventario_columnas", self.columnas_visibles)
-        self.update_columns_ui()
-        self.load_data()
-        
-    def toggle_view(self, e):
-        if self.view_mode == "table":
-            self.view_mode = "cards"
-            self.btn_toggle_view.icon = ft.icons.TABLE_ROWS
-            self.btn_toggle_view.tooltip = "Cambiar a vista de Tabla"
-            self.table_wrapper.visible = False
-            self.card_list_view.visible = True
-        else:
-            self.view_mode = "table"
-            self.btn_toggle_view.icon = ft.icons.GRID_VIEW
-            self.btn_toggle_view.tooltip = "Cambiar a vista de Tarjetas"
-            self.table_wrapper.visible = True
-            self.card_list_view.visible = False
-        self.safe_update()
-        
-    def load_data(self):
-        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
-        self.progress_bar.visible = True
-        self.safe_update()
-            
-        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
-
-    def _fetch_data_worker(self):
-        search_val = self.search_input.value or ""
-        cat_val = self.category_dropdown.value or "Todas"
-        
-        data, total = self.db.get_insumos(
-            page=self.current_page, 
-            page_size=self.page_size, 
-            search=search_val, 
-            categoria=cat_val,
-            fecha_corte=self.fecha_corte,
-            sort_col=self.sort_col_name,
-            sort_asc=self.sort_is_asc
-        )
-        
-        self.total_records = total
-        self.total_pages = math.ceil(total / self.page_size) if total > 0 else 1
-        
-        # Limpiar filas previas
-        self.data_table.rows.clear()
-        self.card_list_view.controls.clear()
-        
-        # Calcular Totales Globales iterando la lista completa sin paginación
-        data_completa, _ = self.db.get_insumos(
-            page=1, 
-            page_size=999999, 
-            search=search_val, 
-            categoria=cat_val,
-            fecha_corte=self.fecha_corte,
-            sort_col=self.sort_col_name,
-            sort_asc=self.sort_is_asc
-        )
-
-        proyeccion_global = 0.0
-        self.valor_total_inventario = 0.0
-        
-        for insumo in data_completa:
-            stock = float(insumo.get("stock_actual") or insumo.get("stock_real") or 0)
-            p_venta = float(insumo.get("precio_venta") or 0)
-            
-            if stock > 0:
-                proyeccion_global += (stock * p_venta)
-                
-            self.valor_total_inventario += float(insumo.get("costo_total_insumo") or 0)
-            
-        self.lbl_proyeccion_ventas.value = f"${proyeccion_global:,.0f}"
-        self.safe_update()
-        
-        # Llenar tabla y tarjetas
-        total_entradas = 0
-        total_salidas = 0
-        
-        for item in data:
-            row = self._crear_fila_inventario(item)
-            self.data_table.rows.append(row)
-            self.card_list_view.controls.append(self._crear_tarjeta_inventario(item, row))
-            
-            
-        self.update_pagination_ui()
-
-
-    def crear_celdas_fila(self, item, row_ref, edit_mode=False):
-        stock_inicial = int(item.get('stock_inicial', 0) or 0)
-        stock_minimo = int(item.get('stock_minimo', 5) or 5)
-        entradas = int(item.get('entradas', 0) or 0)
-        salidas = int(item.get('salidas', 0) or 0)
-        
-        stock_final = int(item.get('stock_real', item.get('stock_actual', 0)) or 0)
-        
-        costo_unit = float(item.get('costo_unitario') or 0)
-        precio_venta = float(item.get('precio_venta') or 0)
-        costo_total = float(item.get('costo_total_insumo') or 0)
-        venta_total = float(item.get('venta_total_insumo') or 0)
-        
-        str_costo_unit = f"${costo_unit:,.2f}"
-        str_precio_venta = f"${precio_venta:,.2f}"
-        str_costo_total = f"${costo_total:,.2f}"
-        str_venta_total = f"${venta_total:,.2f}"
-        
-        color_entradas = "green" if entradas > 0 else "black"
-        color_salidas = "red" if salidas > 0 else "black"
-        color_stock = "blue" if stock_final > 0 else "red"
-        
-        codigo = str(item.get('codigo_insumo', ''))
-        nombre = str(item.get('nombre', ''))
-        categoria = str(item.get('categoria', ''))
-        ubicacion = str(item.get('ubicacion') or 'N/A')
-
-        checkbox = ft.Checkbox(value=False, on_change=lambda e, i=item, r=row_ref: self.toggle_edit(e, i, r))
-        
-        cells_data = {
-            "": ft.DataCell(ft.Container(content=checkbox, width=25, alignment=ft.alignment.center)),
-            "Código": ft.DataCell(ft.Text(codigo)),
-            "Insumo": ft.DataCell(ft.Container(content=ft.Text(nombre, no_wrap=True, tooltip=nombre), width=250)),
-            "Categoría": ft.DataCell(ft.Text(categoria)),
-            "Ubicación": ft.DataCell(ft.Text(ubicacion)),
-            "Stock Inicial": ft.DataCell(ft.Container(content=ft.Text(str(stock_inicial)), width=60, alignment=ft.alignment.center_right)),
-            "Stock Mínimo": ft.DataCell(ft.Container(content=ft.Text(str(stock_minimo)), width=60, alignment=ft.alignment.center_right)),
-            "Entradas": ft.DataCell(ft.Container(content=ft.Text(str(entradas), color=color_entradas, weight="bold"), width=60, alignment=ft.alignment.center_right)),
-            "Salidas": ft.DataCell(ft.Container(content=ft.Text(str(salidas), color=color_salidas, weight="bold"), width=60, alignment=ft.alignment.center_right)),
-            "Stock Real": ft.DataCell(ft.Container(content=ft.Text(str(stock_final), color=color_stock, weight="bold"), width=60, alignment=ft.alignment.center_right)),
-            "Costo Unit.": ft.DataCell(ft.Text(str_costo_unit)),
-            "Costo Total": ft.DataCell(ft.Text(str_costo_total, color="blue")),
-            "Precio Venta": ft.DataCell(ft.Text(str_precio_venta)),
-            "Venta Total": ft.DataCell(ft.Text(str_venta_total, color="green")),
-        }
-            
-        return [cells_data[name] for name in self.columnas_def.keys() if self.columnas_visibles.get(name, True)]
-
-    def abrir_edicion_desde_tarjeta(self, item, row_ref):
-        # Simular que se marcó el checkbox de la tabla para mantener sincronía
-        if len(row_ref.cells) > 0:
-            cb = row_ref.cells[0].content.content
-            if isinstance(cb, ft.Checkbox):
-                cb.value = True
-                self.safe_update()
-                    
-        class DummyEvent:
-            class DummyControl:
-                value = True
-            control = DummyControl()
-            
-        self.toggle_edit(DummyEvent(), item, row_ref)
-
-    def toggle_edit(self, e, item, row_ref):
-        if not e.control.value:
-            self.cancelar_edicion()
-            return
-            
-        if self.current_edit_context and self.current_edit_context['row'] != row_ref:
-            prev_row = self.current_edit_context['row']
-            if prev_row and len(prev_row.cells) > 0:
-                cb = prev_row.cells[0].content.content
-                if isinstance(cb, ft.Checkbox):
-                    cb.value = False
-                    
-        self.current_edit_context = {
-            'item': item,
-            'row': row_ref
-        }
-        
-        codigo = item.get('codigo_insumo')
-        nombre = item.get('nombre')
-        
-        self.edit_panel_title.value = f"Editando: [{codigo}] {nombre}"
-        self.edit_stock_minimo.value = str(int(item.get('stock_minimo', 5) or 5))
-        self.edit_costo.value = str(float(item.get('costo_unitario') or 0))
-        self.edit_precio.value = str(float(item.get('precio_venta') or 0))
-        
-        # Recargar opciones frescas
-        categorias_bd = self.db.get_categorias() if hasattr(self.db, 'get_categorias') else []
-        opts = [ft.dropdown.Option(c) for c in categorias_bd if c]
-        self.edit_categoria.options = opts
-
-        # Limpiar dropdowns
-        self.edit_margen.value = None
-
-        # Asignar categoría exacta
-        cat_val = str(item.get('categoria') or '').strip()
-        if any(o.key == cat_val for o in opts):
-            self.edit_categoria.value = cat_val
-        elif opts:
-            self.edit_categoria.value = opts[0].key
-        else:
-            self.edit_categoria.value = None
-        
-        self.btn_guardar_edicion.disabled = True
-        self.action_bar.visible = True
-        self.safe_update()
-
-    def cancelar_edicion(self, e=None):
-        if self.current_edit_context:
-            row_ref = self.current_edit_context['row']
-            if row_ref and len(row_ref.cells) > 0:
-                cb = row_ref.cells[0].content.content
-                if isinstance(cb, ft.Checkbox):
-                    cb.value = False
-        self.current_edit_context = None
-        self.action_bar.visible = False
-        self.safe_update()
-
-    def abrir_dialogo_confirmacion(self):
-        if not self.current_edit_context: return
-        item = self.current_edit_context['item']
-        
-        cambios = []
-        try:
-            nuevo_stock_min = int(self.edit_stock_minimo.value)
-            if nuevo_stock_min != int(item.get('stock_minimo', 5) or 5):
-                cambios.append(f"Stock Mínimo: {int(item.get('stock_minimo', 5) or 5)} -> {nuevo_stock_min}")
-                
-            nuevo_costo = float(self.edit_costo.value)
-            if nuevo_costo != float(item.get('costo_unitario') or 0):
-                cambios.append(f"Costo Unitario: ${float(item.get('costo_unitario') or 0):.2f} -> ${nuevo_costo:.2f}")
-                
-            nuevo_precio = float(self.edit_precio.value)
-            if nuevo_precio != float(item.get('precio_venta') or 0):
-                cambios.append(f"Precio Venta: ${float(item.get('precio_venta') or 0):.2f} -> ${nuevo_precio:.2f}")
-                
-            nueva_cat = self.edit_categoria.value
-            if nueva_cat != str(item.get('categoria', '')):
-                cambios.append(f"Categoría: {item.get('categoria', '')} -> {nueva_cat}")
-        except ValueError:
-            self.page.snack_bar = ft.SnackBar(ft.Text("Error: Asegúrate de ingresar números válidos."), bgcolor="red")
-            self.page.snack_bar.open = True
-            self.safe_update()
-            return
-
-        if not cambios:
-            self.cancelar_edicion()
-            return
-
-        resumen = "\n".join(cambios)
-        
-        dlg = ft.AlertDialog(
-            title=ft.Text("Confirmar Actualización"),
-            content=ft.Text(f"Estás a punto de modificar el insumo: {item.get('codigo_insumo')} - {item.get('nombre')}.\n\nCambios detectados:\n{resumen}"),
-        )
-        
-        def on_cancel(e):
-            dlg.open = False
-            self.safe_update()
-            
-        def on_save(e):
-            self.ejecutar_guardado(dlg)
-            
-        dlg.actions = [
-            ft.TextButton("Cancelar", on_click=on_cancel),
-            ft.ElevatedButton("Guardar", bgcolor="green", color="white", on_click=on_save)
-        ]
-        
-        self.page.overlay.append(dlg)
-        dlg.open = True
-        self.safe_update()
-
-    def ejecutar_guardado(self, dialog=None):
-        if dialog:
-            dialog.open = False
-            
-        if hasattr(self, 'progress_bar'):
-            self.progress_bar.visible = True
-            
-        self.safe_update()
-            
-        threading.Thread(target=self._ejecutar_guardado_worker, daemon=True).start()
-
-    def _ejecutar_guardado_worker(self):
-        try:
-            if not self.current_edit_context: return
-            item = self.current_edit_context['item']
-            
-            try:
-                datos_actualizados = {
-                    "stock_minimo": int(self.edit_stock_minimo.value),
-                    "costo_unitario": float(self.edit_costo.value),
-                    "precio_venta": float(self.edit_precio.value),
-                    "categoria": self.edit_categoria.value
-                }
-            except ValueError:
-                self.page.snack_bar = ft.SnackBar(ft.Text("Error numérico al guardar."), bgcolor="red")
-                self.page.snack_bar.open = True
-                self.safe_update()
-                return
-                
-            codigo = item.get('codigo_insumo')
-            exito = self.db.update_insumo(codigo, datos_actualizados)
-            
-            if exito:
-                self.cancelar_edicion()
-                
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"Insumo {codigo} actualizado exitosamente."), bgcolor="green")
-                self.page.snack_bar.open = True
-                self.safe_update()
-                
-                self.load_data()
-                self.load_summary()
-            else:
-                self.page.snack_bar = ft.SnackBar(ft.Text("Error al actualizar en Base de Datos."), bgcolor="red")
-                self.page.snack_bar.open = True
-                self.safe_update()
-                
-            self.update_pagination_ui()
-
-        except Exception as ex:
-            if self.page:
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error interno: {str(ex)}"), bgcolor="red")
-                self.page.snack_bar.open = True
-        finally:
-            if hasattr(self, 'progress_bar'):
-                self.progress_bar.visible = False
-            self.safe_update()
-        
-    def update_pagination_ui(self):
-        self.lbl_page_info.value = f"Página {self.current_page} de {self.total_pages}"
-        self.lbl_total.value = f"{self.total_records} registros en total"
-        self.btn_prev.disabled = (self.current_page <= 1)
-        self.btn_next.disabled = (self.current_page >= self.total_pages)
-        
-        # Apagar indicador de carga al finalizar
-        self.progress_bar.visible = False
-        
-        self.safe_update()
-        
-    def on_search(self, e):
-        self.current_page = 1
-        self.load_data()
-        
-    def on_prev_page(self, e):
-        if self.current_page > 1:
-            self.current_page -= 1
-            self.load_data()
-            
-    def on_next_page(self, e):
-        if self.current_page < self.total_pages:
-            self.current_page += 1
-            self.load_data()
-            
-    def close_notification(self, e):
-        self.notification_banner.visible = False
-        self.safe_update()
-        
-    def open_date_picker(self, e):
-        self.date_picker.pick_date()
-        
-    def on_date_change(self, e):
-        if self.date_picker.value:
-            self.fecha_corte = self.date_picker.value.strftime("%Y-%m-%d")
-            self.btn_date.text = f"Fecha: {self.fecha_corte}"
-            self.btn_clear_date.visible = True
-            self.current_page = 1
-            self.load_data()
-            self.safe_update()
-            
-    def on_date_dismiss(self, e):
-        pass
-        
-    def clear_date(self, e):
-        self.fecha_corte = None
-        self.date_picker.value = None
-        self.btn_date.text = "Filtrar por Fecha"
-        self.btn_clear_date.visible = False
-        self.current_page = 1
-        self.load_data()
-        self.safe_update()
-
-    def on_sort_table(self, e: ft.DataColumnSortEvent):
-        """Delega el ordenamiento a la base de datos solicitando una nueva carga de datos."""
-        self.data_table.sort_column_index = e.column_index
-        self.data_table.sort_ascending = e.ascending
-        
-        # Identificar qué columna se hizo clic basándose en el diccionario
-        column_keys = list(self.columnas_def.keys())
-        
-        # Descontar las columnas que estén ocultas para encontrar el índice real
-        visible_keys = [k for k in column_keys if self.columnas_visibles.get(k, True)]
-        
-        if e.column_index < len(visible_keys):
-            self.sort_col_name = visible_keys[e.column_index]
-        
-        self.sort_is_asc = e.ascending
-        self.current_page = 1 # Volver a la primera página tras ordenar
-        self.load_data()
-
-    def on_guardar_global(self, e):
-        self.abrir_dialogo_confirmacion()
-
-    def on_cancelar_global(self, e):
-        self.cancelar_edicion()
-
-    def on_gestionar_ajustes(self, e):
-        # Placeholder para enviar el código del insumo seleccionado al futuro módulo de ajustes
-        if self.current_edit_context:
-            codigo = self.current_edit_context['item'].get('codigo_insumo')
-            self.page.snack_bar = ft.SnackBar(ft.Text(f"Redirigiendo a gestión de ajustes para el insumo {codigo}..."), bgcolor="blue")
-            self.page.snack_bar.open = True
-            self.safe_update()
-
-    def _crear_fila_inventario(self, item):
-        row = ft.DataRow(cells=[])
-        row.cells = self.crear_celdas_fila(item, row, edit_mode=False)
-        return row
-
-    def _crear_tarjeta_inventario(self, item, row):
-        codigo = str(item.get('codigo_insumo') or '')
-        nombre = str(item.get('nombre') or '')
-        categoria = str(item.get('categoria') or '')
-        ubicacion = str(item.get('ubicacion') or 'N/A')
-        
-        # Extracción Segura
-        stock_inicial = float(item.get("stock_inicial") or 0)
-        valor_inicial = float(item.get("valor_inicial") or 0)
-        compras = float(item.get("compras") or 0)
-        valor_compras = float(item.get("valor_compras") or 0)
-        ventas = float(item.get("ventas") or 0)
-        valor_ventas = float(item.get("valor_ventas") or 0)
-        ajustes_entrantes = float(item.get("ajustes_entrantes") or 0)
-        valor_ajustes_entrantes = float(item.get("valor_ajustes_entrantes") or 0)
-        ajustes_salientes = float(item.get("ajustes_salientes") or 0)
-        valor_ajustes_salientes = float(item.get("valor_ajustes_salientes") or 0)
-        neto_ajustes = float(item.get("neto_ajustes") or 0)
-        valor_neto_ajustes = float(item.get("valor_neto_ajustes") or 0)
-        
-        stock_actual = float(item.get('stock_actual') or item.get('stock_real') or 0)
-        costo_total_insumo = float(item.get('costo_total_insumo') or 0)
-        costo_u = float(item.get('costo_unitario') or 0)
-        p_venta = float(item.get('precio_venta') or 0)
-        
-        proyeccion_venta = stock_actual * p_venta if stock_actual > 0 else 0
-        participacion = (costo_total_insumo / self.valor_total_inventario) * 100 if getattr(self, 'valor_total_inventario', 0) > 0 else 0
-        
-        # Badges
-        badge_costo = ft.Container(content=ft.Text(f"Costo U: ${costo_u:,.0f}", size=11, weight="bold", color="black87"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="grey100", border_radius=15)
-        badge_pventa = ft.Container(content=ft.Text(f"Precio de Venta: ${p_venta:,.0f}", size=11, weight="bold", color="black87"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="grey100", border_radius=15)
-        badge_peso = ft.Container(content=ft.Text(f"Peso Inv: {participacion:.1f}%", size=11, weight="bold", color="purple900"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="#f3e5f5", border_radius=15)
-        badge_proy = ft.Container(content=ft.Text(f"Proyección de Venta: ${proyeccion_venta:,.0f}", size=11, weight="bold", color="blue900"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="#e3f2fd", border_radius=15)
-        badge_stock = ft.Container(content=ft.Text(f"Stock Actual: {stock_actual:g} unds ($ {costo_total_insumo:,.0f})", size=11, weight="bold", color="green900"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="#e8f5e9", border_radius=15)
-        
-        contenedor_badges = ft.Row(
-            [badge_costo, badge_pventa, badge_peso, badge_proy, badge_stock], 
-            spacing=5, 
-            alignment=ft.MainAxisAlignment.END,
-            wrap=True
-        )
-        
-        def crear_bloque_metricas(titulo, cantidad, valor, color_cant, color_valor):
-            return ft.Column([
-                ft.Text(titulo, size=10, color="grey", weight="bold"),
-                ft.Text(f"{cantidad:g} unds", size=12, weight="bold", color=color_cant),
-                ft.Text(f"${valor:,.0f}", size=12, color=color_valor)
-            ], spacing=2, alignment=ft.MainAxisAlignment.START)
-            
-        color_neto = "red" if valor_neto_ajustes < 0 else ("green" if valor_neto_ajustes > 0 else "grey")
-            
-        fila_resultados = ft.Row([
-            crear_bloque_metricas("INICIAL", stock_inicial, valor_inicial, "grey", "grey"),
-            crear_bloque_metricas("COMPRAS", compras, valor_compras, "#2ecca0", "black87"),
-            crear_bloque_metricas("VENTAS", ventas, valor_ventas, "#42a5f5", "black87"),
-            crear_bloque_metricas("AJUSTES ENTRANTES", ajustes_entrantes, valor_ajustes_entrantes, "green", "green"),
-            crear_bloque_metricas("AJUSTES SALIENTES", ajustes_salientes, valor_ajustes_salientes, "red", "red"),
-            crear_bloque_metricas("NETO DEL AJUSTE", neto_ajustes, valor_neto_ajustes, color_neto, color_neto)
-        ], spacing=20, wrap=True)
-        
-        tarjeta = ft.Container(
-            bgcolor="white",
-            padding=15,
-            border_radius=8,
-            border=ft.border.all(1, "#e0e0e0"),
-            content=ft.Column([
-                ft.Row([
-                    ft.Text(f"{categoria} | {ubicacion}", size=12, color="grey"),
-                    contenedor_badges
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Row([
-                    ft.Text(f"[{codigo}] {nombre}", size=15, weight="bold", expand=True),
-                    ft.OutlinedButton(text="Editar Insumo", icon=ft.icons.EDIT, on_click=lambda e, i=item, r=row: self.abrir_edicion_desde_tarjeta(i, r))
-                ]),
-                fila_resultados
-            ], spacing=8)
-        )
-        return tarjeta
 ````
 
 ## File: core/gemini_parser.py
@@ -4570,6 +1926,2186 @@ class GeminiParser:
             return None
 ````
 
+## File: ui/views/ajustes_inventario.py
+````python
+import flet as ft
+import threading
+from config import Config
+from core.supabase_client import SupabaseClient
+
+class AjustesInventarioView(ft.Container):
+    def __init__(self):
+        super().__init__()
+        self.is_fullscreen = False
+        self.btn_fullscreen = ft.IconButton(
+            icon=ft.icons.FULLSCREEN,
+            tooltip="Expandir Tabla (Modo Enfoque)",
+            on_click=self.toggle_fullscreen
+        )
+        self.expand = True
+        self.db = SupabaseClient()
+        self.tipo_ajuste_actual = "ENTRADA"
+        
+        # Mapeo estricto contra restricciones de BD
+        self.mapa_motivos = {
+            "Sobrante de Inventario": "ENTRADA_POR_SOBRANTE",
+            "Donación Entrante": "AJUSTE_ENTRADA",
+            "Devolución Cliente": "AJUSTE_ENTRADA",
+            "Daño / Merma": "AJUSTE_SALIDA",
+            "Vencimiento": "BAJA_VENCIMIENTO",
+            "Pérdida": "SALIDA_POR_FALTANTE",
+            "Consumo Familiar": "AJUSTE_SALIDA",
+            "Consumo Cliente (Cortesía)": "AJUSTE_SALIDA",
+            "Donación Saliente": "AJUSTE_SALIDA",
+            "Otro (Entrada)": "AJUSTE_ENTRADA",
+            "Otro (Salida)": "AJUSTE_SALIDA"
+        }
+
+        # --- Labels reactivos de Resumen ---
+        self.lbl_ent_actual = ft.Text("$0.00", weight="bold")
+        self.lbl_ent_pos = ft.Text("$0.00", weight="bold", color="green")
+        self.lbl_sal_neg = ft.Text("$0.00", weight="bold", color="red")
+        self.lbl_ent_neto = ft.Text("$0.00", weight="bold")
+        self.lbl_ent_proyectado = ft.Text("$0.00", weight="bold", color=Config.COLOR_PRIMARY)
+
+        # --- Paginación y Filtros ---
+        self.data_completa = []
+        self.page_size = 15
+        self.current_page = 1
+        self.total_pages = 1
+        self.total_records = 0
+
+        self.search_input = ft.TextField(
+            hint_text="Buscar código o nombre...",
+            prefix_icon=ft.icons.SEARCH,
+            height=38,
+            expand=2,
+            dense=True,
+            text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+            on_submit=lambda e: self._on_filter_change()
+        )
+        
+        self.date_picker = ft.DatePicker(on_change=lambda e: self._on_filter_change())
+        self.btn_date = ft.IconButton(
+            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
+            tooltip="Filtrar por Fecha de Ajuste",
+            on_click=lambda e: self.date_picker.pick_date()
+        )
+        self.btn_clear_date = ft.IconButton(
+            icon=ft.icons.CLEAR,
+            icon_color="red",
+            visible=False,
+            on_click=self._clear_date
+        )
+
+        self.drop_tipo = ft.Dropdown(
+            options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("Entrada"), ft.dropdown.Option("Salida")],
+            value="Todos", label="Tipo", dense=True, width=150, height=38, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8), on_change=lambda e: self._on_filter_change()
+        )
+        
+        motivos_combinados = ["Todos"] + list(self.mapa_motivos.keys())
+        self.drop_motivo = ft.Dropdown(
+            options=[ft.dropdown.Option(m) for m in motivos_combinados],
+            value="Todos", label="Motivo", dense=True, width=200, height=38, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8), on_change=lambda e: self._on_filter_change()
+        )
+
+        self.btn_prev = ft.IconButton(icon=ft.icons.ARROW_BACK_IOS, on_click=self._prev_page, disabled=True)
+        self.btn_next = ft.IconButton(icon=ft.icons.ARROW_FORWARD_IOS, on_click=self._next_page, disabled=True)
+        self.lbl_page_info = ft.Text("Pág 1 de 1", weight="bold")
+
+        # --- Vista de Tarjetas (Lista) ---
+        self.lista_ajustes = ft.ListView(expand=True, spacing=10, auto_scroll=False)
+        self.btn_agregar_ajuste = ft.ElevatedButton("Registrar Ajuste", icon=ft.icons.ADD, bgcolor=Config.COLOR_PRIMARY, color="white", on_click=lambda e: self.abrir_modal_ajuste())
+
+        # --- Modal ---
+        self.modal_ajuste = self._crear_modal_formulario()
+
+        # --- Layout Principal Unificado ---
+        kpi_bar = ft.Container(
+            content=ft.Row([
+                ft.Column([ft.Text("Valor Inventario Base:", size=11, color="grey"), self.lbl_ent_actual], spacing=0),
+                ft.Container(width=1, height=30, bgcolor="#eeeeee"),
+                ft.Column([ft.Text("Valor Entradas (+):", size=11, color="grey"), self.lbl_ent_pos], spacing=0),
+                ft.Container(width=1, height=30, bgcolor="#eeeeee"),
+                ft.Column([ft.Text("Valor Salidas (-):", size=11, color="grey"), self.lbl_sal_neg], spacing=0),
+                ft.Container(width=1, height=30, bgcolor="#eeeeee"),
+                ft.Column([ft.Text("Impacto Neto:", size=11, color="grey"), self.lbl_ent_neto], spacing=0),
+                ft.Container(expand=True),
+                ft.Column([ft.Text("Inventario Proyectado:", size=11, color="grey"), self.lbl_ent_proyectado], spacing=0, horizontal_alignment="end"),
+            ], alignment=ft.MainAxisAlignment.START),
+            padding=15, bgcolor="#fafafa", border_radius=8, border=ft.border.all(1, "#eeeeee")
+        )
+        
+        filtros_row = ft.Row([
+            self.search_input,
+            self.btn_date,
+            self.btn_clear_date,
+            self.drop_tipo,
+            self.drop_motivo,
+            ft.Container(expand=True),
+            self.btn_agregar_ajuste
+        ], spacing=10)
+        
+        paginacion_row = ft.Row([
+            ft.Container(expand=True),
+            self.btn_prev,
+            self.lbl_page_info,
+            self.btn_next
+        ], alignment=ft.MainAxisAlignment.END)
+
+        self.content = ft.Column([
+            ft.Text("Gestión y Ajustes de Inventario", size=24, weight="bold", color=Config.COLOR_PRIMARY),
+            kpi_bar,
+            filtros_row,
+            ft.Container(content=self.lista_ajustes, expand=True, bgcolor="#f5f5f5", border_radius=10, padding=10, shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))),
+            paginacion_row
+        ], expand=True)
+
+    def _crear_modal_formulario(self):
+        def on_tipo_change(e):
+            tipo = self.form_tipo_ajuste.value
+            if tipo == "ENTRADA":
+                self.form_motivo.options = [ft.dropdown.Option(x) for x in ["Sobrante de Inventario", "Donación Entrante", "Devolución Cliente", "Otro (Entrada)"]]
+            elif tipo == "SALIDA":
+                self.form_motivo.options = [ft.dropdown.Option(x) for x in ["Daño / Merma", "Vencimiento", "Pérdida", "Consumo Familiar", "Consumo Cliente (Cortesía)", "Donación Saliente", "Otro (Salida)"]]
+            else:
+                self.form_motivo.options = []
+            self.form_motivo.value = None
+            if self.form_codigo.value:
+                self.buscar_detalle_insumo(None)
+            self.safe_update()
+
+        def on_costo_change(e):
+            try:
+                nuevo_costo = float(self.form_costo.value.replace(',', '.') or 0)
+                valor_inv = nuevo_costo * getattr(self, 'current_stock_modal', 0)
+                self.lbl_valor_inv_modal.value = f"Valor del Inv: ${valor_inv:,.0f}"
+            except ValueError:
+                self.lbl_valor_inv_modal.value = "Valor del Inv: $0"
+            self.safe_update()
+
+        self.form_tipo_ajuste = ft.Dropdown(label="Tipo de Movimiento", options=[ft.dropdown.Option("ENTRADA"), ft.dropdown.Option("SALIDA")], dense=True, expand=True, border_radius=8, on_change=on_tipo_change)
+
+        self.form_codigo = ft.TextField(label="Código Insumo", width=120, dense=True, border_radius=8, on_blur=self.buscar_detalle_insumo)
+        self.form_nombre = ft.Text("Nombre del Insumo...", color="grey", italic=True, size=13)
+        self.lbl_stock_actual = ft.Text("Stock Sist: 0", weight="bold", color=Config.COLOR_PRIMARY, size=12)
+
+        self.form_motivo = ft.Dropdown(label="Motivo del Ajuste", dense=True, expand=True, border_radius=8)
+        self.form_cant = ft.TextField(label="Cantidad", expand=True, dense=True, border_radius=8)
+
+        # Eliminamos el expand=True para evitar el desbordamiento vertical en la columna
+        self.form_costo = ft.TextField(label="Costo Unitario ($)", dense=True, border_radius=8, on_change=on_costo_change)
+        self.lbl_valor_inv_modal = ft.Text("Valor del Inv: $0", size=11, color="grey")
+
+        self.form_obs = ft.TextField(label="Observación (Opcional)", expand=True, dense=True, multiline=True, min_lines=2, border_radius=8)
+
+        return ft.AlertDialog(
+            title=ft.Text("Registrar Ajuste de Inventario"),
+            content=ft.Container(
+                width=500,
+                content=ft.Column([
+                    ft.Row([
+                        self.form_codigo, 
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Icon(ft.icons.INVENTORY_2, size=16, color="grey"),
+                                ft.Column([self.form_nombre, self.lbl_stock_actual], spacing=0, expand=True)
+                            ]), 
+                            expand=True, padding=10, bgcolor="#f5f5f5", border_radius=8
+                        )
+                    ]),
+                    ft.Row([self.form_tipo_ajuste, self.form_motivo]),
+                    ft.Row([
+                        self.form_cant, 
+                        ft.Column([self.form_costo, self.lbl_valor_inv_modal], expand=True, spacing=2)
+                    ]),
+                    ft.Row([self.form_obs])
+                ], tight=True, spacing=15)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: self.cerrar_modal()),
+                ft.ElevatedButton("Guardar Ajuste", bgcolor=Config.COLOR_PRIMARY, color="white", on_click=self.on_guardar_ajuste)
+            ]
+        )
+
+    # --- Lógica de Negocio ---
+    def safe_update(self):
+        """Actualiza la UI solo si el control sigue montado en la página."""
+        try:
+            if self.page and self.uid:
+                self.page.update()
+        except Exception:
+            pass
+
+    def toggle_fullscreen(self, e):
+        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
+        visibilidad = not self.is_fullscreen
+
+        # Ocultar o mostrar elementos superiores si existen en la vista
+        if hasattr(self, "lbl_titulo"): self.lbl_titulo.visible = visibilidad
+        if hasattr(self, "summary_container"): self.summary_container.visible = visibilidad
+        if hasattr(self, "kpi_bar"): self.kpi_bar.visible = visibilidad
+
+        # Cambiar icono y tooltip
+        self.btn_fullscreen.icon = ft.icons.FULLSCREEN_EXIT if self.is_fullscreen else ft.icons.FULLSCREEN
+        self.btn_fullscreen.tooltip = "Contraer Vista" if self.is_fullscreen else "Expandir Tabla (Modo Enfoque)"
+
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        elif self.page:
+            self.page.update()
+
+    def did_mount(self):
+        if self.modal_ajuste not in self.page.overlay:
+            self.page.overlay.append(self.modal_ajuste)
+        if hasattr(self, "date_picker") and self.date_picker not in self.page.overlay:
+            self.page.overlay.append(self.date_picker)
+        self.load_data()
+
+    def buscar_detalle_insumo(self, e):
+        codigo = self.form_codigo.value.strip()
+        if not codigo: return
+        detalle = self.db.get_insumo_detalle(codigo)
+        if detalle:
+            self.form_nombre.value = detalle.get("nombre", "")
+            self.form_nombre.color = "black"
+            self.current_stock_modal = float(detalle.get('stock_actual') or 0)
+            self.lbl_stock_actual.value = f"Stock Sist: {self.current_stock_modal:g} unds"
+
+            tipo = self.form_tipo_ajuste.value
+            nuevo_costo = 0
+            if tipo == "ENTRADA":
+                nuevo_costo = float(detalle.get("costo_unitario") or 0)
+                self.form_costo.value = str(nuevo_costo)
+            elif tipo == "SALIDA":
+                nuevo_costo = float(detalle.get("precio_venta") or 0)
+                self.form_costo.value = str(nuevo_costo)
+            else:
+                nuevo_costo = float(detalle.get("costo_unitario") or 0)
+                self.form_costo.value = str(nuevo_costo)
+
+            valor_inv = nuevo_costo * self.current_stock_modal
+            self.lbl_valor_inv_modal.value = f"Valor del Inv: ${valor_inv:,.0f}"
+        else:
+            self.form_nombre.value = "Insumo no encontrado."
+            self.form_nombre.color = "red"
+            self.current_stock_modal = 0
+            self.lbl_stock_actual.value = "Stock Sist: 0"
+            self.lbl_valor_inv_modal.value = "Valor del Inv: $0"
+        self.safe_update()
+
+    def abrir_modal_ajuste(self):
+        self.modal_ajuste.title.value = "Registrar Ajuste de Inventario"
+        
+        # Limpiar valores y errores visuales
+        self.form_tipo_ajuste.value = None
+        self.form_tipo_ajuste.error_text = None
+        
+        self.form_motivo.options = []
+        self.form_motivo.value = None
+        self.form_motivo.error_text = None
+        
+        self.form_codigo.value = ""
+        self.form_codigo.error_text = None
+        
+        self.form_nombre.value = "Nombre del Insumo..."
+        self.form_nombre.color = "grey"
+        
+        self.form_cant.value = ""
+        self.form_cant.error_text = None
+        
+        self.form_costo.value = ""
+        self.form_costo.error_text = None
+        
+        self.form_obs.value = ""
+        self.form_obs.error_text = None
+        
+        self.modal_ajuste.open = True
+        self.page.update()
+
+    def cerrar_modal(self):
+        self.modal_ajuste.open = False
+        self.page.update()
+
+    def on_guardar_ajuste(self, e):
+        if hasattr(self, 'progress_bar'):
+            self.progress_bar.visible = True
+            
+        btn_control = e.control if e else None
+        if btn_control:
+            btn_control.disabled = True
+            
+        if self.page:
+            self.update()
+            
+        threading.Thread(target=self._on_guardar_ajuste_worker, args=(btn_control,), daemon=True).start()
+
+    def _on_guardar_ajuste_worker(self, btn_control):
+        try:
+            self.form_codigo.error_text = None
+            self.form_cant.error_text = None
+            self.form_costo.error_text = None
+            if self.page:
+                self.page.update()
+                
+            try:
+                codigo = self.form_codigo.value.strip()
+                motivo_ui = self.form_motivo.value
+                cant = float(self.form_cant.value.replace(',', '.'))
+                costo = float(self.form_costo.value.replace(',', '.'))
+                obs = self.form_obs.value.strip()
+            except ValueError:
+                self.mostrar_alerta("Error en los formatos numéricos. Usa números válidos para cantidad y costo.", "red")
+                return
+
+            if not codigo or not motivo_ui or cant <= 0:
+                self.mostrar_alerta("Completa los campos obligatorios y asegúrate que la cantidad sea mayor a cero.", "red")
+                return
+
+            tipo_bd = self.mapa_motivos.get(motivo_ui)
+            if not tipo_bd: return
+
+            datos = {
+                "codigo_insumo": codigo,
+                "tipo_ajuste": tipo_bd,
+                "cantidad": cant,
+                "costo_unitario_congelado": costo,
+                "costo_total_ajuste": cant * costo,
+                "motivo_observacion": obs if obs else motivo_ui,
+                "estado_registro": "VÁLIDO"
+            }
+
+            if self.db.insert_ajuste_individual(datos):
+                self.mostrar_alerta("Ajuste registrado exitosamente.", "green")
+                self.cerrar_modal()
+                self.load_data()
+            else:
+                self.mostrar_alerta("Error al registrar en la base de datos.", "red")
+        except Exception as ex:
+            if self.page:
+                self.mostrar_alerta(f"Error interno: {str(ex)}", "red")
+        finally:
+            if hasattr(self, 'progress_bar'):
+                self.progress_bar.visible = False
+            if btn_control:
+                btn_control.disabled = False
+            if self.page:
+                self.page.update()
+
+    def anular_registro(self, id_ajuste):
+        if self.db.anular_ajuste(id_ajuste):
+            self.mostrar_alerta("Registro anulado. El stock ha sido revertido.", "orange")
+            self.load_data()
+        else:
+            self.mostrar_alerta("Error al anular.", "red")
+
+    def mostrar_alerta(self, msj, color):
+        self.page.snack_bar = ft.SnackBar(ft.Text(msj), bgcolor=color)
+        self.page.snack_bar.open = True
+
+    def _clear_date(self, e):
+        self.date_picker.value = None
+        self.btn_date.tooltip = "Filtrar por Fecha de Ajuste"
+        self.btn_date.icon_color = None
+        self.btn_clear_date.visible = False
+        self._on_filter_change()
+        
+    def _on_filter_change(self):
+        self.current_page = 1
+        if self.date_picker.value:
+            self.btn_date.tooltip = f"Fecha: {self.date_picker.value.strftime('%Y-%m-%d')}"
+            self.btn_date.icon_color = "blue"
+            self.btn_clear_date.visible = True
+        self.render_table()
+        
+    def _prev_page(self, e):
+        if self.current_page > 1:
+            self.current_page -= 1
+            self.render_table()
+            
+    def _next_page(self, e):
+        if self.current_page < self.total_pages:
+            self.current_page += 1
+            self.render_table()
+
+    def load_data(self):
+        # Actualizar resúmenes globales
+        kpis_inv = self.db.get_inventario_kpis()
+        val_inv_base = kpis_inv.get('valor_inventario', 0)
+        self.lbl_ent_actual.value = f"${val_inv_base:,.2f}"
+
+        self.data_completa = self.db.get_ajustes_inventario()
+        self.render_table(val_inv_base)
+
+    def render_table(self, val_inv_base=None):
+        if val_inv_base is None:
+            # Recuperar el valor base desde el label si no se provee (eliminando caracteres de moneda)
+            try:
+                val_inv_base = float(self.lbl_ent_actual.value.replace('$', '').replace(',', ''))
+            except:
+                val_inv_base = 0.0
+
+        self.lista_ajustes.controls.clear()
+        
+        filtro_texto = self.search_input.value.lower().strip() if self.search_input.value else ""
+        filtro_fecha = self.date_picker.value.strftime("%Y-%m-%d") if self.date_picker.value else None
+        filtro_tipo = self.drop_tipo.value
+        filtro_motivo = self.drop_motivo.value
+        
+        filtered_data = []
+        total_ent_pos = 0.0
+        total_sal_neg = 0.0
+
+        for aj in self.data_completa:
+            es_entrada = aj["tipo_ajuste"] in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
+            cat_info = aj.get("catalogo_insumos", {})
+            nombre = cat_info.get("nombre", "Desconocido") if isinstance(cat_info, dict) else "Desconocido"
+            
+            # Reglas de coincidencia
+            match_texto = filtro_texto in aj["codigo_insumo"].lower() or filtro_texto in nombre.lower()
+            match_fecha = filtro_fecha is None or aj["fecha_ajuste"][:10] == filtro_fecha
+            
+            tipo_ajuste_str = "Entrada" if es_entrada else "Salida"
+            match_tipo = filtro_tipo == "Todos" or filtro_tipo == tipo_ajuste_str
+            match_motivo = filtro_motivo == "Todos" or filtro_motivo == aj["motivo_observacion"]
+            
+            if match_texto and match_fecha and match_tipo and match_motivo:
+                filtered_data.append(aj)
+
+            # Acumular KPIs sobre todos los datos VÁLIDOS del historial general, sin importar los filtros visuales.
+            # (El usuario quiere ver el total global de impacto)
+            if aj["estado_registro"] == "VÁLIDO":
+                val_total = float(aj["costo_total_ajuste"])
+                if es_entrada: total_ent_pos += val_total
+                else: total_sal_neg += val_total
+
+        import math
+        self.total_records = len(filtered_data)
+        self.total_pages = math.ceil(self.total_records / self.page_size) if self.total_records > 0 else 1
+        
+        if self.current_page > self.total_pages:
+            self.current_page = self.total_pages
+            
+        start_idx = (self.current_page - 1) * self.page_size
+        end_idx = start_idx + self.page_size
+        page_data = filtered_data[start_idx:end_idx]
+
+        for aj in page_data:
+            es_entrada = aj["tipo_ajuste"] in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
+            val_total = float(aj["costo_total_ajuste"])
+            val_total_str = f"${val_total:,.2f}"
+            
+            cat_info = aj.get("catalogo_insumos", {})
+            nombre = cat_info.get("nombre", "Desconocido") if isinstance(cat_info, dict) else "Desconocido"
+
+            # Tarjeta de Ajuste (Card UI)
+            tipo_bg = "#e8f5e9" if es_entrada else "#ffebee"
+            tipo_color = "green" if es_entrada else "red"
+            badge_tipo = ft.Container(
+                content=ft.Text("Entrada" if es_entrada else "Salida", color=tipo_color, weight="bold", size=12),
+                padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                bgcolor=tipo_bg,
+                border_radius=15
+            )
+
+            fila1_cabecera = ft.Row([
+                ft.Row([ft.Icon(ft.icons.CALENDAR_MONTH, size=16, color="grey"), ft.Text(aj["fecha_ajuste"][:10], color="grey")]),
+                badge_tipo
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+
+            fila2_principal = ft.Row([
+                ft.Container(content=ft.Text(f"[{aj['codigo_insumo']}] {nombre}", size=16, weight="bold"), expand=True),
+                ft.Text(val_total_str, size=16, weight="bold", color=tipo_color)
+            ])
+
+            fila3_detalles = ft.Row([
+                ft.Container(content=ft.Text(f"Motivo: {aj['motivo_observacion']}", size=13, color="grey"), expand=True),
+                ft.Text(f"Cant: {aj['cantidad']}", size=13, color="grey", weight="bold"),
+                ft.Text(f"Costo U: ${aj['costo_unitario_congelado']:,.2f}", size=13, color="grey")
+            ], alignment=ft.MainAxisAlignment.START, spacing=20)
+
+            tarjeta_content = [fila1_cabecera, fila2_principal, fila3_detalles]
+
+            if aj["estado_registro"] == "VÁLIDO":
+                fila4_acciones = ft.Column([
+                    ft.Divider(height=1, color="#f0f0f0"),
+                    ft.Row([
+                        ft.TextButton("Anular Registro", icon=ft.icons.CANCEL, icon_color="red", style=ft.ButtonStyle(color="red"), on_click=lambda e, id_aj=aj["id_ajuste"]: self.anular_registro(id_aj))
+                    ], alignment=ft.MainAxisAlignment.END)
+                ])
+                tarjeta_content.append(fila4_acciones)
+            else:
+                fila4_acciones = ft.Column([
+                    ft.Divider(height=1, color="#f0f0f0"),
+                    ft.Row([
+                        ft.Text("Registro Anulado", color="grey", italic=True)
+                    ], alignment=ft.MainAxisAlignment.END)
+                ])
+                tarjeta_content.append(fila4_acciones)
+
+            tarjeta = ft.Container(
+                content=ft.Column(tarjeta_content, spacing=8),
+                bgcolor="white",
+                padding=15,
+                border_radius=8,
+                border=ft.border.all(1, "#e0e0e0")
+            )
+            self.lista_ajustes.controls.append(tarjeta)
+            
+        # Actualización UI
+        self.btn_prev.disabled = self.current_page <= 1
+        self.btn_next.disabled = self.current_page >= self.total_pages
+        self.lbl_page_info.value = f"Pág {self.current_page} de {self.total_pages} ({self.total_records} reg.)"
+
+        # Configuración de KPIs Dinámicos
+        self.lbl_ent_pos.value = f"+${total_ent_pos:,.2f}"
+        self.lbl_sal_neg.value = f"-${total_sal_neg:,.2f}"
+        
+        impacto_neto = total_ent_pos - total_sal_neg
+        self.lbl_ent_neto.value = f"{'+' if impacto_neto >= 0 else '-'}${abs(impacto_neto):,.2f}"
+        
+        self.lbl_ent_proyectado.value = f"${(val_inv_base + impacto_neto):,.2f}"
+
+        if self.page:
+            self.page.update()
+````
+
+## File: ui/views/dashboard.py
+````python
+import flet as ft
+import threading
+from config import Config
+from core.supabase_client import SupabaseClient
+import datetime
+
+class DashboardView(ft.Container):
+    def __init__(self):
+        super().__init__()
+        self.expand = True
+        self.db = SupabaseClient()
+        
+        self.lbl_periodo_dash = ft.Text("Periodo: ...", size=13, weight="bold", color=Config.COLOR_PRIMARY)
+        self.lbl_estado_dash = ft.Text("Estado: ...", size=13, weight="bold")
+        self.lbl_fecha_hora = ft.Text("...", size=12, color="grey")
+
+        self.fecha_filtro_dash = None
+        self.date_picker_dash = ft.DatePicker(on_change=self.on_fecha_dash_change)
+
+        self.btn_fecha_dash = ft.OutlinedButton(
+            text=f"Fecha: {datetime.date.today().strftime('%d/%m/%Y')}",
+            icon=ft.icons.CALENDAR_MONTH,
+            on_click=lambda e: self.date_picker_dash.pick_date(),
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            height=38
+        )
+        self.btn_clear_fecha_dash = ft.IconButton(
+            icon=ft.icons.CLEAR, icon_color="red", tooltip="Restablecer a Hoy",
+            visible=False, on_click=self.limpiar_filtro_fecha_dash
+        )
+
+        badge_info = ft.Container(
+            content=ft.Row([
+                ft.Column([
+                    ft.Row([self.lbl_periodo_dash, ft.Text("|", color="grey", size=13), self.lbl_estado_dash], spacing=5),
+                    ft.Row([ft.Icon(ft.icons.ACCESS_TIME, size=14, color="grey"), self.lbl_fecha_hora], spacing=5)
+                ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=2),
+                ft.Container(width=10),
+                self.btn_fecha_dash,
+                self.btn_clear_fecha_dash
+            ], alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.padding.symmetric(horizontal=15, vertical=10),
+            bgcolor="white",
+            border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+        )
+
+        header_row = ft.Row([
+            ft.Column([
+                ft.Text("Dashboard General", size=28, weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Text("Resumen ejecutivo del sistema", size=14, color="grey"),
+            ], spacing=2),
+            badge_info
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        
+        # Tarjetas de KPIs (Valores Iniciales) - SECCIÓN COSTOS
+        self.val_inventario = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_compras = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_rotacion = ft.Text("N/D", size=14, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_compras_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        
+        # SECCIÓN VENTAS
+        self.val_ingresos = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_ventas_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
+        self.val_proyeccion_ventas = ft.Text("$ 0", size=14, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_proyeccion_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
+        
+        self.kpi_costos_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("Costo Inv. Actual", self.val_inventario, ft.icons.INVENTORY_2), col={"xs": 12, "sm": 6, "md": 4}),
+            ft.Container(content=self._build_kpi_card("Total Compras (Mes)", self.val_compras, ft.icons.SHOPPING_BAG), col={"xs": 12, "sm": 6, "md": 4}),
+            ft.Container(content=self._build_kpi_card("Compras (Hoy)", self.val_compras_hoy, ft.icons.MONEY_OFF), col={"xs": 12, "sm": 6, "md": 4}),
+        ], spacing=10, run_spacing=10)
+
+        self.kpi_ventas_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("Total Ventas (Mes)", self.val_ingresos, ft.icons.TRENDING_UP), col={"xs": 12, "sm": 6, "md": 6}),
+            ft.Container(content=self._build_kpi_card("Ventas (Hoy)", self.val_ventas_hoy, ft.icons.ATTACH_MONEY), col={"xs": 12, "sm": 6, "md": 6}),
+        ], spacing=10, run_spacing=10)
+        
+        # Paso 3: Crear la Barra de Métricas Secundarias
+        self.val_meta_diaria = ft.Text("$ 0 / día", size=13, weight="bold", color="teal700")
+
+        self.kpi_secundarios = ft.Container(
+            content=ft.Row([
+                ft.Text("Objetivo Comercial:", weight="bold", color=Config.COLOR_PRIMARY, size=12),
+                ft.Text("Proy. Ventas Stock:", size=12, color="grey"), self.val_proyeccion_ventas,
+                ft.Text(" | Proy. Rentabilidad:", size=12, color="grey"), self.val_proyeccion_rentabilidad,
+                ft.Container(width=1, height=20, bgcolor="#d0d0d0", margin=ft.padding.symmetric(horizontal=8)),
+                ft.Icon(ft.icons.FLAG, size=16, color="teal700"),
+                ft.Text("Meta Venta Diaria:", weight="bold", size=12, color="grey"), self.val_meta_diaria,
+                ft.Container(expand=True),
+                ft.Text("Rotación Global:", size=12, color="grey"), self.val_rotacion,
+            ], spacing=5, alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.padding.symmetric(horizontal=15, vertical=10),
+            bgcolor="#f0f4f8", border_radius=8, border=ft.border.all(1, "#d0d7de")
+        )
+
+        # SECCIÓN AJUSTES
+        self.col_ajustes_salida = ft.Column(spacing=5)
+        self.col_ajustes_entrada = ft.Column(spacing=5)
+        
+        self.lbl_neto_ajustes_header = ft.Text("NETO: $0", weight="bold", size=16)
+        header_ajustes = ft.Row([
+            ft.Text("Impacto de Ajustes de Inventario (Mes Actual)", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+            self.lbl_neto_ajustes_header
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+
+        self.panel_ajustes = ft.Row([
+            # Panel Salida
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Ajustes de Salida (-)", size=16, weight="bold", color="red"),
+                    ft.Divider(height=1),
+                    self.col_ajustes_salida
+                ]),
+                bgcolor="white",
+                padding=15,
+                border_radius=8,
+                expand=True,
+                border=ft.border.all(1, "#f0f0f0"),
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+            ),
+            # Panel Entrada
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Ajustes de Entrada (+)", size=16, weight="bold", color="green"),
+                    ft.Divider(height=1),
+                    self.col_ajustes_entrada
+                ]),
+                bgcolor="white",
+                padding=15,
+                border_radius=8,
+                expand=True,
+                border=ft.border.all(1, "#f0f0f0"),
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+            )
+        ], spacing=15)
+
+        # Ensamblaje del Layout
+        self.seccion_kpis = ft.Column([
+            ft.Text("Resumen Financiero y Operativo", size=20, weight="bold", color=Config.COLOR_PRIMARY),
+            self.kpi_costos_row,
+            self.kpi_ventas_row,
+            self.kpi_secundarios
+        ], spacing=10)
+
+        self.seccion_ajustes = ft.Column([
+            header_ajustes,
+            self.panel_ajustes
+        ], spacing=10)
+
+        # Gráficos y Tablas
+        # Series de datos (Grosor y puntas redondeadas)
+        self.chart_ventas = ft.LineChartData(
+            data_points=[], 
+            color=ft.colors.BLUE_400,
+            stroke_width=4, 
+            curved=False,
+            stroke_cap_round=True,
+            below_line_bgcolor=ft.colors.with_opacity(0.1, ft.colors.BLUE_400)
+        )
+        self.chart_compras = ft.LineChartData(
+            data_points=[], 
+            color="#2ecca0", 
+            stroke_width=4, 
+            curved=False,
+            stroke_cap_round=True,
+            below_line_bgcolor=ft.colors.with_opacity(0.1, "#2ecca0")
+        )
+        
+        # Contenedor de Categorías (Grilla Responsiva)
+        self.categorias_row = ft.ResponsiveRow(columns=12, spacing=15, run_spacing=15)
+        self.categorias_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Rendimiento Detallado por Categoría", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                self.categorias_row
+            ]),
+            margin=ft.padding.only(top=10, bottom=10)
+        )
+
+        # Gráfico habilitando los ejes visuales
+        self.line_chart = ft.LineChart(
+            data_series=[self.chart_ventas, self.chart_compras],
+            border=ft.border.all(1, "#f0f0f0"),
+            min_y=0,
+            min_x=0,
+            expand=True,
+            tooltip_bgcolor="white",
+            left_axis=ft.ChartAxis(labels_size=50), 
+            bottom_axis=ft.ChartAxis(labels_size=40), 
+        )
+        
+        # Leyenda adaptada a fondo claro
+        leyenda = ft.Row([
+            ft.Row([ft.Container(width=12, height=12, bgcolor=ft.colors.BLUE_400, border_radius=6), ft.Text("Ingresos", size=12, weight="bold", color="black87")]),
+            ft.Row([ft.Container(width=12, height=12, bgcolor="#2ecca0", border_radius=6), ft.Text("Costos", size=12, weight="bold", color="black87")]),
+        ], spacing=30, alignment=ft.MainAxisAlignment.CENTER)
+        
+        self.chart_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Tendencia Diaria: Ingresos vs Costo de Ventas", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                leyenda,
+                ft.Container(content=self.line_chart, height=320, margin=ft.padding.only(top=10))
+            ]),
+            bgcolor="white",
+            padding=20,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+        )
+        
+        # Tables
+        self.dt_ventas = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Código", size=12)),
+                ft.DataColumn(ft.Text("Producto", size=12)),
+                ft.DataColumn(ft.Text("Unidades", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Ingreso Total", size=12), numeric=True)
+            ],
+            rows=[],
+            data_row_min_height=30,
+            data_row_max_height=30,
+            heading_row_height=40,
+            column_spacing=15,
+        )
+        
+        self.dt_costos = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Código", size=12)),
+                ft.DataColumn(ft.Text("Producto", size=12)),
+                ft.DataColumn(ft.Text("Valor Inv.", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Rotación", size=12))
+            ],
+            rows=[],
+            data_row_min_height=30,
+            data_row_max_height=30,
+            heading_row_height=40,
+            column_spacing=15,
+        )
+        
+        table_ventas_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Top 10 Productos con Mayor Ingreso", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                self.dt_ventas
+            ], scroll=ft.ScrollMode.AUTO),
+            bgcolor="white",
+            padding=15,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
+            col={"xs": 12, "md": 6}
+        )
+        
+        table_costos_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Top 10 Productos con Mayor Costo", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                self.dt_costos
+            ], scroll=ft.ScrollMode.AUTO),
+            bgcolor="white",
+            padding=15,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
+            col={"xs": 12, "md": 6}
+        )
+        
+        self.tables_row = ft.ResponsiveRow([
+            table_ventas_container,
+            table_costos_container
+        ], spacing=15, run_spacing=15)
+        
+        # Indicador de carga superior
+        self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
+
+        # 2. Main content Column
+        self.content = ft.Column([
+            self.progress_bar, 
+            header_row,
+            ft.Divider(height=10, color="transparent"),
+            self.seccion_kpis,
+            ft.Divider(height=10, color="transparent"),
+            self.seccion_ajustes,
+            ft.Divider(height=10, color="transparent"),
+            self.categorias_container,
+            ft.Divider(height=10, color="transparent"),
+            self.chart_container,
+            ft.Divider(height=10, color="transparent"),
+            self.tables_row,
+            ft.Container(height=30) # Bottom padding
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
+
+    def did_mount(self):
+        if not hasattr(self, "overlay_added"):
+            self.page.overlay.append(self.date_picker_dash)
+            self.overlay_added = True
+        self.load_data()
+
+    def safe_update(self):
+        """Actualiza la UI solo si el control sigue montado en la página."""
+        try:
+            if self.page and self.uid:
+                self.page.update()
+        except Exception:
+            pass
+
+    def load_data(self):
+        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
+        self.progress_bar.visible = True
+        self.safe_update()
+            
+        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
+
+    def on_fecha_dash_change(self, e):
+        if self.date_picker_dash.value:
+            self.fecha_filtro_dash = self.date_picker_dash.value.strftime("%Y-%m-%d")
+            self.btn_fecha_dash.text = f"Fecha: {self.date_picker_dash.value.strftime('%d/%m/%Y')}"
+            self.btn_clear_fecha_dash.visible = True
+            self.load_data()
+
+    def limpiar_filtro_fecha_dash(self, e):
+        self.fecha_filtro_dash = None
+        self.date_picker_dash.value = None
+        self.btn_fecha_dash.text = f"Fecha: {datetime.date.today().strftime('%d/%m/%Y')}"
+        self.btn_clear_fecha_dash.visible = False
+        self.load_data()
+
+    def _fetch_data_worker(self):
+        """Ejecuta todas las llamadas HTTP síncronas sin congelar la ventana."""
+        # Cargar contexto temporal
+        mes_actual = datetime.date.today().strftime("%Y-%m")
+        datos_cierre = self.db.obtener_estado_cierre(mes_actual)
+        estado_periodo = datos_cierre.get('periodo', {}).get('estado', 'ABIERTO') if datos_cierre and datos_cierre.get('periodo') else 'ABIERTO'
+
+        meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+        partes = mes_actual.split('-')
+        nombre_mes = f"{meses[int(partes[1]) - 1]} {partes[0]}"
+
+        self.lbl_periodo_dash.value = f"Periodo: {nombre_mes}"
+        self.lbl_estado_dash.value = f"Estado: {estado_periodo}"
+
+        colores_estado = {'ABIERTO': 'green', 'PRELIMINAR': 'orange', 'EN_AUDITORIA': 'blue', 'CERRADO': 'red'}
+        self.lbl_estado_dash.color = colores_estado.get(estado_periodo, 'black')
+
+        ahora = datetime.datetime.now()
+        self.lbl_fecha_hora.value = ahora.strftime("%d/%m/%Y - %I:%M %p")
+
+        # 1. Load KPIs
+        res_cat = self.db.get_catalogo_summary(fecha_corte=self.fecha_filtro_dash)
+        res_ven = self.db.get_ventas_summary(fecha_corte=self.fecha_filtro_dash)
+        res_com = self.db.get_compras_summary(fecha_corte=self.fecha_filtro_dash)
+        
+        val_inv = float(res_cat.get('total_compras') or 0) - float(res_cat.get('total_ventas') or 0)
+        self.val_inventario.value = f"$ {val_inv:,.0f}"
+        
+        ingresos = float(res_ven.get('total_mes') or 0)
+        compras = float(res_com.get('total_mes') or 0)
+        
+        ventas_hoy = float(res_ven.get('total_hoy') or 0)
+        compras_hoy = float(res_com.get('total_hoy') or 0)
+        
+        self.val_ingresos.value = f"$ {ingresos:,.0f}"
+        self.val_ventas_hoy.value = f"$ {ventas_hoy:,.0f}"
+        self.val_compras.value = f"$ {compras:,.0f}"
+        self.val_compras_hoy.value = f"$ {compras_hoy:,.0f}"
+        
+        rentabilidad = 0
+        if ingresos > 0:
+            rentabilidad = ((ingresos - compras) / ingresos) * 100
+            
+        self.val_rentabilidad.value = f"{rentabilidad:.1f}%"
+        self.val_rentabilidad.color = "#2ecca0" if rentabilidad >= 0 else "#f26c61"
+        
+        # Basic rotacion (Ventas / Inventario)
+        if val_inv > 0:
+            rotacion_global = ingresos / val_inv
+            self.val_rotacion.value = f"{rotacion_global:.2f}x"
+        else:
+            self.val_rotacion.value = "N/D"
+
+        # Nuevos KPIs y Ajustes
+        proyeccion_ventas = self.db.get_proyeccion_ventas(fecha_corte=self.fecha_filtro_dash)
+        self.val_proyeccion_ventas.value = f"$ {proyeccion_ventas:,.0f}"
+        
+        proy_rent = 0
+        if proyeccion_ventas > 0:
+            proy_rent = ((proyeccion_ventas - val_inv) / proyeccion_ventas) * 100
+        
+        self.val_proyeccion_rentabilidad.value = f"{proy_rent:.1f}%"
+        self.val_proyeccion_rentabilidad.color = "#2ecca0" if proy_rent >= 0 else "#f26c61"
+
+        hoy_obj = datetime.datetime.strptime(self.fecha_filtro_dash, "%Y-%m-%d").date() if self.fecha_filtro_dash else datetime.date.today()
+        if hoy_obj.month == 12:
+            ultimo_dia_mes = datetime.date(hoy_obj.year, 12, 31).day
+        else:
+            ultimo_dia_mes = (datetime.date(hoy_obj.year, hoy_obj.month + 1, 1) - datetime.timedelta(days=1)).day
+        dias_restantes = max(1, ultimo_dia_mes - hoy_obj.day + 1)
+        restante_vender = max(0, proyeccion_ventas - ingresos)
+        meta_diaria = restante_vender / dias_restantes
+        self.val_meta_diaria.value = f"$ {meta_diaria:,.0f} / día"
+
+        mes_actual = hoy_obj.strftime("%Y-%m")
+        ajustes_bd = self.db.get_ajustes_mes(mes_actual, fecha_corte=self.fecha_filtro_dash)
+        
+        tipos_salida = {
+            "Daño / Merma": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Vencimiento": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Pérdida": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Consumo Familiar": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Consumo Cliente (Cortesía)": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Donación Saliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Otro (Salida)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
+        }
+
+        tipos_entrada = {
+            "Sobrante de Inventario": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Donación Entrante": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Devolución Cliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Otro (Entrada)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
+        }
+        
+        for fila in ajustes_bd:
+            tipo_bd = fila.get("tipo_ajuste", "")
+            motivo_bd = fila.get("motivo_observacion", "")
+            cant = float(fila.get("cantidad_total") or 0)
+            costo = float(fila.get("costo_total") or 0)
+            conteo = int(fila.get("conteo") or 0)
+            
+            asignado = False
+            if tipo_bd in ("AJUSTE_ENTRADA", "ENTRADA_POR_SOBRANTE"):
+                for key in tipos_entrada.keys():
+                    if key.lower() in motivo_bd.lower():
+                        tipos_entrada[key]["conteo"] += conteo
+                        tipos_entrada[key]["cantidad"] += cant
+                        tipos_entrada[key]["costo"] += costo
+                        asignado = True
+                        break
+                if not asignado:
+                    tipos_entrada["Otro (Entrada)"]["conteo"] += conteo
+                    tipos_entrada["Otro (Entrada)"]["cantidad"] += cant
+                    tipos_entrada["Otro (Entrada)"]["costo"] += costo
+            else:
+                for key in tipos_salida.keys():
+                    if key.lower() in motivo_bd.lower():
+                        tipos_salida[key]["conteo"] += conteo
+                        tipos_salida[key]["cantidad"] += cant
+                        tipos_salida[key]["costo"] += costo
+                        asignado = True
+                        break
+                if not asignado:
+                    # Fallback por tipo
+                    if tipo_bd == "BAJA_VENCIMIENTO": k = "Vencimiento"
+                    elif tipo_bd == "SALIDA_POR_FALTANTE": k = "Pérdida"
+                    else: k = "Otro (Salida)"
+                    tipos_salida[k]["conteo"] += conteo
+                    tipos_salida[k]["cantidad"] += cant
+                    tipos_salida[k]["costo"] += costo
+
+        total_costo_entradas = sum([d["costo"] for d in tipos_entrada.values()])
+        total_costo_salidas = sum([d["costo"] for d in tipos_salida.values()])
+        
+        total_cant_entradas = sum([d["cantidad"] for d in tipos_entrada.values()])
+        total_cant_salidas = sum([d["cantidad"] for d in tipos_salida.values()])
+        
+        neto = total_costo_entradas - total_costo_salidas
+        if neto > 0:
+            self.lbl_neto_ajustes_header.value = f"NETO (POSITIVO): +${neto:,.0f}"
+            self.lbl_neto_ajustes_header.color = "#2ecca0"
+        elif neto < 0:
+            self.lbl_neto_ajustes_header.value = f"NETO (NEGATIVO): -${abs(neto):,.0f}"
+            self.lbl_neto_ajustes_header.color = "#f26c61"
+        else:
+            self.lbl_neto_ajustes_header.value = f"NETO: $0"
+            self.lbl_neto_ajustes_header.color = "grey"
+
+        # Limpiar columnas
+        self.col_ajustes_entrada.controls.clear()
+        self.col_ajustes_salida.controls.clear()
+
+        # Render Entrada
+        for key, datos in tipos_entrada.items():
+            self.col_ajustes_entrada.controls.append(
+                ft.Row([
+                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
+                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
+                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#2ecca0")
+                ])
+            )
+            
+        # Rellenar con espacio invisible para igualar simetría
+        filas_faltantes = len(tipos_salida) - len(tipos_entrada)
+        for _ in range(max(0, filas_faltantes)):
+            self.col_ajustes_entrada.controls.append(
+                ft.Container(height=18, content=ft.Text("")) # Fila transparente de relleno
+            )
+            
+        self.col_ajustes_entrada.controls.append(ft.Divider(color="black12", height=10))
+        self.col_ajustes_entrada.controls.append(
+            ft.Row([
+                ft.Text("TOTAL ENTRADAS", size=12, weight="bold"),
+                ft.Text(f"{total_cant_entradas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
+                ft.Text(f"${total_costo_entradas:,.0f}", size=12, weight="bold", color="#2ecca0")
+            ])
+        )
+        
+        # Render Salida
+        for key, datos in tipos_salida.items():
+            self.col_ajustes_salida.controls.append(
+                ft.Row([
+                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
+                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
+                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#f26c61")
+                ])
+            )
+        self.col_ajustes_salida.controls.append(ft.Divider(color="black12", height=10))
+        self.col_ajustes_salida.controls.append(
+            ft.Row([
+                ft.Text("TOTAL SALIDAS", size=12, weight="bold"),
+                ft.Text(f"{total_cant_salidas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
+                ft.Text(f"${total_costo_salidas:,.0f}", size=12, weight="bold", color="#f26c61")
+            ])
+        )
+
+        # 2. Load Chart Data (Nativo Flet)
+        try:
+            tendencia = self.db.get_tendencia_diaria(fecha_corte=self.fecha_filtro_dash)
+            dias_ordenados = sorted(tendencia.keys())
+            max_val_y = 0
+            
+            pts_ventas = []
+            pts_compras = []
+            etiquetas_x = []
+            
+            for i, dia in enumerate(dias_ordenados):
+                v = float(tendencia[dia]["ventas"])
+                c = float(tendencia[dia]["compras"])
+                if v > max_val_y: max_val_y = v
+                if c > max_val_y: max_val_y = c
+                # Poner la fecha SOLO en el tooltip de arriba (compras) para que Flet no la duplique al apilar
+                tt_compras = f"{dia}\nCostos: ${c:,.0f}"
+                tt_ventas = f"Ingresos: ${v:,.0f}"
+                estilo_tt = ft.TextStyle(size=12, weight="bold", color="black87")
+                
+                pts_ventas.append(ft.LineChartDataPoint(i, v, tooltip=tt_ventas, tooltip_style=estilo_tt))
+                pts_compras.append(ft.LineChartDataPoint(i, c, tooltip=tt_compras, tooltip_style=estilo_tt))
+                
+                # Densidad en Eje X: Mostrar todos los días con la fecha completa rotada
+                etiquetas_x.append(
+                    ft.ChartAxisLabel(
+                        value=i, 
+                        label=ft.Container(
+                            content=ft.Text(dia, size=9, color="grey"),
+                            padding=ft.padding.only(top=10),
+                            rotate=-0.5
+                        )
+                    )
+                )
+                
+            if not pts_ventas:
+                pts_ventas = [ft.LineChartDataPoint(0, 0)]
+                pts_compras = [ft.LineChartDataPoint(0, 0)]
+                
+            self.chart_ventas.data_points = pts_ventas
+            self.chart_compras.data_points = pts_compras
+            
+            self.line_chart.max_x = len(dias_ordenados) - 1 if dias_ordenados else 0
+            max_y_calc = max_val_y * 1.15 if max_val_y > 0 else 1000
+            self.line_chart.max_y = max_y_calc
+            
+            def formato_moneda_corta(valor):
+                if valor >= 1000000: return f"${valor/1000000:.1f}M"
+                if valor >= 1000: return f"${valor/1000:.0f}k"
+                return f"${valor:.0f}"
+                
+            # Mayor densidad en Y: 8 divisiones en lugar de 5
+            intervalo_y = max_y_calc / 8 if max_y_calc > 0 else 100
+            etiquetas_y = [
+                ft.ChartAxisLabel(value=step * intervalo_y, label=ft.Text(formato_moneda_corta(step * intervalo_y), size=11, color="grey"))
+                for step in range(9)
+            ]
+            
+            self.line_chart.left_axis.labels = etiquetas_y
+            self.line_chart.left_axis.labels_interval = intervalo_y
+            self.line_chart.bottom_axis.labels = etiquetas_x
+            self.line_chart.bottom_axis.labels_interval = 1
+            
+            # Cuadrícula visible completa con efecto punteado
+            self.line_chart.horizontal_grid_lines = ft.ChartGridLines(
+                interval=intervalo_y,
+                color=ft.colors.with_opacity(0.05, "black"),
+                width=1,
+                dash_pattern=[4, 4]
+            )
+            self.line_chart.vertical_grid_lines = ft.ChartGridLines(
+                interval=2, # Línea vertical sincronizada con el eje X
+                color=ft.colors.with_opacity(0.05, "black"),
+                width=1,
+                dash_pattern=[4, 4]
+            )
+            
+        except Exception as e:
+            print(f"Error crítico construyendo Chart Flet: {e}")
+        
+        # 3. Load Tables Data (A prueba de fallos)
+        try:
+            top_ventas = self.db.get_top_ventas_mes(limit=10, fecha_corte=self.fecha_filtro_dash)
+            self.dt_ventas.rows.clear()
+            for item in top_ventas:
+                self.dt_ventas.rows.append(
+                    ft.DataRow(cells=[
+                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
+                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
+                        ft.DataCell(ft.Text(str(item.get('unidades_vendidas') or 0), size=11)),
+                        ft.DataCell(ft.Text(f"${float(item.get('ingreso_total') or 0):,.2f}", size=11))
+                    ])
+                )
+        except Exception as e:
+            print(f"Error crítico en tabla ventas: {e}")
+            
+        try:
+            top_costos = self.db.get_top_costo_inventario(limit=10, fecha_corte=self.fecha_filtro_dash)
+            self.dt_costos.rows.clear()
+            for item in top_costos:
+                self.dt_costos.rows.append(
+                    ft.DataRow(cells=[
+                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
+                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
+                        ft.DataCell(ft.Text(f"${float(item.get('valor_inventario') or 0):,.2f}", size=11)),
+                        ft.DataCell(ft.Text(str(item.get('rotacion') or ''), size=11))
+                    ])
+                )
+        except Exception as e:
+            print(f"Error crítico en tabla costos: {e}")
+            
+        try:
+            kpis_cat = self.db.get_rendimiento_categorias_periodo(fecha_inicio=None, fecha_fin=self.fecha_filtro_dash)
+            self.categorias_row.controls.clear()
+            for cat in kpis_cat:
+                self.categorias_row.controls.append(self._crear_card_categoria(cat))
+        except Exception as e:
+            print(f"Error cargando KPIs por categoría: {e}")
+            
+        # Apagar indicador de carga al finalizar todo el trabajo
+        self.progress_bar.visible = False
+        
+        self.safe_update()
+
+    def _build_kpi_card(self, title, value_control, icon, subtext_control=None):
+        column_controls = [
+            ft.Row([
+                ft.Text(title, size=12, color="grey", weight="w500", expand=True),
+                ft.Icon(ft.icons.HELP_OUTLINE, size=12, color="grey")
+            ], spacing=5),
+            value_control,
+        ]
+        if subtext_control:
+            column_controls.append(subtext_control)
+            
+        value_control.size = 20
+            
+        return ft.Container(
+            content=ft.Row([
+                ft.Container(
+                    content=ft.Icon(icon, color=Config.COLOR_SECONDARY, size=24),
+                    bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_SECONDARY),
+                    padding=10,
+                    border_radius=8
+                ),
+                ft.Column(column_controls, spacing=2, expand=True)
+            ], alignment=ft.MainAxisAlignment.START),
+            bgcolor="white",
+            padding=15,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+        )
+
+    def _crear_card_categoria(self, cat_data):
+        nombre = cat_data["categoria"]
+        inv_costo = cat_data["inventario_costo"]
+        ventas = cat_data["ventas_realizadas"]
+        proy_venta = cat_data["proyeccion_venta"]
+        cumplimiento = cat_data["cumplimiento_pct"]
+        rotacion = cat_data["rotacion"]
+        rendimiento = cat_data["rendimiento_pct"]
+    
+        # Color condicional para cumplimiento
+        color_cumplimiento = "green700" if cumplimiento >= 50 else ("orange700" if cumplimiento > 0 else "grey")
+        color_rendimiento = "green700" if rendimiento >= 0 else "red700"
+    
+        return ft.Container(
+            content=ft.Column([
+                # Cabecera Categoría
+                ft.Row([
+                    ft.Icon(ft.icons.CATEGORY_OUTLINED, size=16, color=Config.COLOR_PRIMARY),
+                    ft.Text(nombre.upper(), weight="bold", size=12, color=Config.COLOR_PRIMARY, expand=True)
+                ]),
+                ft.Divider(height=1, color="#eeeeee"),
+                
+                # Fila 1: Inventario Costo vs Ventas
+                ft.Row([
+                    ft.Text("Inventario (Costo):", size=11, color="grey", expand=True),
+                    ft.Text(f"${inv_costo:,.0f}", size=11, weight="bold")
+                ]),
+                ft.Row([
+                    ft.Text("Ventas Realizadas:", size=11, color="grey", expand=True),
+                    ft.Text(f"${ventas:,.0f}", size=11, weight="bold", color="green700")
+                ]),
+                
+                # Fila 2: Proyección Venta vs % Cumplimiento
+                ft.Row([
+                    ft.Text("Proyección Venta:", size=11, color="grey", expand=True),
+                    ft.Text(f"${proy_venta:,.0f}", size=11, weight="bold", color="blue700")
+                ]),
+                ft.Row([
+                    ft.Text("% Cumplimiento:", size=11, color="grey", expand=True),
+                    ft.Text(f"{cumplimiento:.1f}%", size=11, weight="bold", color=color_cumplimiento)
+                ]),
+                
+                ft.Divider(height=1, color="#f0f0f0"),
+                
+                # Fila 3: Rotación y Rendimiento Real
+                ft.Row([
+                    ft.Text("Rotación:", size=11, color="grey"),
+                    ft.Text(f"{rotacion:.2f}x", size=11, weight="bold"),
+                    ft.Container(expand=True),
+                    ft.Text("Rendimiento Real:", size=11, color="grey"),
+                    ft.Text(f"{rendimiento:.1f}%", size=11, weight="bold", color=color_rendimiento)
+                ])
+            ], spacing=4),
+            padding=12,
+            bgcolor="white",
+            border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.03, "black")),
+            col={"sm": 12, "md": 6, "lg": 4}
+        )
+````
+
+## File: ui/views/informes.py
+````python
+import flet as ft
+from config import Config
+from core.supabase_client import SupabaseClient
+import datetime
+from calendar import monthrange
+import threading
+
+class InformesView(ft.Container):
+    def __init__(self):
+        super().__init__()
+        self.expand = True
+        self.db = SupabaseClient()
+        self.save_pdf_picker = ft.FilePicker(on_result=self._save_pdf_result)
+        
+        # --- PANEL IZQUIERDO: CONSTRUCTOR DE INFORMES ---
+        self.drop_tipo_informe = ft.Dropdown(
+            label="Tipo de Informe",
+            options=[
+                ft.dropdown.Option("Valorización de Inventario"),
+                ft.dropdown.Option("Informe de Compras"),
+                ft.dropdown.Option("Informe de Ventas"),
+                ft.dropdown.Option("Historial de Ajustes"),
+                ft.dropdown.Option("Resumen de KPIs")
+            ],
+            value="Valorización de Inventario",
+            dense=True, border_radius=8,
+            height=38, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8)
+        )
+        
+        self.drop_filtro_fecha = ft.Dropdown(
+            label="Periodo",
+            options=[
+                ft.dropdown.Option("Día de Hoy"),
+                ft.dropdown.Option("Mes Actual"),
+                ft.dropdown.Option("Histórico Completo")
+            ],
+            value="Histórico Completo",
+            dense=True, border_radius=8,
+            height=38, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8)
+        )
+        
+        self.opcion_detalle = ft.RadioGroup(
+            content=ft.Row([
+                ft.Radio(value="Completo", label="Completo"),
+                ft.Radio(value="Resumido", label="Resumido")
+            ]),
+            value="Completo"
+        )
+        
+        self.btn_generar = ft.ElevatedButton(
+            "Generar Previsualización", 
+            icon=ft.icons.PLAY_ARROW, 
+            bgcolor=Config.COLOR_PRIMARY, 
+            color="white",
+            on_click=self.generar_informe,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+        
+        self.btn_pdf = ft.OutlinedButton("Exportar a PDF", icon=ft.icons.PICTURE_AS_PDF, icon_color="red", on_click=self.exportar_pdf)
+        self.btn_excel = ft.OutlinedButton("Exportar a Excel", icon=ft.icons.TABLE_VIEW, icon_color="green", on_click=self.exportar_excel)
+        
+        panel_controles = ft.Container(
+            content=ft.Column([
+                ft.Text("Parámetros del Informe", weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Divider(height=1, color="#eeeeee"),
+                self.drop_tipo_informe,
+                self.drop_filtro_fecha,
+                ft.Text("Nivel de Detalle", size=12, color="grey"),
+                self.opcion_detalle,
+                ft.Container(height=10),
+                self.btn_generar,
+                ft.Divider(height=20, color="transparent"),
+                ft.Text("Exportación", weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Divider(height=1, color="#eeeeee"),
+                self.btn_pdf,
+                self.btn_excel
+            ], spacing=15),
+            bgcolor="white", padding=20, border_radius=8, width=300,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))
+        )
+        
+        # --- PANEL DERECHO: LIENZO DEL DOCUMENTO (A4) ---
+        self.doc_header_empresa = ft.Text("TIENDA Y ABARROTES LOS DESECHABLES DE DOÑA MARY SAS", weight="bold", size=16, text_align=ft.TextAlign.CENTER)
+        self.doc_header_titulo = ft.Text("INFORME DE VALORIZACIÓN DE INVENTARIO", weight="bold", size=14, text_align=ft.TextAlign.CENTER)
+        self.doc_header_periodo = ft.Text("Periodo: Histórico Completo", size=11, color="grey", text_align=ft.TextAlign.CENTER)
+        self.doc_header_fecha = ft.Text(f"Fecha de Generación: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", size=11, color="grey", text_align=ft.TextAlign.CENTER)
+        
+        self.doc_cuerpo = ft.Column(spacing=5)
+        
+        self.lienzo_documento = ft.Container(
+            content=ft.Column([
+                ft.Container(
+                    content=ft.Column([
+                        self.doc_header_empresa,
+                        self.doc_header_titulo,
+                        self.doc_header_periodo,
+                        self.doc_header_fecha
+                    ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    alignment=ft.alignment.center,
+                    padding=ft.padding.only(bottom=20)
+                ),
+                ft.Divider(height=2, color="black"),
+                self.doc_cuerpo
+            ]),
+            bgcolor="white",
+            padding=40,
+            border_radius=5,
+            shadow=ft.BoxShadow(spread_radius=2, blur_radius=10, color=ft.colors.with_opacity(0.1, "black"))
+        )
+        
+        scroll_lienzo = ft.Column([self.lienzo_documento], scroll=ft.ScrollMode.ALWAYS, expand=True)
+        
+        # --- ENSAMBLAJE FINAL ---
+        self.content = ft.Row([
+            panel_controles,
+            scroll_lienzo
+        ], expand=True, spacing=20, vertical_alignment=ft.CrossAxisAlignment.START)
+
+    def did_mount(self):
+        if self.save_pdf_picker not in self.page.overlay:
+            self.page.overlay.append(self.save_pdf_picker)
+
+    def generar_informe(self, e):
+        self.doc_cuerpo.controls.clear()
+        self.doc_cuerpo.controls.append(ft.Container(content=ft.ProgressRing(), alignment=ft.alignment.center, padding=50))
+        if self.page: self.page.update()
+        threading.Thread(target=self._worker_generar_informe, daemon=True).start()
+
+    def _worker_generar_informe(self):
+        tipo_informe = self.drop_tipo_informe.value
+        detalle = self.opcion_detalle.value
+        periodo_filtro = self.drop_filtro_fecha.value
+
+        # 1. Cálculo del Rango de Fechas
+        hoy = datetime.date.today()
+        if periodo_filtro == "Día de Hoy":
+            fecha_inicio = hoy.strftime("%Y-%m-%d")
+            fecha_fin = hoy.strftime("%Y-%m-%d")
+        elif periodo_filtro == "Mes Actual":
+            fecha_inicio = hoy.replace(day=1).strftime("%Y-%m-%d")
+            ultimo_dia = monthrange(hoy.year, hoy.month)[1]
+            fecha_fin = hoy.replace(day=ultimo_dia).strftime("%Y-%m-%d")
+        else:
+            # Histórico Completo
+            fecha_inicio = "2000-01-01"
+            fecha_fin = "2100-12-31"
+
+        # 2. Actualizar Cabecera del Documento
+        self.doc_header_titulo.value = f"INFORME DE {tipo_informe.upper()}"
+        self.doc_header_periodo.value = f"Periodo: {fecha_inicio} al {fecha_fin} | Tipo: {detalle}"
+        self.doc_header_fecha.value = f"Fecha de Generación: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')}"
+
+        self.doc_cuerpo.controls.clear()
+
+        # 3. Enrutador según el tipo de informe
+        if tipo_informe == "Valorización de Inventario":
+            self._generar_valorizacion(detalle)
+        elif tipo_informe == "Informe de Compras":
+            self._generar_compras(fecha_inicio, fecha_fin, detalle)
+        elif tipo_informe == "Informe de Ventas":
+            self._generar_ventas(fecha_inicio, fecha_fin, detalle)
+        elif tipo_informe == "Historial de Ajustes":
+            self._generar_ajustes(fecha_inicio, fecha_fin, detalle)
+        elif tipo_informe == "Resumen de KPIs":
+            self._generar_kpis(fecha_inicio, fecha_fin)
+
+        if self.page:
+            self.page.update()
+
+    def _generar_valorizacion(self, detalle):
+        # Obtener Datos
+        data, _ = self.db.get_insumos(page=1, page_size=10000)
+
+        if not data:
+            self.doc_cuerpo.controls.append(
+                ft.Container(content=ft.Text("No hay datos para los filtros seleccionados.", size=14, color="grey"), padding=30, alignment=ft.alignment.center)
+            )
+            self.current_data = {}
+            self.current_total = 0
+            return
+
+        # Agrupar Datos
+        agrupacion = {}
+        gran_total_costo = 0.0
+        gran_total_cant = 0.0
+
+        for item in data:
+            cat = item.get("categoria") or "SIN CATEGORIA"
+            stock = float(item.get("stock_actual") or item.get("stock_real") or 0)
+            costo = float(item.get("costo_unitario") or 0)
+
+            if stock > 0:
+                costo_total = stock * costo
+                if cat not in agrupacion:
+                    agrupacion[cat] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
+
+                agrupacion[cat]["items"].append({
+                    "codigo": item.get("codigo_insumo"),
+                    "nombre": item.get("nombre"),
+                    "stock": stock,
+                    "costo_u": costo,
+                    "total": costo_total
+                })
+                agrupacion[cat]["subtotal"] += costo_total
+                agrupacion[cat]["cant_total"] += stock
+                gran_total_costo += costo_total
+                gran_total_cant += stock
+
+        # Guardar en memoria para exportación
+        self.current_data = agrupacion
+        self.current_total = gran_total_costo
+        self.current_periodo = self.doc_header_periodo.value
+
+        if detalle == "Resumido":
+            self._dibujar_resumido(agrupacion, "CATEGORÍA", gran_total_costo, gran_total_cant, "GRAN TOTAL VALORIZACIÓN")
+        else:
+            # Construcción Visual en el Lienzo Completo
+            self.doc_cuerpo.controls.append(
+                ft.Row([
+                    ft.Text("CÓDIGO", weight="bold", size=11, width=60),
+                    ft.Text("INSUMO", weight="bold", size=11, expand=True),
+                    ft.Text("CANT.", weight="bold", size=11, width=60, text_align=ft.TextAlign.RIGHT),
+                    ft.Text("COSTO U.", weight="bold", size=11, width=80, text_align=ft.TextAlign.RIGHT),
+                    ft.Text("TOTAL", weight="bold", size=11, width=100, text_align=ft.TextAlign.RIGHT),
+                ])
+            )
+            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
+
+            for cat, datos_cat in sorted(agrupacion.items()):
+                self.doc_cuerpo.controls.append(
+                    ft.Container(content=ft.Text(f"GRUPO: {cat.upper()}", weight="bold", size=12, color=Config.COLOR_PRIMARY), padding=ft.padding.only(top=10, bottom=5))
+                )
+                for i in sorted(datos_cat["items"], key=lambda x: x["nombre"]):
+                    self.doc_cuerpo.controls.append(
+                        ft.Row([
+                            ft.Text(i['codigo'], size=11, width=60),
+                            ft.Text(i['nombre'], size=11, expand=True, no_wrap=True),
+                            ft.Text(f"{i['stock']:g}", size=11, width=60, text_align=ft.TextAlign.RIGHT),
+                            ft.Text(f"${i['costo_u']:,.2f}", size=11, width=80, text_align=ft.TextAlign.RIGHT),
+                            ft.Text(f"${i['total']:,.2f}", size=11, width=100, text_align=ft.TextAlign.RIGHT),
+                        ])
+                    )
+                self.doc_cuerpo.controls.append(
+                    ft.Row([
+                        ft.Text(f"Total {cat}:", weight="bold", size=11, expand=True, text_align=ft.TextAlign.RIGHT),
+                        ft.Text(f"${datos_cat['subtotal']:,.2f}", weight="bold", size=12, width=100, text_align=ft.TextAlign.RIGHT),
+                    ])
+                )
+                self.doc_cuerpo.controls.append(ft.Divider(height=1, color="#eeeeee"))
+
+            self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
+            self.doc_cuerpo.controls.append(
+                ft.Row([
+                    ft.Text("GRAN TOTAL VALORIZACIÓN:", weight="bold", size=14, expand=True, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"${gran_total_costo:,.2f}", weight="bold", size=14, width=150, text_align=ft.TextAlign.RIGHT),
+                ])
+            )
+            self.doc_cuerpo.controls.append(ft.Divider(height=4, color="black"))
+
+    def _generar_compras(self, fecha_inicio, fecha_fin, detalle):
+        data, _ = self.db.get_compras(page=1, page_size=10000)
+        agrupacion = {}
+        gran_total = 0.0
+        gran_total_cant = 0.0
+
+        for item in data:
+            fecha = item.get("fecha", "")[:10]
+            if not (fecha_inicio <= fecha <= fecha_fin): continue
+
+            proveedor = item.get("proveedor", "Desconocido")
+            costo_total = float(item.get("costo_total") or 0)
+            cant = float(item.get("cantidad", 0))
+
+            if proveedor not in agrupacion:
+                agrupacion[proveedor] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
+
+            agrupacion[proveedor]["items"].append({
+                "fecha": fecha,
+                "factura": item.get("numero_factura", ""),
+                "insumo": item.get("catalogo_insumos", {}).get("nombre", ""),
+                "cant": cant,
+                "total": costo_total
+            })
+            agrupacion[proveedor]["subtotal"] += costo_total
+            agrupacion[proveedor]["cant_total"] += cant
+            gran_total += costo_total
+            gran_total_cant += cant
+
+        self.current_data = agrupacion
+        self.current_total = gran_total
+        self.current_periodo = self.doc_header_periodo.value
+
+        if detalle == "Resumido":
+            self._dibujar_resumido(agrupacion, "PROVEEDOR", gran_total, gran_total_cant)
+        else:
+            self._dibujar_tabla_financiera(agrupacion, "PROVEEDOR", gran_total, ["FECHA", "FACTURA", "INSUMO", "CANT.", "TOTAL"])
+
+    def _generar_ventas(self, fecha_inicio, fecha_fin, detalle):
+        data, _ = self.db.get_ventas(page=1, page_size=10000)
+        agrupacion = {}
+        gran_total = 0.0
+        gran_total_cant = 0.0
+
+        for item in data:
+            fecha = item.get("fecha", "")[:10]
+            if not (fecha_inicio <= fecha <= fecha_fin): continue
+
+            cat = item.get("catalogo_insumos", {}).get("categoria", "SIN CATEGORIA")
+            
+            if cat not in agrupacion:
+                agrupacion[cat] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
+
+            total = float(item.get("total") or 0)
+            cant = float(item.get("cantidad", 0))
+            agrupacion[cat]["items"].append({
+                "fecha": fecha,
+                "factura": item.get("factura_no", ""),
+                "insumo": item.get("descripcion") or item.get("catalogo_insumos", {}).get("nombre", ""),
+                "cant": cant,
+                "total": total
+            })
+            agrupacion[cat]["subtotal"] += total
+            agrupacion[cat]["cant_total"] += cant
+            gran_total += total
+            gran_total_cant += cant
+
+        self.current_data = agrupacion
+        self.current_total = gran_total
+        self.current_periodo = self.doc_header_periodo.value
+
+        if detalle == "Resumido":
+            self._dibujar_resumido(agrupacion, "CATEGORÍA", gran_total, gran_total_cant)
+        else:
+            self._dibujar_tabla_financiera(agrupacion, "CATEGORÍA", gran_total, ["FECHA", "FACTURA", "INSUMO", "CANT.", "INGRESOS"])
+
+    def _generar_ajustes(self, fecha_inicio, fecha_fin, detalle):
+        data = self.db.get_ajustes_inventario()
+        agrupacion = {}
+        gran_total_neto = 0.0
+        gran_total_cant = 0.0
+
+        for item in data:
+            if item.get("estado_registro") != "VÁLIDO": continue
+
+            fecha = item.get("fecha_ajuste", "")[:10]
+            if not (fecha_inicio <= fecha <= fecha_fin): continue
+
+            tipo = "ENTRADAS (+)" if item.get("tipo_ajuste") in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE') else "SALIDAS (-)"
+            if tipo not in agrupacion:
+                agrupacion[tipo] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
+
+            costo = float(item.get("costo_total_ajuste") or 0)
+            cant = float(item.get("cantidad", 0))
+
+            raw_motivo = item.get("motivo", "")
+            raw_obs = item.get("observacion", "") or item.get("observaciones", "")
+            if not raw_motivo and item.get("motivo_observacion"):
+                partes = item.get("motivo_observacion").split("]", 1)
+                raw_motivo = partes[0].replace("[", "").strip() if len(partes) > 1 else item.get("motivo_observacion")
+                raw_obs = partes[1].strip() if len(partes) > 1 else ""
+
+            agrupacion[tipo]["items"].append({
+                "fecha": fecha,
+                "motivo": raw_motivo,
+                "obs": raw_obs,
+                "insumo": item.get("catalogo_insumos", {}).get("nombre", ""),
+                "cant": cant,
+                "total": costo
+            })
+            agrupacion[tipo]["subtotal"] += costo
+            agrupacion[tipo]["cant_total"] += cant
+            gran_total_neto += costo if tipo == "ENTRADAS (+)" else -costo
+            gran_total_cant += cant if tipo == "ENTRADAS (+)" else -cant
+
+        self.current_data = agrupacion
+        self.current_total = gran_total_neto
+        self.current_periodo = self.doc_header_periodo.value
+
+        if detalle == "Resumido":
+            self._dibujar_resumido(agrupacion, "TIPO DE AJUSTE", gran_total_neto, gran_total_cant, "IMPACTO NETO")
+        else:
+            self._dibujar_tabla_financiera(agrupacion, "TIPO DE AJUSTE", gran_total_neto, ["FECHA", "MOTIVO", "OBSERVACIÓN", "INSUMO", "CANT.", "COSTO TOTAL"], label_gran_total="IMPACTO NETO", is_ajuste=True)
+
+    def _dibujar_resumido(self, agrupacion, label_grupo, gran_total_val, gran_total_cant=0, label_gran_total="GRAN TOTAL"):
+        self.doc_cuerpo.controls.append(ft.Row([
+            ft.Text(label_grupo, weight="bold", size=11, expand=True),
+            ft.Text("CANT. TOTAL", weight="bold", size=11, width=100, text_align=ft.TextAlign.RIGHT),
+            ft.Text("VALOR TOTAL", weight="bold", size=11, width=120, text_align=ft.TextAlign.RIGHT),
+        ]))
+        self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
+
+        for grupo, datos in sorted(agrupacion.items()):
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text(grupo.upper(), size=11, expand=True, weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Text(f"{datos.get('cant_total', 0):g}", size=11, width=100, text_align=ft.TextAlign.RIGHT),
+                ft.Text(f"${datos['subtotal']:,.2f}", size=11, width=120, text_align=ft.TextAlign.RIGHT),
+            ]))
+            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="#eeeeee"))
+
+        self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
+        color_total = "red" if gran_total_val < 0 else "black"
+        self.doc_cuerpo.controls.append(ft.Row([
+            ft.Text(f"{label_gran_total}:", weight="bold", size=14, expand=True, text_align=ft.TextAlign.RIGHT),
+            ft.Text(f"{gran_total_cant:g}", weight="bold", size=14, width=100, text_align=ft.TextAlign.RIGHT),
+            ft.Text(f"${gran_total_val:,.2f}", weight="bold", size=14, width=120, text_align=ft.TextAlign.RIGHT, color=color_total),
+        ]))
+
+    def _dibujar_tabla_financiera(self, agrupacion, label_grupo, gran_total, headers, label_gran_total="GRAN TOTAL", is_ajuste=False):
+        if not agrupacion:
+            self.doc_cuerpo.controls.append(ft.Container(content=ft.Text("No hay datos para los filtros seleccionados.", size=14, color="grey"), padding=30, alignment=ft.alignment.center))
+            return
+
+        # Cabeceras
+        if is_ajuste:
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text(headers[0], weight="bold", size=11, width=65),
+                ft.Text(headers[1], weight="bold", size=11, width=90),
+                ft.Text(headers[2], weight="bold", size=11, expand=True),
+                ft.Text(headers[3], weight="bold", size=11, width=100),
+                ft.Text(headers[4], weight="bold", size=11, width=45, text_align=ft.TextAlign.RIGHT),
+                ft.Text(headers[5], weight="bold", size=11, width=70, text_align=ft.TextAlign.RIGHT),
+            ]))
+        else:
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text(headers[0], weight="bold", size=11, width=70),
+                ft.Text(headers[1], weight="bold", size=11, width=90),
+                ft.Text(headers[2], weight="bold", size=11, expand=True),
+                ft.Text(headers[3], weight="bold", size=11, width=60, text_align=ft.TextAlign.RIGHT),
+                ft.Text(headers[4], weight="bold", size=11, width=100, text_align=ft.TextAlign.RIGHT),
+            ]))
+        self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
+
+        for grupo, datos in sorted(agrupacion.items()):
+            self.doc_cuerpo.controls.append(ft.Container(content=ft.Text(f"{label_grupo}: {grupo.upper()}", weight="bold", size=12, color=Config.COLOR_PRIMARY), padding=ft.padding.only(top=10, bottom=5)))
+            for i in datos["items"]:
+                if is_ajuste:
+                    fila_ui = ft.Row([
+                        ft.Text(i['fecha'], size=11, width=65),
+                        ft.Text(i['motivo'], size=11, width=90, no_wrap=True, weight="bold"),
+                        ft.Text(i['obs'], size=11, expand=True), # Observación toma el espacio restante
+                        ft.Text(i['insumo'], size=11, width=100, no_wrap=True),
+                        ft.Text(f"{i['cant']:g}", size=11, width=45, text_align=ft.TextAlign.RIGHT),
+                        ft.Text(f"${i['total']:,.2f}", size=11, width=70, text_align=ft.TextAlign.RIGHT),
+                    ])
+                else:
+                    fila_ui = ft.Row([
+                        ft.Text(i['fecha'], size=11, width=70),
+                        ft.Text(i['factura'], size=11, width=90, no_wrap=True),
+                        ft.Text(i['insumo'], size=11, expand=True, no_wrap=True),
+                        ft.Text(f"{i['cant']:g}", size=11, width=60, text_align=ft.TextAlign.RIGHT),
+                        ft.Text(f"${i['total']:,.2f}", size=11, width=100, text_align=ft.TextAlign.RIGHT),
+                    ])
+                self.doc_cuerpo.controls.append(fila_ui)
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text(f"Total {grupo}:", weight="bold", size=11, expand=True, text_align=ft.TextAlign.RIGHT),
+                ft.Text(f"${datos['subtotal']:,.2f}", weight="bold", size=12, width=100, text_align=ft.TextAlign.RIGHT),
+            ]))
+            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="#eeeeee"))
+
+        self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
+        color_total = "red" if gran_total < 0 else "black"
+        self.doc_cuerpo.controls.append(ft.Row([
+            ft.Text(f"{label_gran_total}:", weight="bold", size=14, expand=True, text_align=ft.TextAlign.RIGHT),
+            ft.Text(f"${gran_total:,.2f}", weight="bold", size=14, width=150, text_align=ft.TextAlign.RIGHT, color=color_total),
+        ]))
+        self.doc_cuerpo.controls.append(ft.Divider(height=4, color="black"))
+
+    def _generar_kpis(self, fecha_inicio, fecha_fin):
+        # Como los KPIs son un resumen global dictado por los métodos SQL actuales (que operan por mes/hoy)
+        # Mostraremos la foto actual del sistema independientemente del filtro de fechas (con una advertencia visual)
+
+        res_cat = self.db.get_catalogo_summary()
+        res_ven = self.db.get_ventas_summary()
+        res_com = self.db.get_compras_summary()
+        kpis_inv = self.db.get_inventario_kpis()
+
+        val_inv = kpis_inv.get('valor_inventario', 0)
+        ingresos = float(res_ven.get('total_mes') or 0)
+        compras = float(res_com.get('total_mes') or 0)
+
+        rentabilidad = ((ingresos - compras) / ingresos) * 100 if ingresos > 0 else 0
+        rotacion = ingresos / val_inv if val_inv > 0 else 0
+
+        def _crear_kpi_fila(label, valor, color="black"):
+            return ft.Row([
+                ft.Text(label, size=13, expand=True),
+                ft.Text(valor, size=14, weight="bold", color=color, width=150, text_align=ft.TextAlign.RIGHT)
+            ])
+
+        self.doc_cuerpo.controls.extend([
+            ft.Container(content=ft.Text("NOTA: Este resumen muestra el estado actual del MES EN CURSO según las métricas del Dashboard, independientemente del filtro de fechas seleccionado.", size=10, color="orange", italic=True), padding=10, bgcolor="#fff3cd", border_radius=5),
+            ft.Divider(height=10, color="transparent"),
+            ft.Text("MÉTRICAS DE INVENTARIO Y COSTOS", weight="bold", size=14, color=Config.COLOR_PRIMARY),
+            ft.Divider(height=1, color="black"),
+            _crear_kpi_fila("Valorización Actual del Inventario", f"${val_inv:,.2f}"),
+            _crear_kpi_fila("Total Compras (Mes Actual)", f"${compras:,.2f}"),
+            ft.Divider(height=20, color="transparent"),
+            ft.Text("MÉTRICAS DE VENTAS E INGRESOS", weight="bold", size=14, color=Config.COLOR_PRIMARY),
+            ft.Divider(height=1, color="black"),
+            _crear_kpi_fila("Total Ventas (Mes Actual)", f"${ingresos:,.2f}", "green"),
+            _crear_kpi_fila("IVA Recaudado (Mes Actual)", f"${res_ven.get('iva_mes', 0):,.2f}"),
+            ft.Divider(height=20, color="transparent"),
+            ft.Text("RENDIMIENTO FINANCIERO (MES ACTUAL)", weight="bold", size=14, color=Config.COLOR_PRIMARY),
+            ft.Divider(height=1, color="black"),
+            _crear_kpi_fila("Margen de Rentabilidad Bruta", f"{rentabilidad:.1f}%", "green" if rentabilidad >= 0 else "red"),
+            _crear_kpi_fila("Índice de Rotación", f"{rotacion:.2f}x"),
+            ft.Divider(height=4, color="black")
+        ])
+
+    def exportar_pdf(self, e):
+        if not hasattr(self, 'current_data') or not self.current_data:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Primero genera la previsualización del informe."), bgcolor="orange")
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+
+        nombre_sugerido = f"{self.drop_tipo_informe.value.replace(' ', '_')}_{datetime.date.today().strftime('%Y%m%d')}.pdf"
+        self.save_pdf_picker.save_file(
+            dialog_title="Guardar Informe PDF",
+            file_name=nombre_sugerido,
+            allowed_extensions=["pdf"]
+        )
+
+    def _save_pdf_result(self, e: ft.FilePickerResultEvent):
+        if not e.path:
+            return
+            
+        try:
+            from fpdf import FPDF
+            
+            class PDFReport(FPDF):
+                def header(instance):
+                    instance.set_font("Arial", 'B', 12)
+                    instance.cell(0, 6, "TIENDA Y ABARROTES LOS DESECHABLES DE DOÑA MARY SAS", ln=True, align='C')
+                    instance.set_font("Arial", 'B', 10)
+                    instance.cell(0, 5, "REPORTE OFICIAL DE INVENTARIOS Y OPERACIONES", ln=True, align='C')
+                    instance.set_font("Arial", '', 8)
+                    instance.cell(0, 4, f"Generado el: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')}", ln=True, align='C')
+                    instance.ln(4)
+                    instance.line(10, instance.get_y(), 200, instance.get_y())
+                    instance.ln(4)
+
+                def footer(instance):
+                    instance.set_y(-15)
+                    instance.set_font("Arial", 'I', 8)
+                    instance.cell(0, 10, f"Página {instance.page_no()}/{{nb}}", align='C')
+
+            pdf = PDFReport()
+            pdf.alias_nb_pages()
+            pdf.add_page()
+            pdf.set_auto_page_break(auto=True, margin=15)
+
+            # Título del Informe
+            pdf.set_font("Arial", 'B', 11)
+            pdf.cell(0, 6, str(self.doc_header_titulo.value).encode('latin-1', 'replace').decode('latin-1'), ln=True)
+            pdf.set_font("Arial", '', 9)
+            pdf.cell(0, 5, str(self.doc_header_periodo.value).encode('latin-1', 'replace').decode('latin-1'), ln=True)
+            pdf.ln(4)
+
+            es_resumido = self.opcion_detalle.value == "Resumido"
+            es_ajuste = self.drop_tipo_informe.value == "Historial de Ajustes"
+
+            if es_resumido:
+                # Tabla Resumida
+                pdf.set_font("Arial", 'B', 8)
+                pdf.cell(110, 6, "GRUPO / CATEGORIA", border=1)
+                pdf.cell(35, 6, "CANT. TOTAL", border=1, align='R')
+                pdf.cell(45, 6, "VALOR TOTAL", border=1, align='R')
+                pdf.ln()
+
+                pdf.set_font("Arial", '', 8)
+                for grupo, datos in sorted(self.current_data.items()):
+                    g_nombre = str(grupo).upper().encode('latin-1', 'replace').decode('latin-1')
+                    pdf.cell(110, 6, g_nombre, border="L,R,B")
+                    pdf.cell(35, 6, f"{datos.get('cant_total', 0):g}", border="L,R,B", align='R')
+                    pdf.cell(45, 6, f"${datos['subtotal']:,.2f}", border="L,R,B", align='R', ln=True)
+
+                pdf.ln(4)
+                pdf.set_font("Arial", 'B', 9)
+                pdf.cell(145, 7, "TOTAL GENERAL:", align='R')
+                pdf.cell(45, 7, f"${self.current_total:,.2f}", border=1, align='R', ln=True)
+
+            else:
+                # Tabla Completa
+                pdf.set_font("Arial", 'B', 8)
+                if es_ajuste:
+                    pdf.cell(20, 6, "FECHA", border=1)
+                    pdf.cell(30, 6, "MOTIVO", border=1)
+                    pdf.cell(50, 6, "OBSERVACION", border=1)
+                    pdf.cell(45, 6, "INSUMO", border=1)
+                    pdf.cell(20, 6, "CANT.", border=1, align='R')
+                    pdf.cell(25, 6, "COSTO TOT.", border=1, align='R')
+                else:
+                    pdf.cell(20, 6, "FECHA/COD", border=1)
+                    pdf.cell(30, 6, "DOC/FACT", border=1)
+                    pdf.cell(75, 6, "INSUMO / DESCRIPCION", border=1)
+                    pdf.cell(20, 6, "CANT.", border=1, align='R')
+                    pdf.cell(20, 6, "COSTO U.", border=1, align='R')
+                    pdf.cell(25, 6, "TOTAL", border=1, align='R')
+                pdf.ln()
+
+                for grupo, datos in sorted(self.current_data.items()):
+                    pdf.set_font("Arial", 'B', 8)
+                    pdf.cell(0, 6, f"  GRUPO: {str(grupo).upper().encode('latin-1', 'replace').decode('latin-1')}", border="L,R,B", ln=True)
+                    pdf.set_font("Arial", '', 7)
+
+                    for i in datos["items"]:
+                        insumo_txt = str(i.get('insumo') or i.get('nombre', '')).encode('latin-1', 'replace').decode('latin-1')[:35]
+                        
+                        if es_ajuste:
+                            motivo_txt = str(i.get('motivo', '')).encode('latin-1', 'replace').decode('latin-1')[:18]
+                            obs_txt = str(i.get('obs', '')).encode('latin-1', 'replace').decode('latin-1')[:30]
+                            pdf.cell(20, 5, str(i.get('fecha', '')), border="L")
+                            pdf.cell(30, 5, motivo_txt)
+                            pdf.cell(50, 5, obs_txt)
+                            pdf.cell(45, 5, insumo_txt)
+                            pdf.cell(20, 5, f"{i.get('cant', 0):g}", align='R')
+                            pdf.cell(25, 5, f"${i.get('total', 0):,.2f}", border="R", align='R', ln=True)
+                        else:
+                            c_code = str(i.get('codigo') or i.get('fecha', ''))
+                            c_doc = str(i.get('factura', ''))[:15]
+                            c_u = f"${i.get('costo_u', 0):,.2f}" if 'costo_u' in i else "-"
+                            pdf.cell(20, 5, c_code, border="L")
+                            pdf.cell(30, 5, c_doc)
+                            pdf.cell(75, 5, insumo_txt)
+                            pdf.cell(20, 5, f"{i.get('stock', i.get('cant', 0)):g}", align='R')
+                            pdf.cell(20, 5, c_u, align='R')
+                            pdf.cell(25, 5, f"${i.get('total', 0):,.2f}", border="R", align='R', ln=True)
+
+                    pdf.set_font("Arial", 'B', 8)
+                    pdf.cell(165, 5, f"Subtotal {grupo}:", border="L,B", align='R')
+                    pdf.cell(25, 5, f"${datos['subtotal']:,.2f}", border="R,B", align='R', ln=True)
+
+                pdf.ln(4)
+                pdf.set_font("Arial", 'B', 9)
+                pdf.cell(165, 7, "TOTAL GENERAL:", align='R')
+                pdf.cell(25, 7, f"${self.current_total:,.2f}", border=1, align='R', ln=True)
+
+            pdf.output(e.path)
+            self.page.snack_bar = ft.SnackBar(ft.Text("¡PDF exportado con éxito!"), bgcolor="green")
+            self.page.snack_bar.open = True
+            self.page.update()
+
+        except Exception as ex:
+            self.page.snack_bar = ft.SnackBar(ft.Text(f"Error al generar PDF: {ex}"), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.page.update()
+
+    def exportar_excel(self, e):
+        self.page.snack_bar = ft.SnackBar(ft.Text("Generando Excel... (Módulo de exportación pendiente)"), bgcolor="green")
+        self.page.snack_bar.open = True
+        self.page.update()
+````
+
+## File: ui/app.py
+````python
+import flet as ft
+import threading
+from ui.layout.sidebar import Sidebar
+from ui.views.dashboard import DashboardView
+from ui.views.inventario import InventarioView
+from ui.views.compras import ComprasView
+from ui.views.ventas import VentasView
+from ui.views.cierre_inventario import CierreInventarioView
+from ui.views.ajustes_inventario import AjustesInventarioView
+from ui.views.informes import InformesView
+
+class AppLayout(ft.Row):
+    def __init__(self, page: ft.Page):
+        super().__init__()
+        self.page = page
+        self.expand = True
+        self.spacing = 0
+        
+        # Vistas cacheadas
+        self.views = {"dashboard": DashboardView()}
+        
+        # Contenedor principal de la vista activa
+        self.active_view = ft.Container(
+            content=self.views["dashboard"],
+            expand=True,
+            bgcolor="#F4F6F7",
+            padding=15,
+            alignment=ft.alignment.top_left
+        )
+        
+        # Sidebar
+        self.sidebar = Sidebar(self.on_route_change)
+        
+        # Componentes del Row
+        self.controls = [
+            self.sidebar,
+            self.active_view
+        ]
+        
+    def did_mount(self):
+        # Actualizar estado activo en el sidebar para la vista inicial
+        if hasattr(self.sidebar, "actualizar_estado_activo"):
+            self.sidebar.actualizar_estado_activo("dashboard")
+            
+        # Iniciar carga de datos
+        def load_data_bg():
+            vista = self.views["dashboard"]
+            if hasattr(vista, 'load_data'):
+                try: vista.load_data()
+                except Exception as e: pass
+            if hasattr(vista, 'load_summary'):
+                try: vista.load_summary()
+                except Exception as e: pass
+        threading.Thread(target=load_data_bg, daemon=True).start()
+        
+    def on_route_change(self, route_name):
+        if not route_name: return
+        
+        # Instanciar de forma perezosa (Lazy Loading) para evitar lag inicial
+        if route_name not in self.views:
+            if route_name == "dashboard": self.views[route_name] = DashboardView()
+            elif route_name == "inventario": self.views[route_name] = InventarioView()
+            elif route_name == "compras": self.views[route_name] = ComprasView()
+            elif route_name == "ventas": self.views[route_name] = VentasView()
+            elif route_name == "ajustes_inventario": self.views[route_name] = AjustesInventarioView()
+            elif route_name == "cierre_mes": self.views[route_name] = CierreInventarioView()
+            elif route_name == "informes": self.views[route_name] = InformesView()
+            
+        # Cambiar el contenido del contenedor principal
+        if route_name in self.views:
+            vista = self.views[route_name]
+            self.active_view.content = vista
+            self.active_view.update()
+            
+            # Resaltar la ruta activa en el menú lateral
+            if hasattr(self.sidebar, "actualizar_estado_activo"):
+                self.sidebar.actualizar_estado_activo(route_name)
+            
+            # Forzar recarga de datos al navegar para evitar caché estancada
+            # Se ejecuta en hilo secundario para evitar congelar la interfaz
+            def load_data_bg():
+                if hasattr(vista, 'load_data'):
+                    try:
+                        vista.load_data()
+                    except Exception as e:
+                        print(f"Error reload load_data en {route_name}: {e}")
+                        
+                if hasattr(vista, 'load_summary'):
+                    try:
+                        vista.load_summary()
+                    except Exception as e:
+                        print(f"Error reload load_summary en {route_name}: {e}")
+            
+            threading.Thread(target=load_data_bg, daemon=True).start()
+````
+
+## File: ui/layout/sidebar.py
+````python
+import flet as ft
+from config import Config
+
+class Sidebar(ft.Container):
+    def __init__(self, on_route_change):
+        super().__init__()
+        self.on_route_change = on_route_change
+        self.is_expanded = True
+        
+        # Propiedades dinámicas del contenedor
+        self.width = 250
+        self.bgcolor = Config.COLOR_PRIMARY
+        self.padding = 15
+        self.border_radius = ft.border_radius.only(top_right=15, bottom_right=15)
+        self.animate = ft.animation.Animation(300, ft.AnimationCurve.DECELERATE)
+        
+        # Botón para colapsar/expandir
+        self.toggle_btn = ft.IconButton(
+            icon=ft.icons.MENU,
+            icon_color="white",
+            on_click=self.toggle_sidebar,
+            tooltip="Ocultar/Mostrar Menú"
+        )
+        
+        # Logo y textos
+        self.logo_icon = ft.Icon(ft.icons.STOREFRONT, color="white", size=40)
+        self.logo_title = ft.Text("Doña Mary", color="white", size=24, weight="bold")
+        self.logo_subtitle = ft.Text("Abarrotes & Desechables", color="white70", size=12)
+        
+        self.header_content = ft.Column([
+            self.logo_icon,
+            self.logo_title,
+            self.logo_subtitle,
+        ], horizontal_alignment="center", spacing=5)
+
+        self.toggle_row = ft.Row([self.toggle_btn], alignment=ft.MainAxisAlignment.END)
+
+        # Almacenar referencias de los botones del menú
+        self.menu_items = {}
+        
+        self.footer_text = ft.Text("Elaborado por: Eliana Garces 2026", color="white54", size=10, text_align=ft.TextAlign.CENTER)
+        
+        self.content = ft.Column(
+            controls=[
+                # Cabecera con botón de toggle
+                self.toggle_row,
+                ft.Container(
+                    content=self.header_content,
+                    padding=ft.padding.only(bottom=20),
+                    alignment=ft.alignment.center
+                ),
+                
+                # Menú
+                self._create_menu_item("Dashboard", ft.icons.DASHBOARD, "dashboard"),
+                self._create_menu_item("Inventario", ft.icons.INVENTORY_2, "inventario"),
+                self._create_menu_item("Compras", ft.icons.ADD_SHOPPING_CART, "compras"),
+                self._create_menu_item("Ventas", ft.icons.POINT_OF_SALE, "ventas"),
+                self._create_menu_item("Ajustes de Inventario", ft.icons.TUNE, "ajustes_inventario"),
+                self._create_menu_item("Cierre de Mes", ft.icons.FACT_CHECK, "cierre_mes"),
+                self._create_menu_item("Informes", ft.icons.PIE_CHART, "informes"),
+                
+                ft.Container(expand=True), # Spacer
+                
+
+                
+                # Footer Copyright
+                ft.Container(
+                    content=self.footer_text,
+                    alignment=ft.alignment.center,
+                    padding=ft.padding.only(top=10, bottom=5)
+                )
+            ],
+            spacing=5
+        )
+        
+    def _create_menu_item(self, text, icon, route, is_sub_item=False):
+        icon_size = 20 if is_sub_item else 24
+        text_size = 13 if is_sub_item else 14
+        pad_left = 35 if is_sub_item else 15
+        
+        item = ft.ListTile(
+            leading=ft.Icon(icon, color="white70", size=icon_size),
+            title=ft.Text(text, color="white70", size=text_size),
+            hover_color=ft.colors.with_opacity(0.1, "white"),
+            content_padding=ft.padding.only(left=pad_left, right=15),
+            on_click=lambda _, r=route: self.on_route_change(r),
+            tooltip=text,
+            data={"is_sub_item": is_sub_item, "pad_left": pad_left}
+        )
+        self.menu_items[route] = item
+        return item
+        
+    def actualizar_estado_activo(self, ruta_actual):
+        self.ruta_activa = ruta_actual
+        for route, item in self.menu_items.items():
+            is_active = (route == ruta_actual)
+            item.bgcolor = ft.colors.with_opacity(0.2, "white") if is_active else None
+            item.leading.color = "white" if is_active else "white70"
+            item.title.color = "white" if is_active else "white70"
+            item.title.weight = "bold" if is_active else "normal"
+            
+        try:
+            self.update()
+        except Exception:
+            pass
+
+    def toggle_sidebar(self, e):
+        """Alterna el ancho del sidebar y oculta/muestra los textos."""
+        self.is_expanded = not self.is_expanded
+        
+        # Ajustar ancho
+        self.width = 250 if self.is_expanded else 70
+        
+        # Mostrar u ocultar elementos del header según el estado
+        self.logo_title.visible = self.is_expanded
+        self.logo_subtitle.visible = self.is_expanded
+        self.logo_icon.size = 40 if self.is_expanded else 24
+        
+        # Mostrar u ocultar el footer
+        self.footer_text.visible = self.is_expanded
+        
+        self.toggle_row.alignment = ft.MainAxisAlignment.END if self.is_expanded else ft.MainAxisAlignment.CENTER
+        
+        # Mostrar u ocultar el texto de los ListTile
+        for control in self.content.controls:
+            if isinstance(control, ft.ListTile):
+                control.title.visible = self.is_expanded
+                pad_left = control.data["pad_left"] if self.is_expanded else 8
+                control.content_padding = ft.padding.only(left=pad_left, right=15 if self.is_expanded else 8)
+                
+        self.update()
+````
+
 ## File: ui/views/compras.py
 ````python
 import flet as ft
@@ -4604,6 +4140,15 @@ class ComprasView(ft.Container):
         
         self.parsed_data = None # Para guardar temporalmente los datos extraídos
         
+        # --- ESTADO PANEL HISTÓRICO ---
+        self.panel_abierto = False
+        self.fecha_historial_activa = datetime.date.today().strftime("%Y-%m-%d")
+        self.modo_agrupacion_compras = "FACTURA" # "FACTURA" o "PROVEEDOR"
+        self.filtro_factura_activo = None
+        self.filtro_proveedor_activo = None
+        self.date_picker_compras_timeline = ft.DatePicker(on_change=self.on_date_compras_timeline_change)
+        # ------------------------------
+        
         # Controles de Búsqueda
         self.search_input = ft.TextField(
             hint_text="Buscar por código, proveedor o factura...", 
@@ -4611,7 +4156,10 @@ class ComprasView(ft.Container):
             border_radius=8,
             expand=True,
             bgcolor="white",
-            height=40,
+            height=38,
+            dense=True,
+            text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
             on_submit=self.on_search
         )
         
@@ -4621,12 +4169,10 @@ class ComprasView(ft.Container):
             on_change=self.on_date_change,
             on_dismiss=self.on_date_dismiss,
         )
-        self.btn_date = ft.OutlinedButton(
-            text="Filtrar por Fecha",
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=self.open_date_picker,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=40
+        self.btn_date = ft.IconButton(
+            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
+            tooltip="Filtrar por Fecha",
+            on_click=self.open_date_picker
         )
         self.btn_clear_date = ft.IconButton(
             icon=ft.icons.CLEAR,
@@ -4702,8 +4248,8 @@ class ComprasView(ft.Container):
         # Controles Paginación
         self.lbl_page_info = ft.Text("Página 1 de 1")
         self.lbl_total = ft.Text("0 registros en total", color="grey")
-        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, on_click=self.on_prev_page, disabled=True)
-        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, on_click=self.on_next_page, disabled=True)
+        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, tooltip="Página Anterior", on_click=self.on_prev_page, disabled=True)
+        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, tooltip="Página Siguiente", on_click=self.on_next_page, disabled=True)
         self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
         
         # --- TAB 2: GESTIÓN DE CARGAS ---
@@ -4714,12 +4260,10 @@ class ComprasView(ft.Container):
         self.fecha_filtro_cargas = None
         self.date_picker_filtro_cargas = ft.DatePicker(on_change=self.on_date_filtro_cargas_change)
         
-        self.btn_filtro_fecha_cargas = ft.OutlinedButton(
-            text="Filtrar por Fecha",
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=lambda e: self.date_picker_filtro_cargas.pick_date(),
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=45
+        self.btn_filtro_fecha_cargas = ft.IconButton(
+            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
+            tooltip="Filtrar por Fecha",
+            on_click=lambda e: self.date_picker_filtro_cargas.pick_date()
         )
         self.btn_clear_filtro_cargas = ft.IconButton(
             icon=ft.icons.CLEAR, tooltip="Limpiar Fecha",
@@ -4728,7 +4272,8 @@ class ComprasView(ft.Container):
         
         self.drop_filtro_estado_cargas = ft.Dropdown(
             options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("Nuevo"), ft.dropdown.Option("Procesado con éxito"), ft.dropdown.Option("Falló"), ft.dropdown.Option("Guardado"), ft.dropdown.Option("Sobreescrito")],
-            value="Todos", label="Estado", dense=True, width=170, border_radius=8, content_padding=10, height=45,
+            value="Todos", label="Estado", dense=True, width=170, border_radius=8, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8), height=38,
             on_change=lambda e: self._render_tabla_cargas()
         )
         
@@ -4778,11 +4323,7 @@ class ComprasView(ft.Container):
         row_filtros_compras = ft.Row([
             self.search_input,
             self.btn_date,
-            self.btn_clear_date,
-            ft.ElevatedButton(
-                text="Buscar", icon=ft.icons.SEARCH, bgcolor=Config.COLOR_PRIMARY, color="white", height=40,
-                on_click=self.on_search, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-            ),
+            self.btn_clear_date
         ])
         
         contenedor_tabla_compras = ft.Container(
@@ -4844,16 +4385,228 @@ class ComprasView(ft.Container):
             expand=True
         )
 
+        # --- DISEÑO DEL PANEL HISTÓRICO ---
+        self.lbl_tot_compras_panel = ft.Text("$0 COP", size=14, weight="bold", color="teal800")
+        self.lbl_cant_compras_panel = ft.Text("0 unds", size=10, color="grey")
+
+        kpi_compras_panel = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.SHOPPING_BAG, color="teal700", size=20),
+                ft.Column([
+                    ft.Text("TOTAL COMPRAS DEL DÍA", size=9, weight="bold", color="grey"),
+                    self.lbl_tot_compras_panel
+                ], spacing=0, expand=True),
+                self.lbl_cant_compras_panel
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=10, bgcolor="#e6f4ea", border_radius=8, border=ft.border.all(1, "#c3e6cb")
+        )
+
+        self.segment_agrupacion = ft.SegmentedButton(
+            segments=[
+                ft.Segment(value="FACTURA", label=ft.Text("Por Factura", size=10)),
+                ft.Segment(value="PROVEEDOR", label=ft.Text("Por Proveedor", size=10)),
+            ],
+            selected={"FACTURA"},
+            on_change=self.on_agrupacion_change,
+            show_selected_icon=False
+        )
+
+        self.btn_fecha_compras_panel = ft.OutlinedButton(
+            self.fecha_historial_activa,
+            icon=ft.icons.CALENDAR_TODAY,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), padding=5),
+            height=30,
+            on_click=lambda e: self.date_picker_compras_timeline.pick_date()
+        )
+
+        self.panel_compras_list = ft.ListView(expand=True, spacing=6)
+
+        self.right_panel = ft.Container(
+            width=0, visible=False, bgcolor="white", border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color=ft.colors.with_opacity(0.05, "black")),
+            animate=ft.animation.Animation(250, ft.AnimationCurve.EASE_OUT),
+            content=ft.Column([
+                # Cabecera Panel
+                ft.Container(
+                    content=ft.Row([
+                        ft.Text("Histórico de Entradas", weight="bold", size=13, color=Config.COLOR_PRIMARY, expand=True),
+                        self.btn_fecha_compras_panel,
+                        ft.IconButton(ft.icons.CLOSE, icon_size=16, on_click=self.toggle_right_panel)
+                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    padding=10, bgcolor="#f4f6f8", border_radius=ft.border_radius.only(top_left=8, top_right=8)
+                ),
+                ft.Container(content=kpi_compras_panel, padding=ft.padding.symmetric(horizontal=10)),
+                ft.Container(content=self.segment_agrupacion, padding=ft.padding.symmetric(horizontal=10), alignment=ft.alignment.center),
+                ft.Divider(height=1, color="#e0e0e0"),
+                ft.Container(content=self.panel_compras_list, expand=True, padding=10)
+            ], spacing=8)
+        )
+
+        self.filtro_badge_compras = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.FILTER_ALT, size=14, color="white"),
+                ft.Text("Filtro Activo", color="white", weight="bold", size=11),
+                ft.IconButton(
+                    ft.icons.CLOSE, icon_size=14, icon_color="white",
+                    on_click=self.limpiar_filtro_compras,
+                    style=ft.ButtonStyle(padding=0), width=20, height=20
+                )
+            ], tight=True),
+            bgcolor="teal700", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=12, visible=False
+        )
+
+        self.btn_toggle_panel = ft.IconButton(
+            icon=ft.icons.HISTORY_TOGGLE_OFF,
+            tooltip="Ver Histórico de Compras del Día",
+            on_click=self.toggle_right_panel
+        )
+
         self.lbl_titulo = ft.Text("Módulo de Compras", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.content = ft.Column([
+        main_column = ft.Column([
             self.progress_bar,
-            self.lbl_titulo,
+            ft.Row([self.lbl_titulo, self.filtro_badge_compras, ft.Container(expand=True), self.btn_toggle_panel, self.btn_fullscreen]),
             self.summary_container,
             self.tabs
+        ], expand=True, spacing=10)
+
+        self.content = ft.Row([
+            main_column,
+            self.right_panel
         ], expand=True, spacing=10)
         
         self.load_data()
         self._render_tabla_cargas()
+
+    def toggle_right_panel(self, e):
+        self.panel_abierto = not self.panel_abierto
+        self.right_panel.width = 330 if self.panel_abierto else 0
+        self.right_panel.visible = self.panel_abierto
+        self.right_panel.padding = 0
+        self.btn_toggle_panel.icon = ft.icons.HISTORY if self.panel_abierto else ft.icons.HISTORY_TOGGLE_OFF
+        if self.panel_abierto:
+            self.cargar_historial_panel()
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        elif self.page:
+            self.page.update()
+
+    def on_date_compras_timeline_change(self, e):
+        if self.date_picker_compras_timeline.value:
+            self.fecha_historial_activa = self.date_picker_compras_timeline.value.strftime("%Y-%m-%d")
+            self.btn_fecha_compras_panel.text = self.fecha_historial_activa
+            self.cargar_historial_panel()
+
+    def on_agrupacion_change(self, e):
+        if e.control.selected:
+            self.modo_agrupacion_compras = list(e.control.selected)[0]
+            self.cargar_historial_panel()
+
+    def cargar_historial_panel(self):
+        if not self.page: return
+
+        def worker():
+            items = self.db.get_historial_compras_dia(self.fecha_historial_activa, self.modo_agrupacion_compras)
+
+            tot_pesos = sum([item["total"] for item in items])
+            tot_unds = sum([item["unidades"] for item in items])
+
+            self.lbl_tot_compras_panel.value = f"${tot_pesos:,.0f} COP"
+            self.lbl_cant_compras_panel.value = f"{tot_unds:g} unds"
+
+            self.panel_compras_list.controls.clear()
+
+            for item in items:
+                self.panel_compras_list.controls.append(self._crear_card_item_compras(item))
+
+            if not self.panel_compras_list.controls:
+                self.panel_compras_list.controls.append(
+                    ft.Container(content=ft.Text("Sin compras registradas en esta fecha.", size=11, color="grey"), padding=20, alignment=ft.alignment.center)
+                )
+
+            if hasattr(self, "safe_update"):
+                self.safe_update()
+            else:
+                self.page.update()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _crear_card_item_compras(self, item):
+        tipo = item["tipo"]
+
+        if tipo == "COMPRA":
+            badge_txt = f"FACTURA: {item['factura']}"
+            badge_bg, badge_col = "#e6f4ea", "teal800"
+            sub_txt = item["proveedor"]
+            icon_mat = ft.icons.RECEIPT
+        elif tipo == "PROVEEDOR_RESUMEN":
+            badge_txt = f"{item['facturas_cant']} Facturas"
+            badge_bg, badge_col = "#e8f0fe", "blue800"
+            sub_txt = item["proveedor"]
+            icon_mat = ft.icons.BUSINESS
+        else:
+            # AJUSTE_ENTRADA
+            badge_txt = "ENTRADA AJUSTE (+)"
+            badge_bg, badge_col = "#fef3c7", "orange800"
+            sub_txt = item["factura"]
+            icon_mat = ft.icons.TUNE
+
+        badge = ft.Container(
+            content=ft.Text(badge_txt, size=9, weight="bold", color=badge_col, no_wrap=True),
+            padding=ft.padding.symmetric(horizontal=6, vertical=2), bgcolor=badge_bg, border_radius=10
+        )
+
+        card = ft.Container(
+            content=ft.Row([
+                ft.Icon(icon_mat, size=16, color="teal700"),
+                ft.Column([
+                    badge,
+                    ft.Text(sub_txt, size=11, weight="bold", color="black87", no_wrap=True, tooltip=sub_txt),
+                ], expand=True, spacing=2),
+                ft.Column([
+                    ft.Text(f"${item['total']:,.0f}", size=11, weight="bold", color="black87"),
+                    ft.Text(f"{item['unidades']:g} unds", size=9, color="grey", text_align=ft.TextAlign.RIGHT)
+                ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=1)
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+            padding=8,
+            border_radius=6,
+            bgcolor="#ffffff",
+            border=ft.border.all(1, "#eeeeee"),
+            on_click=lambda e, i=item: self.aplicar_filtro_cruzado_compras(i),
+            ink=True
+        )
+        return card
+
+    def aplicar_filtro_cruzado_compras(self, item):
+        tipo = item["tipo"]
+        self.progress_bar.visible = True
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        else:
+            self.page.update()
+
+        if tipo == "PROVEEDOR_RESUMEN":
+            self.filtro_proveedor_activo = item["proveedor"]
+            self.filtro_factura_activo = None
+            desc = f"Proveedor: {item['proveedor']}"
+        else:
+            self.filtro_factura_activo = item["ref"]
+            self.filtro_proveedor_activo = None
+            desc = f"Factura: {item['factura']}"
+
+        lbl = self.filtro_badge_compras.content.controls[1]
+        lbl.value = desc
+        self.filtro_badge_compras.visible = True
+
+        self.current_page = 1
+        self.load_data()
+
+    def limpiar_filtro_compras(self, e=None):
+        self.filtro_factura_activo = None
+        self.filtro_proveedor_activo = None
+        self.filtro_badge_compras.visible = False
+        self.current_page = 1
+        self.load_data()
 
     def _load_cargas(self):
         if os.path.exists(self.cargas_file):
@@ -4882,7 +4635,8 @@ class ComprasView(ft.Container):
     def on_date_filtro_cargas_change(self, e):
         if self.date_picker_filtro_cargas.value:
             self.fecha_filtro_cargas = self.date_picker_filtro_cargas.value.strftime("%Y-%m-%d")
-            self.btn_filtro_fecha_cargas.text = self.fecha_filtro_cargas
+            self.btn_filtro_fecha_cargas.tooltip = f"Fecha: {self.fecha_filtro_cargas}"
+            self.btn_filtro_fecha_cargas.icon_color = "blue"
             self.btn_clear_filtro_cargas.visible = True
             if self.page:
                 self.page.update()
@@ -4890,7 +4644,8 @@ class ComprasView(ft.Container):
 
     def clear_filtro_fecha_cargas(self, e):
         self.fecha_filtro_cargas = None
-        self.btn_filtro_fecha_cargas.text = "Filtrar por Fecha"
+        self.btn_filtro_fecha_cargas.tooltip = "Filtrar por Fecha"
+        self.btn_filtro_fecha_cargas.icon_color = None
         self.btn_clear_filtro_cargas.visible = False
         self.date_picker_filtro_cargas.value = None
         if self.page:
@@ -5066,6 +4821,8 @@ class ComprasView(ft.Container):
             self.page.overlay.append(self.dlg_confirm)
         if hasattr(self, "date_picker") and self.date_picker not in self.page.overlay:
             self.page.overlay.append(self.date_picker)
+        if hasattr(self, "date_picker_compras_timeline") and self.date_picker_compras_timeline not in self.page.overlay:
+            self.page.overlay.append(self.date_picker_compras_timeline)
             
         # Nuevos overlays para Cargas
         if hasattr(self, "dlg_metadatos_pdf") and self.dlg_metadatos_pdf not in self.page.overlay:
@@ -5093,7 +4850,8 @@ class ComprasView(ft.Container):
     def on_date_change(self, e):
         if self.date_picker.value:
             self.fecha_corte = self.date_picker.value.strftime("%Y-%m-%d")
-            self.btn_date.text = self.fecha_corte
+            self.btn_date.tooltip = f"Fecha: {self.fecha_corte}"
+            self.btn_date.icon_color = "blue"
             self.btn_clear_date.visible = True
             if self.page:
                 self.page.update()
@@ -5105,7 +4863,8 @@ class ComprasView(ft.Container):
         
     def clear_date(self, e):
         self.fecha_corte = None
-        self.btn_date.text = "Filtrar por Fecha"
+        self.btn_date.tooltip = "Filtrar por Fecha"
+        self.btn_date.icon_color = None
         self.btn_clear_date.visible = False
         self.date_picker.value = None
         if self.page:
@@ -5560,13 +5319,19 @@ class ComprasView(ft.Container):
         threading.Thread(target=self._fetch_data_worker, daemon=True).start()
 
     def _fetch_data_worker(self):
-        search_val = self.search_input.value or ""
+        search_val = self.search_input.value.strip() if self.search_input.value else ""
         
+        fact_filtro = getattr(self, 'filtro_factura_activo', None)
+        prov_filtro = getattr(self, 'filtro_proveedor_activo', None)
+        f_corte = getattr(self, 'fecha_corte', None)
+
         data, total = self.db.get_compras(
             page=self.current_page, 
             page_size=self.page_size, 
             search=search_val,
-            fecha_corte=getattr(self, 'fecha_corte', None)
+            fecha_corte=f_corte,
+            factura_filtro=fact_filtro,
+            proveedor_filtro=prov_filtro
         )
         
         self.total_records = total
@@ -5750,6 +5515,1233 @@ class ComprasView(ft.Container):
             self._render_tabla_cargas()
 ````
 
+## File: ui/views/inventario.py
+````python
+import flet as ft
+import threading
+from config import Config
+from core.supabase_client import SupabaseClient
+import math
+from datetime import datetime
+
+class InventarioView(ft.Container):
+    def __init__(self):
+        super().__init__()
+        self.is_fullscreen = False
+        self.btn_fullscreen = ft.IconButton(
+            icon=ft.icons.FULLSCREEN,
+            tooltip="Expandir Tabla (Modo Enfoque)",
+            on_click=self.toggle_fullscreen
+        )
+        self.expand = True
+        
+        self.db = SupabaseClient()
+        self.page_size = 15
+        self.current_page = 1
+        self.total_pages = 1
+        self.total_records = 0
+        
+        # Variables de Ordenamiento por Servidor
+        self.sort_col_name = "Insumo"
+        self.sort_is_asc = True
+        
+        self.view_mode = "cards"
+        self.btn_toggle_view = ft.IconButton(
+            icon=ft.icons.TABLE_ROWS,
+            tooltip="Cambiar a vista de Tabla",
+            on_click=self.toggle_view
+        )
+        
+        # Controles de Búsqueda
+        self.search_input = ft.TextField(
+            hint_text="Buscar por código o nombre...", 
+            prefix_icon=ft.icons.SEARCH,
+            border_radius=8,
+            expand=True,
+            bgcolor="white",
+            height=40,
+            border_color=ft.colors.with_opacity(0.2, Config.COLOR_PRIMARY),
+            content_padding=10,
+            on_submit=self.on_search
+        )
+        
+        self.category_dropdown = ft.Dropdown(
+            options=[ft.dropdown.Option("Todas")],
+            value="Todas",
+            hint_text="Categoría",
+            width=170,
+            dense=True,
+            border_radius=8,
+            bgcolor="white",
+            text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=12, vertical=8),
+            border_color=ft.colors.with_opacity(0.15, "black"),
+            focused_border_color=Config.COLOR_PRIMARY,
+            on_change=self.on_search
+        )
+        
+        self.fecha_corte = None
+        self.date_picker = ft.DatePicker(
+            on_change=self.on_date_change,
+            on_dismiss=self.on_date_dismiss,
+        )
+        
+        self.btn_date_icon = ft.IconButton(
+            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
+            tooltip="Filtrar por Fecha de Corte",
+            on_click=self.abrir_modal_info_fecha
+        )
+
+        self.dlg_filtro_fecha_info = ft.AlertDialog(
+            title=ft.Text("Filtrar información por fecha", weight="bold", color=Config.COLOR_PRIMARY, size=16),
+            content=ft.Container(
+                width=400,
+                content=ft.Column([
+                    ft.Text(
+                        "Selecciona una fecha de corte para calcular la fotografía exacta del inventario en ese día.\n\n"
+                        "El sistema reconstruirá el Stock Inicial, Compras, Ventas y Ajustes acumulados hasta la fecha seleccionada.",
+                        size=12, color="grey"
+                    )
+                ], tight=True)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: self.cerrar_modal_info_fecha()),
+                ft.ElevatedButton("Seleccionar Fecha", icon=ft.icons.DATE_RANGE, bgcolor=Config.COLOR_PRIMARY, color="white", on_click=self.lanzar_date_picker)
+            ]
+        )
+        self.btn_clear_date = ft.IconButton(
+            icon=ft.icons.CLEAR,
+            tooltip="Limpiar Fecha",
+            on_click=self.clear_date,
+            visible=False,
+            icon_color="red"
+        )
+        
+        # Definición de la Tabla de Datos (Ajuste de espacios y ordenamiento)
+        self.data_table = ft.DataTable(
+            column_spacing=10, # Reduce el espacio entre columnas
+            horizontal_margin=10,
+            data_row_min_height=30, # Reduce la altura de las filas
+            data_row_max_height=30,
+            heading_row_height=40,
+            sort_column_index=0,
+            sort_ascending=True,
+            columns=[
+                ft.DataColumn(ft.Container(width=25)),
+                ft.DataColumn(ft.Text("Código", weight="bold", size=10), on_sort=self.on_sort_table),
+                ft.DataColumn(ft.Container(content=ft.Text("Insumo", weight="bold", size=10), width=250), on_sort=self.on_sort_table),
+                ft.DataColumn(ft.Text("Categoría", weight="bold", size=10), on_sort=self.on_sort_table),
+                ft.DataColumn(ft.Text("Ubicación", weight="bold", size=10)),
+                ft.DataColumn(ft.Container(content=ft.Text("Stock Ini.", weight="bold", size=10, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True),
+                ft.DataColumn(ft.Container(content=ft.Text("Stock Mín.", weight="bold", size=10, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True),
+                ft.DataColumn(ft.Container(content=ft.Text("Entradas", weight="bold", size=10, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True, on_sort=self.on_sort_table),
+                ft.DataColumn(ft.Container(content=ft.Text("Salidas", weight="bold", size=10, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True, on_sort=self.on_sort_table),
+                ft.DataColumn(ft.Container(content=ft.Text("Stock Real", weight="bold", size=10, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True, on_sort=self.on_sort_table),
+                ft.DataColumn(ft.Text("Costo Unit.", weight="bold", size=10), numeric=True),
+                ft.DataColumn(ft.Text("Costo Total", weight="bold", size=10), numeric=True),
+                ft.DataColumn(ft.Text("Precio Venta", weight="bold", size=10), numeric=True),
+                ft.DataColumn(ft.Text("Venta Total", weight="bold", size=10), numeric=True),
+            ],
+            rows=[],
+            heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
+            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
+            border_radius=8,
+            vertical_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
+            horizontal_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
+        )
+        
+        self.table_container = ft.Container(
+            content=ft.Column(
+                [self.data_table],
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH
+            )
+        )
+        
+        self.table_wrapper = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Column(
+                        [self.table_container],
+                        scroll=ft.ScrollMode.ALWAYS
+                    )
+                ],
+                scroll=ft.ScrollMode.ALWAYS,
+                expand=True,
+                vertical_alignment=ft.CrossAxisAlignment.START
+            ),
+            bgcolor="white",
+            padding=5,
+            border_radius=10,
+            expand=True,
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=ft.colors.with_opacity(0.05, "black")),
+            visible=False
+        )
+        
+        self.card_list_view = ft.ListView(expand=True, spacing=10, visible=True)
+        
+        # Controles Paginación
+        self.lbl_page_info = ft.Text("Página 1 de 1")
+        self.lbl_total = ft.Text("0 registros en total", color="grey")
+        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, on_click=self.on_prev_page, disabled=True)
+        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, on_click=self.on_next_page, disabled=True)
+        
+        self.current_edit_context = None
+        
+        self.edit_panel_title = ft.Text("Editando Insumo", color="white", weight="bold", size=16)
+        
+        input_style = {
+            "text_size": 13,
+            "height": 40,
+            "content_padding": 10,
+            "bgcolor": "white",
+            "color": "black",
+            "border_color": ft.colors.with_opacity(0.3, "white"),
+        }
+        
+        self.edit_stock_minimo = ft.TextField(width=120, **input_style)
+        self.edit_costo = ft.TextField(width=120, **input_style)
+        self.edit_margen = ft.Dropdown(
+            width=100, 
+            options=[ft.dropdown.Option(f"{p}%") for p in [10, 15, 20, 25, 30, 35]],
+            **input_style
+        )
+        self.edit_precio = ft.TextField(width=120, **input_style)
+        
+        self.edit_categoria = ft.Dropdown(
+            width=200, 
+            **input_style
+        )
+        
+        def calcular_precio(e):
+            try:
+                costo = float(self.edit_costo.value.replace(',', '.') or 0)
+                if self.edit_margen.value:
+                    margen_str = self.edit_margen.value.replace('%', '')
+                    margen_dec = float(margen_str) / 100.0
+                    if margen_dec < 1 and costo > 0:
+                        # Fórmula financiera de margen sobre precio de venta
+                        precio_calculado = costo / (1 - margen_dec)
+                        self.edit_precio.value = f"{precio_calculado:.2f}"
+            except ValueError:
+                pass
+            verificar_cambios_panel(e)
+
+        def verificar_cambios_panel(e):
+            if not self.current_edit_context: return
+            item = self.current_edit_context['item']
+            cambiado = False
+            try:
+                if str(int(self.edit_stock_minimo.value)) != str(int(item.get('stock_minimo', 5) or 5)): cambiado = True
+                if str(float(self.edit_costo.value)) != str(float(item.get('costo_unitario') or 0)): cambiado = True
+                if str(float(self.edit_precio.value)) != str(float(item.get('precio_venta') or 0)): cambiado = True
+                if self.edit_categoria.value != str(item.get('categoria', '')): cambiado = True
+            except ValueError:
+                cambiado = False
+                
+            self.btn_guardar_edicion.disabled = not cambiado
+            self.action_bar.update()
+
+        self.edit_margen.on_change = calcular_precio
+        self.edit_costo.on_change = calcular_precio
+        self.edit_precio.on_change = verificar_cambios_panel
+        self.edit_stock_minimo.on_change = verificar_cambios_panel
+        self.edit_categoria.on_change = verificar_cambios_panel
+        
+        self.btn_guardar_edicion = ft.ElevatedButton(
+            "Guardar Cambios",
+            disabled=True,
+            on_click=self.on_guardar_global,
+            style=ft.ButtonStyle(
+                bgcolor={ft.MaterialState.DISABLED: "#495057", ft.MaterialState.DEFAULT: "green"},
+                color={ft.MaterialState.DISABLED: "white70", ft.MaterialState.DEFAULT: "white"},
+                shape=ft.RoundedRectangleBorder(radius=8)
+            )
+        )
+        
+        self.btn_gestionar_ajustes = ft.OutlinedButton(
+            "Gestionar Ajustes",
+            icon=ft.icons.TUNE,
+            style=ft.ButtonStyle(color="white"),
+            on_click=self.on_gestionar_ajustes
+        )
+        
+        self.action_bar = ft.Container(
+            content=ft.Column([
+                ft.Row([self.edit_panel_title, self.btn_gestionar_ajustes], alignment=ft.MainAxisAlignment.START, spacing=15),
+                ft.Row([
+                    ft.Column([
+                        ft.Text("Stock Mínimo", color="white70", size=11, weight="bold"),
+                        self.edit_stock_minimo
+                    ], spacing=4),
+                    ft.Column([
+                        ft.Text("Costo Unit.", color="white70", size=11, weight="bold"),
+                        self.edit_costo
+                    ], spacing=4),
+                    ft.Column([
+                        ft.Text("Ganancia", color="white70", size=11, weight="bold"),
+                        self.edit_margen
+                    ], spacing=4),
+                    ft.Column([
+                        ft.Text("Precio Venta", color="white70", size=11, weight="bold"),
+                        self.edit_precio
+                    ], spacing=4),
+                    ft.Column([
+                        ft.Text("Categoría", color="white70", size=11, weight="bold"),
+                        self.edit_categoria
+                    ], spacing=4),
+                    ft.Container(expand=True),
+                    ft.OutlinedButton("Cancelar", style=ft.ButtonStyle(color="white"), on_click=self.on_cancelar_global),
+                    self.btn_guardar_edicion
+                ], spacing=15, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            ], spacing=10),
+            bgcolor=Config.COLOR_PRIMARY,
+            padding=15,
+            border_radius=10,
+            visible=False,
+            margin=ft.padding.only(top=10)
+        )
+        
+        # Dashboard Resumen
+        self.lbl_valor_inventario = ft.Text("$0", size=20, weight="bold", color="blue")
+        self.lbl_ventas_total = ft.Text("$0", size=20, weight="bold", color="green")
+        self.lbl_proyeccion_ventas = ft.Text("$0", size=20, weight="bold", color="blue")
+        
+        self.summary_container = ft.Row([
+            ft.Container(
+                content=ft.Row([
+                    ft.Container(
+                        content=ft.Icon(ft.icons.INVENTORY, color="blue", size=24),
+                        padding=15,
+                        bgcolor=ft.colors.with_opacity(0.1, "blue"),
+                        border_radius=10
+                    ),
+                    ft.Column([
+                        ft.Text("Valorización del Inventario", size=12, color="grey", weight="bold"),
+                        self.lbl_valor_inventario
+                    ], spacing=2)
+                ]),
+                bgcolor="white",
+                padding=15,
+                border_radius=10,
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black")),
+                expand=True
+            ),
+            ft.Container(
+                content=ft.Row([
+                    ft.Container(
+                        content=ft.Icon(ft.icons.ATTACH_MONEY, color="green", size=24),
+                        padding=15,
+                        bgcolor=ft.colors.with_opacity(0.1, "green"),
+                        border_radius=10
+                    ),
+                    ft.Column([
+                        ft.Text("Ingreso Total (Ventas)", size=12, color="grey", weight="bold"),
+                        self.lbl_ventas_total
+                    ], spacing=2)
+                ]),
+                bgcolor="white",
+                padding=15,
+                border_radius=10,
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black")),
+                expand=True
+            ),
+            ft.Container(
+                content=ft.Row([
+                    ft.Container(
+                        content=ft.Icon(ft.icons.MONETIZATION_ON, color="blue", size=24),
+                        padding=15,
+                        bgcolor=ft.colors.with_opacity(0.1, "blue"),
+                        border_radius=10
+                    ),
+                    ft.Column([
+                        ft.Text("Proyección de Ventas", size=12, color="grey", weight="bold"),
+                        self.lbl_proyeccion_ventas
+                    ], spacing=2)
+                ]),
+                bgcolor="white",
+                padding=15,
+                border_radius=10,
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black")),
+                expand=True
+            )
+        ], alignment=ft.MainAxisAlignment.START, spacing=20)
+        
+        self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
+        
+        self.panel_abierto = False
+        self.fecha_historial_activa = datetime.now().strftime("%Y-%m-%d")
+        self.filtro_tipo_timeline = "TODO" # "TODO", "COMPRAS", "VENTAS", "AJUSTES"
+        self.codigos_filtro_activos = None
+
+        self.date_picker_timeline = ft.DatePicker(on_change=self.on_date_timeline_change)
+
+        self.lbl_tot_compras_dia = ft.Text("$0", size=11, weight="bold", color="teal700")
+        self.lbl_tot_ventas_dia = ft.Text("$0", size=11, weight="bold", color="blue700")
+        self.lbl_tot_neto_dia = ft.Text("$0", size=11, weight="bold")
+
+        kpis_dia_row = ft.Container(
+            content=ft.Row([
+                ft.Column([ft.Text("Compras Día", size=9, color="grey"), self.lbl_tot_compras_dia], spacing=1),
+                ft.Container(width=1, height=20, bgcolor="#e0e0e0"),
+                ft.Column([ft.Text("Ventas Día", size=9, color="grey"), self.lbl_tot_ventas_dia], spacing=1),
+                ft.Container(width=1, height=20, bgcolor="#e0e0e0"),
+                ft.Column([ft.Text("Balance", size=9, color="grey"), self.lbl_tot_neto_dia], spacing=1),
+            ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
+            padding=8, bgcolor="#f8f9fa", border_radius=6, border=ft.border.all(1, "#e0e0e0")
+        )
+
+        self.chip_filtro_timeline = ft.SegmentedButton(
+            segments=[
+                ft.Segment(value="TODO", label=ft.Text("Todo", size=10)),
+                ft.Segment(value="COMPRAS", label=ft.Text("Compras", size=10)),
+                ft.Segment(value="VENTAS", label=ft.Text("Ventas", size=10)),
+                ft.Segment(value="AJUSTES", label=ft.Text("Ajustes", size=10)),
+            ],
+            selected={"TODO"},
+            on_change=self.on_tipo_timeline_change,
+            show_selected_icon=False
+        )
+
+        self.btn_fecha_timeline = ft.OutlinedButton(
+            self.fecha_historial_activa,
+            icon=ft.icons.CALENDAR_TODAY,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), padding=5),
+            height=30,
+            on_click=lambda e: self.date_picker_timeline.pick_date()
+        )
+
+        self.panel_timeline_list = ft.ListView(expand=True, spacing=6)
+
+        self.right_panel = ft.Container(
+            width=0, visible=False, bgcolor="white", border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color=ft.colors.with_opacity(0.05, "black")),
+            animate=ft.animation.Animation(250, ft.AnimationCurve.EASE_OUT),
+            content=ft.Column([
+                # Cabecera Panel
+                ft.Container(
+                    content=ft.Row([
+                        ft.Text("Historial Diario", weight="bold", size=13, color=Config.COLOR_PRIMARY, expand=True),
+                        self.btn_fecha_timeline,
+                        ft.IconButton(ft.icons.CLOSE, icon_size=16, on_click=self.toggle_right_panel)
+                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    padding=10, bgcolor="#f4f6f8", border_radius=ft.border_radius.only(top_left=8, top_right=8)
+                ),
+                ft.Container(content=kpis_dia_row, padding=ft.padding.symmetric(horizontal=10)),
+                ft.Container(content=self.chip_filtro_timeline, padding=ft.padding.symmetric(horizontal=10), alignment=ft.alignment.center),
+                ft.Divider(height=1, color="#e0e0e0"),
+                ft.Container(content=self.panel_timeline_list, expand=True, padding=10)
+            ], spacing=8)
+        )
+
+        self.btn_toggle_panel = ft.IconButton(
+            icon=ft.icons.HISTORY_TOGGLE_OFF,
+            tooltip="Ver Historial del Día",
+            on_click=self.toggle_right_panel
+        )
+
+        self.filtro_badge = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.FILTER_ALT, size=16, color="white"),
+                ft.Text("", size=12, color="white", weight="bold"),
+                ft.IconButton(ft.icons.CLOSE, icon_size=14, icon_color="white", on_click=self.limpiar_filtro_factura, style=ft.ButtonStyle(padding=0), width=24, height=24)
+            ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor="blue700",
+            padding=ft.padding.symmetric(horizontal=10, vertical=4),
+            border_radius=15,
+            visible=False
+        )
+
+        self.lbl_titulo = ft.Text("Catálogo de Insumos", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        main_column = ft.Column([
+            self.progress_bar,
+            ft.Row([self.lbl_titulo, self.filtro_badge], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            self.summary_container,
+            
+            # Toolbar de Filtros
+            ft.Container(
+                content=ft.Row([
+                    self.search_input,
+                    self.category_dropdown,
+                    self.btn_date_icon,
+                    self.btn_clear_date,
+                    self.btn_toggle_view,
+                    self.btn_toggle_panel,
+                    self.btn_fullscreen
+                ]),
+                bgcolor="white",
+                padding=10,
+                border_radius=8,
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))
+            ),
+            
+            # Contenedores de Vista Dual
+            self.table_wrapper,
+            self.card_list_view,
+            
+            # Footer Paginación
+            ft.Container(
+                content=ft.Row([
+                    self.lbl_total,
+                    ft.Container(expand=True),
+                    self.btn_prev,
+                    self.lbl_page_info,
+                    self.btn_next,
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                padding=ft.padding.only(top=10)
+            ),
+            self.action_bar
+        ], expand=True, spacing=10)
+
+        self.content = ft.Row([
+            main_column,
+            self.right_panel
+        ], expand=True, spacing=10)
+        
+        # No llamamos a los métodos aquí porque el control no está en la página todavía
+        
+    def toggle_fullscreen(self, e):
+        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
+        visibilidad = not self.is_fullscreen
+
+        # Ocultar o mostrar elementos superiores si existen en la vista
+        if hasattr(self, "lbl_titulo"): self.lbl_titulo.visible = visibilidad
+        if hasattr(self, "summary_container"): self.summary_container.visible = visibilidad
+        if hasattr(self, "kpi_bar"): self.kpi_bar.visible = visibilidad
+
+        # Cambiar icono y tooltip
+        self.btn_fullscreen.icon = ft.icons.FULLSCREEN_EXIT if self.is_fullscreen else ft.icons.FULLSCREEN
+        self.btn_fullscreen.tooltip = "Contraer Vista" if self.is_fullscreen else "Expandir Tabla (Modo Enfoque)"
+
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        elif self.page:
+            self.page.update()
+
+    def did_mount(self):
+        """Se ejecuta cuando la vista se agrega a la pantalla."""
+        if self.date_picker not in self.page.overlay:
+            self.page.overlay.append(self.date_picker)
+        if hasattr(self, "date_picker_timeline") and self.date_picker_timeline not in self.page.overlay:
+            self.page.overlay.append(self.date_picker_timeline)
+        if hasattr(self, "dlg_filtro_fecha_info") and self.dlg_filtro_fecha_info not in self.page.overlay:
+            self.page.overlay.append(self.dlg_filtro_fecha_info)
+        self.safe_update()
+            
+        # Lógica responsiva para la tabla
+        def handle_resize(e):
+            if getattr(self, "page", None) and getattr(self, "table_container", None):
+                available = self.page.width - 320
+                self.table_container.width = max(1300, available)
+                try:
+                    self.table_container.update()
+                except Exception:
+                    pass
+                
+        self.handle_resize = handle_resize
+        
+        # Suscribir de manera segura según la versión de Flet
+        if hasattr(self.page.on_resize, "subscribe"):
+            self.page.on_resize.subscribe(self.handle_resize)
+        else:
+            self.original_on_resize = self.page.on_resize
+            self.page.on_resize = self.handle_resize
+            
+        handle_resize(None) # Ejecutar una vez para inicializar tamaño
+            
+        self.load_categories()
+        self.load_summary()
+        self.load_data()
+        
+
+    def safe_update(self):
+        """Actualiza la UI solo si el control sigue montado en la página."""
+        try:
+            if self.page and self.uid:
+                self.page.update()
+        except Exception:
+            pass
+    def load_summary(self):
+        res_v = self.db.get_ventas_summary()
+        res_i = self.db.get_inventario_kpis()
+        self.lbl_valor_inventario.value = f"${res_i.get('valor_inventario', 0):,.2f}"
+        self.lbl_ventas_total.value = f"${res_v.get('total_mes', 0):,.2f}"
+        # La proyección se calcula localmente en _fetch_data_worker
+        self.safe_update()
+            
+    def will_unmount(self):
+        """Se ejecuta cuando se destruye la vista."""
+        if hasattr(self.page, "on_resize") and hasattr(self.page.on_resize, "unsubscribe") and hasattr(self, "handle_resize"):
+            self.page.on_resize.unsubscribe(self.handle_resize)
+        elif hasattr(self, "original_on_resize"):
+            self.page.on_resize = self.original_on_resize
+        
+    def load_categories(self):
+        cats = self.db.get_categorias()
+        options = [ft.dropdown.Option("Todas")]
+        for c in cats:
+            if c: options.append(ft.dropdown.Option(c))
+        self.category_dropdown.options = options
+        
+    def toggle_view(self, e):
+        if self.view_mode == "table":
+            self.view_mode = "cards"
+            self.btn_toggle_view.icon = ft.icons.TABLE_ROWS
+            self.btn_toggle_view.tooltip = "Cambiar a vista de Tabla"
+            self.table_wrapper.visible = False
+            self.card_list_view.visible = True
+        else:
+            self.view_mode = "table"
+            self.btn_toggle_view.icon = ft.icons.GRID_VIEW
+            self.btn_toggle_view.tooltip = "Cambiar a vista de Tarjetas"
+            self.table_wrapper.visible = True
+            self.card_list_view.visible = False
+        self.safe_update()
+        
+    def load_data(self):
+        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
+        self.progress_bar.visible = True
+        self.safe_update()
+            
+        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
+
+    def _fetch_data_worker(self):
+        search_val = self.search_input.value or ""
+        cat_val = self.category_dropdown.value or "Todas"
+        
+        data, total = self.db.get_insumos(
+            page=self.current_page, 
+            page_size=self.page_size, 
+            search=search_val, 
+            categoria=cat_val,
+            fecha_corte=self.fecha_corte,
+            sort_col=self.sort_col_name,
+            sort_asc=self.sort_is_asc,
+            codigos_filtro=self.codigos_filtro_activos
+        )
+        
+        self.total_records = total
+        self.total_pages = math.ceil(total / self.page_size) if total > 0 else 1
+        
+        # Limpiar filas previas
+        self.data_table.rows.clear()
+        self.card_list_view.controls.clear()
+        
+        # Calcular Totales Globales iterando la lista completa sin paginación
+        data_completa, _ = self.db.get_insumos(
+            page=1, 
+            page_size=999999, 
+            search=search_val, 
+            categoria=cat_val,
+            fecha_corte=self.fecha_corte,
+            sort_col=self.sort_col_name,
+            sort_asc=self.sort_is_asc,
+            codigos_filtro=self.codigos_filtro_activos
+        )
+
+        proyeccion_global = 0.0
+        self.valor_total_inventario = 0.0
+        
+        for insumo in data_completa:
+            stock = float(insumo.get("stock_actual") or insumo.get("stock_real") or 0)
+            p_venta = float(insumo.get("precio_venta") or 0)
+            
+            if stock > 0:
+                proyeccion_global += (stock * p_venta)
+                
+            self.valor_total_inventario += float(insumo.get("costo_total_insumo") or 0)
+            
+        self.lbl_proyeccion_ventas.value = f"${proyeccion_global:,.0f}"
+        self.safe_update()
+        
+        # Llenar tabla y tarjetas
+        total_entradas = 0
+        total_salidas = 0
+        
+        for item in data:
+            row = self._crear_fila_inventario(item)
+            self.data_table.rows.append(row)
+            self.card_list_view.controls.append(self._crear_tarjeta_inventario(item, row))
+            
+            
+        self.update_pagination_ui()
+
+
+    def crear_celdas_fila(self, item, row_ref, edit_mode=False):
+        stock_inicial = int(item.get('stock_inicial', 0) or 0)
+        stock_minimo = int(item.get('stock_minimo', 5) or 5)
+        entradas = int(item.get('entradas', 0) or 0)
+        salidas = int(item.get('salidas', 0) or 0)
+        
+        stock_final = int(item.get('stock_real', item.get('stock_actual', 0)) or 0)
+        
+        costo_unit = float(item.get('costo_unitario') or 0)
+        precio_venta = float(item.get('precio_venta') or 0)
+        costo_total = float(item.get('costo_total_insumo') or 0)
+        venta_total = float(item.get('venta_total_insumo') or 0)
+        
+        str_costo_unit = f"${costo_unit:,.2f}"
+        str_precio_venta = f"${precio_venta:,.2f}"
+        str_costo_total = f"${costo_total:,.2f}"
+        str_venta_total = f"${venta_total:,.2f}"
+        
+        color_entradas = "green" if entradas > 0 else "black"
+        color_salidas = "red" if salidas > 0 else "black"
+        color_stock = "blue" if stock_final > 0 else "red"
+        
+        codigo = str(item.get('codigo_insumo', ''))
+        nombre = str(item.get('nombre', ''))
+        categoria = str(item.get('categoria', ''))
+        ubicacion = str(item.get('ubicacion') or 'N/A')
+
+        checkbox = ft.Checkbox(value=False, on_change=lambda e, i=item, r=row_ref: self.toggle_edit(e, i, r))
+        
+        cells_data = [
+            ft.DataCell(ft.Container(content=checkbox, width=25, alignment=ft.alignment.center)),
+            ft.DataCell(ft.Text(codigo, size=10)),
+            ft.DataCell(ft.Container(content=ft.Text(nombre, size=10, no_wrap=True, tooltip=nombre), width=250)),
+            ft.DataCell(ft.Text(categoria, size=10)),
+            ft.DataCell(ft.Text(ubicacion, size=10)),
+            ft.DataCell(ft.Container(content=ft.Text(str(stock_inicial), size=10), width=60, alignment=ft.alignment.center_right)),
+            ft.DataCell(ft.Container(content=ft.Text(str(stock_minimo), size=10), width=60, alignment=ft.alignment.center_right)),
+            ft.DataCell(ft.Container(content=ft.Text(str(entradas), color=color_entradas, weight="bold", size=10), width=60, alignment=ft.alignment.center_right)),
+            ft.DataCell(ft.Container(content=ft.Text(str(salidas), color=color_salidas, weight="bold", size=10), width=60, alignment=ft.alignment.center_right)),
+            ft.DataCell(ft.Container(content=ft.Text(str(stock_final), color=color_stock, weight="bold", size=10), width=60, alignment=ft.alignment.center_right)),
+            ft.DataCell(ft.Text(str_costo_unit, size=10)),
+            ft.DataCell(ft.Text(str_costo_total, color="blue", size=10)),
+            ft.DataCell(ft.Text(str_precio_venta, size=10)),
+            ft.DataCell(ft.Text(str_venta_total, color="green", size=10)),
+        ]
+            
+        return cells_data
+
+    def abrir_edicion_desde_tarjeta(self, item, row_ref):
+        # Simular que se marcó el checkbox de la tabla para mantener sincronía
+        if len(row_ref.cells) > 0:
+            cb = row_ref.cells[0].content.content
+            if isinstance(cb, ft.Checkbox):
+                cb.value = True
+                self.safe_update()
+                    
+        class DummyEvent:
+            class DummyControl:
+                value = True
+            control = DummyControl()
+            
+        self.toggle_edit(DummyEvent(), item, row_ref)
+
+    def toggle_edit(self, e, item, row_ref):
+        if not e.control.value:
+            self.cancelar_edicion()
+            return
+            
+        if self.current_edit_context and self.current_edit_context['row'] != row_ref:
+            prev_row = self.current_edit_context['row']
+            if prev_row and len(prev_row.cells) > 0:
+                cb = prev_row.cells[0].content.content
+                if isinstance(cb, ft.Checkbox):
+                    cb.value = False
+                    
+        self.current_edit_context = {
+            'item': item,
+            'row': row_ref
+        }
+        
+        codigo = item.get('codigo_insumo')
+        nombre = item.get('nombre')
+        
+        self.edit_panel_title.value = f"Editando: [{codigo}] {nombre}"
+        self.edit_stock_minimo.value = str(int(item.get('stock_minimo', 5) or 5))
+        self.edit_costo.value = str(float(item.get('costo_unitario') or 0))
+        self.edit_precio.value = str(float(item.get('precio_venta') or 0))
+        
+        # Recargar opciones frescas
+        categorias_bd = self.db.get_categorias() if hasattr(self.db, 'get_categorias') else []
+        opts = [ft.dropdown.Option(c) for c in categorias_bd if c]
+        self.edit_categoria.options = opts
+
+        # Limpiar dropdowns
+        self.edit_margen.value = None
+
+        # Asignar categoría exacta
+        cat_val = str(item.get('categoria') or '').strip()
+        if any(o.key == cat_val for o in opts):
+            self.edit_categoria.value = cat_val
+        elif opts:
+            self.edit_categoria.value = opts[0].key
+        else:
+            self.edit_categoria.value = None
+        
+        self.btn_guardar_edicion.disabled = True
+        self.action_bar.visible = True
+        self.safe_update()
+
+    def cancelar_edicion(self, e=None):
+        if self.current_edit_context:
+            row_ref = self.current_edit_context['row']
+            if row_ref and len(row_ref.cells) > 0:
+                cb = row_ref.cells[0].content.content
+                if isinstance(cb, ft.Checkbox):
+                    cb.value = False
+        self.current_edit_context = None
+        self.action_bar.visible = False
+        self.safe_update()
+
+    def abrir_dialogo_confirmacion(self):
+        if not self.current_edit_context: return
+        item = self.current_edit_context['item']
+        
+        cambios = []
+        try:
+            nuevo_stock_min = int(self.edit_stock_minimo.value)
+            if nuevo_stock_min != int(item.get('stock_minimo', 5) or 5):
+                cambios.append(f"Stock Mínimo: {int(item.get('stock_minimo', 5) or 5)} -> {nuevo_stock_min}")
+                
+            nuevo_costo = float(self.edit_costo.value)
+            if nuevo_costo != float(item.get('costo_unitario') or 0):
+                cambios.append(f"Costo Unitario: ${float(item.get('costo_unitario') or 0):.2f} -> ${nuevo_costo:.2f}")
+                
+            nuevo_precio = float(self.edit_precio.value)
+            if nuevo_precio != float(item.get('precio_venta') or 0):
+                cambios.append(f"Precio Venta: ${float(item.get('precio_venta') or 0):.2f} -> ${nuevo_precio:.2f}")
+                
+            nueva_cat = self.edit_categoria.value
+            if nueva_cat != str(item.get('categoria', '')):
+                cambios.append(f"Categoría: {item.get('categoria', '')} -> {nueva_cat}")
+        except ValueError:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Error: Asegúrate de ingresar números válidos."), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.safe_update()
+            return
+
+        if not cambios:
+            self.cancelar_edicion()
+            return
+
+        resumen = "\n".join(cambios)
+        
+        dlg = ft.AlertDialog(
+            title=ft.Text("Confirmar Actualización"),
+            content=ft.Text(f"Estás a punto de modificar el insumo: {item.get('codigo_insumo')} - {item.get('nombre')}.\n\nCambios detectados:\n{resumen}"),
+        )
+        
+        def on_cancel(e):
+            dlg.open = False
+            self.safe_update()
+            
+        def on_save(e):
+            self.ejecutar_guardado(dlg)
+            
+        dlg.actions = [
+            ft.TextButton("Cancelar", on_click=on_cancel),
+            ft.ElevatedButton("Guardar", bgcolor="green", color="white", on_click=on_save)
+        ]
+        
+        self.page.overlay.append(dlg)
+        dlg.open = True
+        self.safe_update()
+
+    def ejecutar_guardado(self, dialog=None):
+        if dialog:
+            dialog.open = False
+            
+        if hasattr(self, 'progress_bar'):
+            self.progress_bar.visible = True
+            
+        self.safe_update()
+            
+        threading.Thread(target=self._ejecutar_guardado_worker, daemon=True).start()
+
+    def _ejecutar_guardado_worker(self):
+        try:
+            if not self.current_edit_context: return
+            item = self.current_edit_context['item']
+            
+            try:
+                datos_actualizados = {
+                    "stock_minimo": int(self.edit_stock_minimo.value),
+                    "costo_unitario": float(self.edit_costo.value),
+                    "precio_venta": float(self.edit_precio.value),
+                    "categoria": self.edit_categoria.value
+                }
+            except ValueError:
+                self.page.snack_bar = ft.SnackBar(ft.Text("Error numérico al guardar."), bgcolor="red")
+                self.page.snack_bar.open = True
+                self.safe_update()
+                return
+                
+            codigo = item.get('codigo_insumo')
+            exito = self.db.update_insumo(codigo, datos_actualizados)
+            
+            if exito:
+                self.cancelar_edicion()
+                
+                self.page.snack_bar = ft.SnackBar(ft.Text(f"Insumo {codigo} actualizado exitosamente."), bgcolor="green")
+                self.page.snack_bar.open = True
+                self.safe_update()
+                
+                self.load_data()
+                self.load_summary()
+            else:
+                self.page.snack_bar = ft.SnackBar(ft.Text("Error al actualizar en Base de Datos."), bgcolor="red")
+                self.page.snack_bar.open = True
+                self.safe_update()
+                
+            self.update_pagination_ui()
+
+        except Exception as ex:
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error interno: {str(ex)}"), bgcolor="red")
+                self.page.snack_bar.open = True
+        finally:
+            if hasattr(self, 'progress_bar'):
+                self.progress_bar.visible = False
+            self.safe_update()
+        
+    def update_pagination_ui(self):
+        self.lbl_page_info.value = f"Página {self.current_page} de {self.total_pages}"
+        self.lbl_total.value = f"{self.total_records} registros en total"
+        self.btn_prev.disabled = (self.current_page <= 1)
+        self.btn_next.disabled = (self.current_page >= self.total_pages)
+        
+        # Apagar indicador de carga al finalizar
+        self.progress_bar.visible = False
+        
+        self.safe_update()
+        
+    def on_search(self, e):
+        self.current_page = 1
+        self.load_data()
+        
+    def on_prev_page(self, e):
+        if self.current_page > 1:
+            self.current_page -= 1
+            self.load_data()
+            
+    def on_next_page(self, e):
+        if self.current_page < self.total_pages:
+            self.current_page += 1
+            self.load_data()
+            
+    def close_notification(self, e):
+        self.notification_banner.visible = False
+        self.safe_update()
+        
+    def open_date_picker(self, e):
+        self.date_picker.pick_date()
+        
+    def on_date_change(self, e):
+        if self.date_picker.value:
+            self.fecha_corte = self.date_picker.value.strftime("%Y-%m-%d")
+            self.btn_date_icon.tooltip = f"Fecha: {self.fecha_corte}"
+            self.btn_date_icon.icon_color = "blue"
+            self.btn_clear_date.visible = True
+            self.current_page = 1
+            self.load_data()
+            self.safe_update()
+            
+    def on_date_dismiss(self, e):
+        pass
+        
+    def clear_date(self, e):
+        self.fecha_corte = None
+        self.date_picker.value = None
+        self.btn_date_icon.tooltip = "Filtrar por Fecha de Corte"
+        self.btn_date_icon.icon_color = None
+        self.btn_clear_date.visible = False
+        self.current_page = 1
+        self.load_data()
+        self.safe_update()
+
+    def abrir_modal_info_fecha(self, e):
+        self.dlg_filtro_fecha_info.open = True
+        self.safe_update()
+
+    def cerrar_modal_info_fecha(self, e=None):
+        self.dlg_filtro_fecha_info.open = False
+        self.safe_update()
+
+    def lanzar_date_picker(self, e):
+        self.cerrar_modal_info_fecha()
+        self.date_picker.pick_date()
+
+    def on_sort_table(self, e: ft.DataColumnSortEvent):
+        """Delega el ordenamiento a la base de datos solicitando una nueva carga de datos."""
+        self.data_table.sort_column_index = e.column_index
+        self.data_table.sort_ascending = e.ascending
+        
+        # Identificar qué columna se hizo clic basándose en el diccionario
+        column_keys = list(self.columnas_def.keys())
+        
+        # Descontar las columnas que estén ocultas para encontrar el índice real
+        visible_keys = [k for k in column_keys if self.columnas_visibles.get(k, True)]
+        
+        if e.column_index < len(visible_keys):
+            self.sort_col_name = visible_keys[e.column_index]
+        
+        self.sort_is_asc = e.ascending
+        self.current_page = 1 # Volver a la primera página tras ordenar
+        self.load_data()
+
+    def on_guardar_global(self, e):
+        self.abrir_dialogo_confirmacion()
+
+    def on_cancelar_global(self, e):
+        self.cancelar_edicion()
+
+    def on_gestionar_ajustes(self, e):
+        # Placeholder para enviar el código del insumo seleccionado al futuro módulo de ajustes
+        if self.current_edit_context:
+            codigo = self.current_edit_context['item'].get('codigo_insumo')
+            self.page.snack_bar = ft.SnackBar(ft.Text(f"Redirigiendo a gestión de ajustes para el insumo {codigo}..."), bgcolor="blue")
+            self.page.snack_bar.open = True
+            self.safe_update()
+
+    def _crear_fila_inventario(self, item):
+        row = ft.DataRow(cells=[])
+        row.cells = self.crear_celdas_fila(item, row, edit_mode=False)
+        return row
+
+    def _crear_tarjeta_inventario(self, item, row):
+        codigo = str(item.get('codigo_insumo') or '')
+        nombre = str(item.get('nombre') or '')
+        categoria = str(item.get('categoria') or '')
+        ubicacion = str(item.get('ubicacion') or 'N/A')
+        
+        # Extracción Segura
+        stock_inicial = float(item.get("stock_inicial") or 0)
+        valor_inicial = float(item.get("valor_inicial") or 0)
+        compras = float(item.get("compras") or 0)
+        valor_compras = float(item.get("valor_compras") or 0)
+        ventas = float(item.get("ventas") or 0)
+        valor_ventas = float(item.get("valor_ventas") or 0)
+        ajustes_entrantes = float(item.get("ajustes_entrantes") or 0)
+        valor_ajustes_entrantes = float(item.get("valor_ajustes_entrantes") or 0)
+        ajustes_salientes = float(item.get("ajustes_salientes") or 0)
+        valor_ajustes_salientes = float(item.get("valor_ajustes_salientes") or 0)
+        neto_ajustes = float(item.get("neto_ajustes") or 0)
+        valor_neto_ajustes = float(item.get("valor_neto_ajustes") or 0)
+        
+        stock_actual = float(item.get('stock_actual') or item.get('stock_real') or 0)
+        costo_total_insumo = float(item.get('costo_total_insumo') or 0)
+        costo_u = float(item.get('costo_unitario') or 0)
+        p_venta = float(item.get('precio_venta') or 0)
+        
+        proyeccion_venta = stock_actual * p_venta if stock_actual > 0 else 0
+        participacion = (costo_total_insumo / self.valor_total_inventario) * 100 if getattr(self, 'valor_total_inventario', 0) > 0 else 0
+        
+        # Badges Pastel
+        badge_costo = ft.Container(content=ft.Text(f"Costo U: ${costo_u:,.0f}", size=11, weight="bold", color="grey800"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="grey100", border_radius=15)
+        badge_pventa = ft.Container(content=ft.Text(f"Precio Venta: ${p_venta:,.0f}", size=11, weight="bold", color="grey800"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="grey100", border_radius=15)
+        badge_peso = ft.Container(content=ft.Text(f"Peso Inv: {participacion:.1f}%", size=11, weight="bold", color="purple800"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="#f3e5f5", border_radius=15)
+        badge_proy = ft.Container(content=ft.Text(f"Proy Venta: ${proyeccion_venta:,.0f}", size=11, weight="bold", color="blue800"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="#e3f2fd", border_radius=15)
+        
+        color_bg_stock = "#e8f5e9" if stock_actual > 0 else "#ffebee"
+        color_txt_stock = "green800" if stock_actual > 0 else "red800"
+        badge_stock = ft.Container(content=ft.Text(f"Stock Actual: {stock_actual:g} unds ($ {costo_total_insumo:,.0f})", size=11, weight="bold", color=color_txt_stock), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor=color_bg_stock, border_radius=15)
+        
+        contenedor_badges = ft.Row(
+            [badge_costo, badge_pventa, badge_peso, badge_proy, badge_stock], 
+            spacing=5, 
+            alignment=ft.MainAxisAlignment.START,
+            wrap=True
+        )
+        
+        def crear_bloque_metricas(titulo, cantidad, valor, color_cant, color_valor):
+            return ft.Container(
+                expand=True,
+                content=ft.Column([
+                    ft.Text(titulo, size=9, color="grey", weight="bold"),
+                    ft.Text(f"{cantidad:g} unds", size=11, weight="bold", color=color_cant, no_wrap=True),
+                    ft.Text(f"${valor:,.0f}", size=11, color=color_valor, weight="w500", no_wrap=True)
+                ], spacing=1, alignment=ft.MainAxisAlignment.CENTER),
+                padding=ft.padding.symmetric(horizontal=4)
+            )
+
+        def crear_separador_vertical():
+            return ft.Container(
+                width=1,
+                height=28,
+                bgcolor="#e0e0e0",
+                margin=ft.padding.symmetric(horizontal=6)
+            )
+            
+        color_neto = "red" if valor_neto_ajustes < 0 else ("green" if valor_neto_ajustes > 0 else "grey")
+            
+        fila_resultados = ft.Container(
+            content=ft.Row([
+                crear_bloque_metricas("INICIAL", stock_inicial, valor_inicial, "grey", "grey"),
+                crear_separador_vertical(),
+                crear_bloque_metricas("COMPRAS", compras, valor_compras, "green700", "black87"),
+                crear_separador_vertical(),
+                crear_bloque_metricas("VENTAS", ventas, valor_ventas, "blue700", "black87"),
+                crear_separador_vertical(),
+                crear_bloque_metricas("AJUSTES (+)", ajustes_entrantes, valor_ajustes_entrantes, "green700", "green700"),
+                crear_separador_vertical(),
+                crear_bloque_metricas("AJUSTES (-)", ajustes_salientes, valor_ajustes_salientes, "red700", "red700"),
+                crear_separador_vertical(),
+                crear_bloque_metricas("NETO", neto_ajustes, valor_neto_ajustes, color_neto, color_neto)
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor="#fafafa",
+            padding=10,
+            border_radius=8,
+            border=ft.border.all(1, "#f0f0f0")
+        )
+        
+        tarjeta = ft.Container(
+            bgcolor="white",
+            padding=15,
+            border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            content=ft.Column([
+                ft.Row([
+                    ft.Container(
+                        content=ft.Text(f"{categoria} | {ubicacion}", size=10, weight="bold", color="grey700"),
+                        bgcolor="#f5f5f5", padding=ft.padding.symmetric(horizontal=8, vertical=2), border_radius=4
+                    ),
+                    ft.Text(f"[{codigo}] {nombre}", size=14, weight="bold", color="black87", expand=True),
+                    ft.IconButton(icon=ft.icons.EDIT, icon_size=16, tooltip="Editar Insumo", on_click=lambda e, i=item, r=row: self.abrir_edicion_desde_tarjeta(i, r))
+                ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                contenedor_badges,
+                fila_resultados
+            ], spacing=10)
+        )
+        return tarjeta
+
+    def toggle_right_panel(self, e):
+        self.panel_abierto = not self.panel_abierto
+        self.right_panel.width = 340 if self.panel_abierto else 0
+        self.right_panel.visible = self.panel_abierto
+        self.right_panel.padding = 0
+        self.btn_toggle_panel.icon = ft.icons.HISTORY if self.panel_abierto else ft.icons.HISTORY_TOGGLE_OFF
+        if self.panel_abierto:
+            self.cargar_historial_panel()
+        self.safe_update()
+
+    def on_date_timeline_change(self, e):
+        if self.date_picker_timeline.value:
+            self.fecha_historial_activa = self.date_picker_timeline.value.strftime("%Y-%m-%d")
+            self.btn_fecha_timeline.text = self.fecha_historial_activa
+            self.cargar_historial_panel()
+
+    def on_tipo_timeline_change(self, e):
+        if e.control.selected:
+            self.filtro_tipo_timeline = list(e.control.selected)[0]
+            self.cargar_historial_panel()
+
+    def cargar_historial_panel(self):
+        if not getattr(self, "page", None): return
+
+        def worker():
+            facturas = self.db.get_historial_facturas_dia(self.fecha_historial_activa)
+
+            tot_compras = sum([f["total"] for f in facturas if f["tipo"] == "COMPRA"])
+            tot_ventas = sum([f["total"] for f in facturas if f["tipo"].startswith("VENTA")])
+            neto = tot_ventas - tot_compras
+
+            self.lbl_tot_compras_dia.value = f"${tot_compras:,.0f}"
+            self.lbl_tot_ventas_dia.value = f"${tot_ventas:,.0f}"
+            self.lbl_tot_neto_dia.value = f"${neto:,.0f}"
+            self.lbl_tot_neto_dia.color = "green700" if neto >= 0 else "red700"
+
+            self.panel_timeline_list.controls.clear()
+
+            for f in facturas:
+                tipo = f["tipo"]
+                # Aplicar filtro de pestaña
+                if self.filtro_tipo_timeline == "COMPRAS" and tipo != "COMPRA": continue
+                if self.filtro_tipo_timeline == "VENTAS" and not tipo.startswith("VENTA"): continue
+                if self.filtro_tipo_timeline == "AJUSTES" and not tipo.startswith("AJUSTE"): continue
+
+                self.panel_timeline_list.controls.append(self._crear_card_factura_timeline(f))
+
+            if not self.panel_timeline_list.controls:
+                self.panel_timeline_list.controls.append(
+                    ft.Container(content=ft.Text("Sin movimientos registrados en esta fecha.", size=11, color="grey"), padding=20, alignment=ft.alignment.center)
+                )
+
+            self.safe_update()
+
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _crear_card_factura_timeline(self, f):
+        tipo = f["tipo"]
+
+        # Estilos por tipo
+        if tipo == "COMPRA":
+            badge_bg, badge_col, badge_txt = "#e6f4ea", "teal800", f"COMPRA | {f['proveedor']}"
+            icon_mat, icon_col = ft.icons.SHOPPING_CART, "teal"
+        elif "VENTA" in tipo:
+            subtipo = f.get("subtipo", "POS")
+            badge_bg, badge_col = ("#e8f0fe", "blue800") if "POS" in tipo else ("#f3e8fd", "purple800")
+            badge_txt = f"VENTA ({subtipo})"
+            icon_mat, icon_col = ft.icons.RECEIPT_LONG, "blue"
+        else:
+            is_ent = tipo == "AJUSTE_ENTRADA"
+            badge_bg, badge_col = ("#e6f4ea", "green800") if is_ent else ("#fce8e6", "red800")
+            badge_txt = f"AJUSTE {'ENTRADA' if is_ent else 'SALIDA'}"
+            icon_mat, icon_col = ft.icons.TUNE, "orange"
+
+        badge = ft.Container(
+            content=ft.Text(badge_txt, size=9, weight="bold", color=badge_col, no_wrap=True),
+            padding=ft.padding.symmetric(horizontal=6, vertical=2), bgcolor=badge_bg, border_radius=10
+        )
+
+        ref = f["ref"]
+        desc_fact = f"Fact/Doc: {f['factura']}"
+
+        card = ft.Container(
+            content=ft.Row([
+                ft.Icon(icon_mat, size=20, color=icon_col),
+                # Detalle Factura
+                ft.Column([
+                    badge,
+                    ft.Text(desc_fact, size=11, weight="bold", color="black87", no_wrap=True),
+                ], expand=True, spacing=2),
+
+                # Total Monetario
+                ft.Text(f"${f['total']:,.0f}", size=11, weight="bold", color="black87")
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+            padding=8,
+            border_radius=6,
+            bgcolor="#ffffff",
+            border=ft.border.all(1, "#eeeeee"),
+            on_click=lambda e, t=tipo, r=ref, d=desc_fact: self.aplicar_filtro_factura(t, r, d),
+            ink=True
+        )
+        return card
+
+    def aplicar_filtro_factura(self, tipo, ref, desc):
+        self.progress_bar.visible = True
+        self.safe_update()
+
+        def worker():
+            codigos = self.db.get_codigos_factura_especifica(tipo, ref)
+            self.codigos_filtro_activos = codigos if codigos else []
+            self.current_page = 1
+
+            # Actualizar Badge superior
+            lbl = self.filtro_badge.content.controls[1]
+            lbl.value = f"Filtrado por: {desc}"
+            self.filtro_badge.visible = True
+
+            self._fetch_data_worker()
+
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
+
+    def limpiar_filtro_factura(self, e=None):
+        self.codigos_filtro_activos = None
+        self.current_page = 1
+        self.filtro_badge.visible = False
+        self.progress_bar.visible = True
+        self.safe_update()
+        
+        import threading
+        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
+````
+
 ## File: ui/views/ventas.py
 ````python
 import flet as ft
@@ -5784,6 +6776,16 @@ class VentasView(ft.Container):
         
         self.parsed_data = None # Para guardar temporalmente los datos extraídos
         
+        # --- ESTADO PANEL HISTÓRICO VENTAS ---
+        self.panel_abierto = False
+        self.fecha_historial_activa = datetime.date.today().strftime("%Y-%m-%d")
+        self.modo_agrupacion_ventas = "CATEGORIA" # "CATEGORIA" o "FACTURA"
+        self.filtro_categoria_activo = None
+        self.filtro_factura_activo = None
+
+        self.date_picker_ventas_timeline = ft.DatePicker(on_change=self.on_date_ventas_timeline_change)
+        # ---------------------------------------
+        
         # Controles de Búsqueda
         self.search_input = ft.TextField(
             hint_text="Buscar por código, descripción o factura...", 
@@ -5791,7 +6793,10 @@ class VentasView(ft.Container):
             border_radius=8,
             expand=True,
             bgcolor="white",
-            height=40,
+            height=38,
+            dense=True,
+            text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
             on_submit=self.on_search
         )
         
@@ -5801,12 +6806,10 @@ class VentasView(ft.Container):
             on_change=self.on_date_change,
             on_dismiss=self.on_date_dismiss,
         )
-        self.btn_date = ft.OutlinedButton(
-            text="Filtrar por Fecha",
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=self.open_date_picker,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=40
+        self.btn_date = ft.IconButton(
+            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
+            tooltip="Filtrar por Fecha",
+            on_click=self.open_date_picker
         )
         self.btn_clear_date = ft.IconButton(
             icon=ft.icons.CLEAR,
@@ -5919,8 +6922,8 @@ class VentasView(ft.Container):
         # Controles Paginación
         self.lbl_page_info = ft.Text("Página 1 de 1")
         self.lbl_total = ft.Text("0 registros en total", color="grey")
-        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, on_click=self.on_prev_page, disabled=True)
-        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, on_click=self.on_next_page, disabled=True)
+        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, tooltip="Página Anterior", on_click=self.on_prev_page, disabled=True)
+        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, tooltip="Página Siguiente", on_click=self.on_next_page, disabled=True)
         
         # Inicializar memoria local
         self.cargas_file = "cargas_locales.json"
@@ -5933,12 +6936,10 @@ class VentasView(ft.Container):
         self.fecha_filtro_cargas = None
         self.date_picker_filtro_cargas = ft.DatePicker(on_change=self.on_date_filtro_cargas_change)
         
-        self.btn_filtro_fecha_cargas = ft.OutlinedButton(
-            text="Filtrar por Fecha",
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=lambda e: self.date_picker_filtro_cargas.pick_date(),
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=45
+        self.btn_filtro_fecha_cargas = ft.IconButton(
+            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
+            tooltip="Filtrar por Fecha",
+            on_click=lambda e: self.date_picker_filtro_cargas.pick_date()
         )
         self.btn_clear_filtro_cargas = ft.IconButton(
             icon=ft.icons.CLEAR, tooltip="Limpiar Fecha",
@@ -5948,12 +6949,14 @@ class VentasView(ft.Container):
         # Dropdowns con height ajustado y content_padding para evitar que el label se corte
         self.drop_filtro_tipo_cargas = ft.Dropdown(
             options=[ft.dropdown.Option("Todas"), ft.dropdown.Option("Remisiones"), ft.dropdown.Option("Ventas POS")],
-            value="Todas", label="Tipo", dense=True, width=160, border_radius=8, content_padding=10, height=45,
+            value="Todas", label="Tipo", dense=True, width=160, border_radius=8, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8), height=38,
             on_change=lambda e: self._render_tabla_cargas()
         )
         self.drop_filtro_estado_cargas = ft.Dropdown(
             options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("Nuevo"), ft.dropdown.Option("Procesado con éxito"), ft.dropdown.Option("Falló"), ft.dropdown.Option("Guardado"), ft.dropdown.Option("Sobreescrito")],
-            value="Todos", label="Estado", dense=True, width=170, border_radius=8, content_padding=10, height=45,
+            value="Todos", label="Estado", dense=True, width=170, border_radius=8, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8), height=38,
             on_change=lambda e: self._render_tabla_cargas()
         )
 
@@ -5989,10 +6992,6 @@ class VentasView(ft.Container):
             self.search_input,
             self.btn_date,
             self.btn_clear_date,
-            ft.ElevatedButton(
-                text="Buscar", icon=ft.icons.SEARCH, bgcolor=Config.COLOR_PRIMARY, color="white", height=40,
-                on_click=self.on_search, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-            ),
             btn_nueva_venta
         ])
 
@@ -6064,17 +7063,224 @@ class VentasView(ft.Container):
             expand=True
         )
 
+        # --- DISEÑO DEL PANEL HISTÓRICO ---
+        self.lbl_tot_ventas_panel = ft.Text("$0 COP", size=14, weight="bold", color="blue800")
+        self.lbl_cant_ventas_panel = ft.Text("0 unds", size=10, color="grey")
+
+        kpi_ventas_panel = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.POINT_OF_SALE, color="blue700", size=20),
+                ft.Column([
+                    ft.Text("TOTAL VENTAS DEL DÍA", size=9, weight="bold", color="grey"),
+                    self.lbl_tot_ventas_panel
+                ], spacing=0, expand=True),
+                self.lbl_cant_ventas_panel
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=10, bgcolor="#e8f0fe", border_radius=8, border=ft.border.all(1, "#d2e3fc")
+        )
+
+        self.segment_agrupacion_ventas = ft.SegmentedButton(
+            segments=[
+                ft.Segment(value="CATEGORIA", label=ft.Text("Por Categoría", size=10)),
+                ft.Segment(value="FACTURA", label=ft.Text("Por Factura", size=10)),
+            ],
+            selected={"CATEGORIA"},
+            on_change=self.on_agrupacion_ventas_change,
+            show_selected_icon=False
+        )
+
+        self.btn_fecha_ventas_panel = ft.OutlinedButton(
+            self.fecha_historial_activa,
+            icon=ft.icons.CALENDAR_TODAY,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), padding=5),
+            height=30,
+            on_click=lambda e: self.date_picker_ventas_timeline.pick_date()
+        )
+
+        self.panel_ventas_list = ft.ListView(expand=True, spacing=6)
+
+        self.right_panel = ft.Container(
+            width=0, visible=False, bgcolor="white", border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color=ft.colors.with_opacity(0.05, "black")),
+            animate=ft.animation.Animation(250, ft.AnimationCurve.EASE_OUT),
+            content=ft.Column([
+                ft.Container(
+                    content=ft.Row([
+                        ft.Text("Histórico de Ventas", weight="bold", size=13, color=Config.COLOR_PRIMARY, expand=True),
+                        self.btn_fecha_ventas_panel,
+                        ft.IconButton(ft.icons.CLOSE, icon_size=16, on_click=self.toggle_right_panel)
+                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    padding=10, bgcolor="#f4f6f8", border_radius=ft.border_radius.only(top_left=8, top_right=8)
+                ),
+                ft.Container(content=kpi_ventas_panel, padding=ft.padding.symmetric(horizontal=10)),
+                ft.Container(content=self.segment_agrupacion_ventas, padding=ft.padding.symmetric(horizontal=10), alignment=ft.alignment.center),
+                ft.Divider(height=1, color="#e0e0e0"),
+                ft.Container(content=self.panel_ventas_list, expand=True, padding=10)
+            ], spacing=8)
+        )
+
+        self.filtro_badge_ventas = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.FILTER_ALT, size=14, color="white"),
+                ft.Text("Filtro Activo", color="white", weight="bold", size=11),
+                ft.IconButton(
+                    ft.icons.CLOSE, icon_size=14, icon_color="white",
+                    on_click=self.limpiar_filtro_ventas,
+                    style=ft.ButtonStyle(padding=0), width=20, height=20
+                )
+            ], tight=True),
+            bgcolor="blue700", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=12, visible=False
+        )
+
+        self.btn_toggle_panel = ft.IconButton(
+            icon=ft.icons.HISTORY_TOGGLE_OFF,
+            tooltip="Ver Histórico de Ventas del Día",
+            on_click=self.toggle_right_panel
+        )
+
         # --- ENSAMBLAJE FINAL DE LA VISTA ---
         self.lbl_titulo = ft.Text("Registro de Ventas (Salidas)", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.content = ft.Column([
+        main_column = ft.Column([
             self.progress_bar,
-            self.lbl_titulo,
+            ft.Row([self.lbl_titulo, self.filtro_badge_ventas, ft.Container(expand=True), self.btn_toggle_panel, self.btn_fullscreen]),
             self.summary_container,
             self.tabs
         ], expand=True, spacing=10)
 
+        self.content = ft.Row([
+            main_column,
+            self.right_panel
+        ], expand=True, spacing=10)
+
         # Llamar al método de renderizado en lugar del mock
         self._render_tabla_cargas()
+
+    def toggle_right_panel(self, e):
+        self.panel_abierto = not self.panel_abierto
+        self.right_panel.width = 330 if self.panel_abierto else 0
+        self.right_panel.visible = self.panel_abierto
+        self.right_panel.padding = 0
+        self.btn_toggle_panel.icon = ft.icons.HISTORY if self.panel_abierto else ft.icons.HISTORY_TOGGLE_OFF
+        if self.panel_abierto:
+            self.cargar_historial_panel()
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        elif self.page:
+            self.page.update()
+
+    def on_date_ventas_timeline_change(self, e):
+        if self.date_picker_ventas_timeline.value:
+            self.fecha_historial_activa = self.date_picker_ventas_timeline.value.strftime("%Y-%m-%d")
+            self.btn_fecha_ventas_panel.text = self.fecha_historial_activa
+            self.cargar_historial_panel()
+
+    def on_agrupacion_ventas_change(self, e):
+        if e.control.selected:
+            self.modo_agrupacion_ventas = list(e.control.selected)[0]
+            self.cargar_historial_panel()
+
+    def cargar_historial_panel(self):
+        if not self.page: return
+
+        def worker():
+            items = self.db.get_historial_ventas_dia(self.fecha_historial_activa, self.modo_agrupacion_ventas)
+
+            tot_pesos = sum([item["total"] for item in items])
+            tot_unds = sum([item["unidades"] for item in items])
+
+            self.lbl_tot_ventas_panel.value = f"${tot_pesos:,.0f} COP"
+            self.lbl_cant_ventas_panel.value = f"{tot_unds:g} unds"
+
+            self.panel_ventas_list.controls.clear()
+
+            for item in items:
+                self.panel_ventas_list.controls.append(self._crear_card_item_ventas(item))
+
+            if not self.panel_ventas_list.controls:
+                self.panel_ventas_list.controls.append(
+                    ft.Container(content=ft.Text("Sin ventas registradas en esta fecha.", size=11, color="grey"), padding=20, alignment=ft.alignment.center)
+                )
+
+            if hasattr(self, "safe_update"):
+                self.safe_update()
+            else:
+                self.page.update()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _crear_card_item_ventas(self, item):
+        tipo = item["tipo"]
+
+        if tipo == "CATEGORIA_RESUMEN":
+            badge_txt = f"CATEGORÍA: {item['categoria']}"
+            badge_bg, badge_col = "#e8f0fe", "blue800"
+            sub_txt = f"{item['items_count']} ítems vendidos"
+            icon_mat = ft.icons.CATEGORY
+        else:
+            # FACTURA_VENTA
+            subtipo = item.get("subtipo", "POS")
+            badge_txt = f"DOC: {item['factura']} ({subtipo})"
+            badge_bg, badge_col = "#e6f4ea" if "POS" in subtipo.upper() else "#f3e8fd", "teal800" if "POS" in subtipo.upper() else "purple800"
+            sub_txt = f"Venta {subtipo}"
+            icon_mat = ft.icons.RECEIPT_LONG
+
+        badge = ft.Container(
+            content=ft.Text(badge_txt, size=9, weight="bold", color=badge_col, no_wrap=True),
+            padding=ft.padding.symmetric(horizontal=6, vertical=2), bgcolor=badge_bg, border_radius=10
+        )
+
+        card = ft.Container(
+            content=ft.Row([
+                ft.Icon(icon_mat, size=16, color="blue700"),
+                ft.Column([
+                    badge,
+                    ft.Text(sub_txt, size=11, weight="bold", color="black87", no_wrap=True, tooltip=sub_txt),
+                ], expand=True, spacing=2),
+                ft.Column([
+                    ft.Text(f"${item['total']:,.0f}", size=11, weight="bold", color="black87"),
+                    ft.Text(f"{item['unidades']:g} unds", size=9, color="grey", text_align=ft.TextAlign.RIGHT)
+                ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=1)
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+            padding=8,
+            border_radius=6,
+            bgcolor="#ffffff",
+            border=ft.border.all(1, "#eeeeee"),
+            on_click=lambda e, i=item: self.aplicar_filtro_cruzado_ventas(i),
+            ink=True
+        )
+        return card
+
+    def aplicar_filtro_cruzado_ventas(self, item):
+        tipo = item["tipo"]
+        self.progress_bar.visible = True
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        else:
+            self.page.update()
+
+        if tipo == "CATEGORIA_RESUMEN":
+            self.filtro_categoria_activo = item["categoria"]
+            self.filtro_factura_activo = None
+            desc = f"Categoría: {item['categoria']}"
+        else:
+            self.filtro_factura_activo = item["ref"]
+            self.filtro_categoria_activo = None
+            desc = f"Factura/Doc: {item['factura']}"
+
+        lbl = self.filtro_badge_ventas.content.controls[1]
+        lbl.value = desc
+        self.filtro_badge_ventas.visible = True
+
+        self.current_page = 1
+        self.load_data()
+
+    def limpiar_filtro_ventas(self, e=None):
+        self.filtro_categoria_activo = None
+        self.filtro_factura_activo = None
+        self.filtro_badge_ventas.visible = False
+        self.current_page = 1
+        self.load_data()
 
     def toggle_fullscreen(self, e):
         self.is_fullscreen = not getattr(self, "is_fullscreen", False)
@@ -6095,6 +7301,8 @@ class VentasView(ft.Container):
             self.page.update()
 
     def did_mount(self):
+        if hasattr(self, "date_picker_ventas_timeline") and self.date_picker_ventas_timeline not in self.page.overlay:
+            self.page.overlay.append(self.date_picker_ventas_timeline)
         if self.file_picker not in self.page.overlay:
             self.page.overlay.append(self.file_picker)
         if hasattr(self, "dlg_loading") and self.dlg_loading not in self.page.overlay:
@@ -6128,7 +7336,8 @@ class VentasView(ft.Container):
     def on_date_filtro_cargas_change(self, e):
         if self.date_picker_filtro_cargas.value:
             self.fecha_filtro_cargas = self.date_picker_filtro_cargas.value.strftime("%Y-%m-%d")
-            self.btn_filtro_fecha_cargas.text = self.fecha_filtro_cargas
+            self.btn_filtro_fecha_cargas.tooltip = f"Fecha: {self.fecha_filtro_cargas}"
+            self.btn_filtro_fecha_cargas.icon_color = "blue"
             self.btn_clear_filtro_cargas.visible = True
             if self.page:
                 self.page.update()
@@ -6137,7 +7346,8 @@ class VentasView(ft.Container):
     def clear_filtro_fecha_cargas(self, e):
         self.fecha_filtro_cargas = None
         self.date_picker_filtro_cargas.value = None
-        self.btn_filtro_fecha_cargas.text = "Filtrar por Fecha"
+        self.btn_filtro_fecha_cargas.tooltip = "Filtrar por Fecha"
+        self.btn_filtro_fecha_cargas.icon_color = None
         self.btn_clear_filtro_cargas.visible = False
         if self.page:
             self.page.update()
@@ -6339,7 +7549,8 @@ class VentasView(ft.Container):
     def on_date_change(self, e):
         if self.date_picker.value:
             self.fecha_corte = self.date_picker.value.strftime("%Y-%m-%d")
-            self.btn_date.text = self.fecha_corte
+            self.btn_date.tooltip = f"Fecha: {self.fecha_corte}"
+            self.btn_date.icon_color = "blue"
             self.btn_clear_date.visible = True
             if self.page:
                 self.page.update()
@@ -6351,7 +7562,8 @@ class VentasView(ft.Container):
         
     def clear_date(self, e):
         self.fecha_corte = None
-        self.btn_date.text = "Filtrar por Fecha"
+        self.btn_date.tooltip = "Filtrar por Fecha"
+        self.btn_date.icon_color = None
         self.btn_clear_date.visible = False
         self.date_picker.value = None
         if self.page:
@@ -6851,13 +8063,19 @@ class VentasView(ft.Container):
         threading.Thread(target=self._fetch_data_worker, daemon=True).start()
 
     def _fetch_data_worker(self):
-        search_val = self.search_input.value or ""
+        search_val = self.search_input.value.strip() if self.search_input.value else ""
         
+        cat_filtro = getattr(self, 'filtro_categoria_activo', None)
+        fact_filtro = getattr(self, 'filtro_factura_activo', None)
+        f_corte = getattr(self, 'fecha_corte', None)
+
         data, total = self.db.get_ventas(
             page=self.current_page, 
             page_size=self.page_size, 
             search=search_val,
-            fecha_corte=getattr(self, 'fecha_corte', None)
+            fecha_corte=f_corte,
+            categoria_filtro=cat_filtro,
+            factura_filtro=fact_filtro
         )
         
         self.total_records = total
@@ -7043,893 +8261,6 @@ class VentasView(ft.Container):
             barra_progreso.value = 1
             self.page.update()
             self._render_tabla_cargas()
-````
-
-## File: core/supabase_client.py
-````python
-import requests
-import datetime
-from config import Config
-
-_client_instance = None
-
-def get_client():
-    """Retorna la instancia singleton del cliente Supabase."""
-    global _client_instance
-    if _client_instance is None:
-        _client_instance = SupabaseClient()
-    return _client_instance
-
-class SupabaseClient:
-    def __init__(self):
-        self.url = Config.SUPABASE_URL
-        self.key = Config.SUPABASE_KEY
-        
-        if self.url and self.url.endswith('/'):
-            self.url = self.url[:-1]
-        if self.url and not self.url.endswith('/rest/v1'):
-            self.url = self.url + "/rest/v1"
-            
-        # 1. Instanciar la sesión compartida para mantener viva la conexión TCP
-        self.session = requests.Session()
-        
-        # 2. Configurar los encabezados globales directamente en la sesión
-        self.headers = {
-            "apikey": self.key,
-            "Authorization": f"Bearer {self.key}",
-            "Content-Type": "application/json"
-        }
-        self.session.headers.update(self.headers)
-        
-    def check_connection(self):
-        if not self.url or not self.key:
-            return False, "Faltan credenciales"
-        try:
-            # Prueba simple a la tabla (limit 1)
-            response = self.session.get(f"{self.url}/catalogo_insumos?limit=1", headers=self.headers, timeout=10)
-            if response.status_code == 200:
-                return True, "Conexión exitosa"
-            return False, f"Error: {response.text}"
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en check_connection: el servidor no responde")
-        except Exception as e:
-            return False, str(e)
-            
-    # --- CRUD Catálogo Insumos ---
-    
-    def get_categorias(self):
-        """Obtiene una lista de categorías únicas usando RPC si existe, o extrayendo de todo (simplificado)"""
-        # Para simplificar y dado que PostgREST soporta distinct
-        url = f"{self.url}/catalogo_insumos?select=categoria"
-        headers = self.headers.copy()
-        # En PostgREST podemos usar un header o query para distintos, pero es más fácil
-        # traerlos y filtrarlos en memoria (limitado a unos cientos si hay muchos, pero está bien).
-        response = self.session.get(url, headers=headers, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            categorias = set([item.get('categoria', 'SIN CATEGORIA') for item in data if item.get('categoria')])
-            return sorted(list(categorias))
-        return []
-
-    def get_insumos(self, page=1, page_size=20, search="", categoria="", fecha_corte=None, sort_col="Insumo", sort_asc=True):
-        """
-        Obtiene los insumos con paginación, filtros y ordenamiento desde el servidor.
-        Retorna (lista_datos, total_count)
-        """
-        if fecha_corte:
-            url = f"{self.url}/rpc/obtener_inventario_por_fecha?select=*"
-        else:
-            url = f"{self.url}/vista_inventario_completo?select=*"
-        
-        filtros = []
-        if categoria and categoria != "Todas":
-            filtros.append(f"categoria=eq.{categoria}")
-            
-        if search:
-            filtros.append(f"or=(nombre.ilike.*{search}*,codigo_insumo.ilike.*{search}*)")
-            
-        if filtros:
-            url += "&" + "&".join(filtros)
-            
-        # Mapeo de columnas de la interfaz a las columnas de la vista SQL
-        db_col_stock = "stock_real" if fecha_corte else "stock_actual"
-        map_columnas = {
-            "Código": "codigo_insumo",
-            "Insumo": "nombre",
-            "Categoría": "categoria",
-            "Ubicación": "ubicacion",
-            "Stock Inicial": "stock_inicial",
-            "Stock Mínimo": "stock_minimo",
-            "Entradas": "entradas",
-            "Salidas": "salidas",
-            "Stock Real": db_col_stock
-        }
-        
-        db_col = map_columnas.get(sort_col, "nombre")
-        direccion = "asc" if sort_asc else "desc"
-        
-        offset = (page - 1) * page_size
-        url += f"&order={db_col}.{direccion}&offset={offset}&limit={page_size}"
-        
-        headers = self.headers.copy()
-        headers["Prefer"] = "count=exact"
-        
-        try:
-            if fecha_corte:
-                payload = {"p_fecha_corte": f"{fecha_corte} 23:59:59"}
-                response = self.session.post(url, headers=headers, json=payload, timeout=10)
-            else:
-                response = self.session.get(url, headers=headers, timeout=10)
-            
-            if response.status_code in (200, 201, 206):
-                data = response.json()
-                content_range = response.headers.get("Content-Range", "")
-                total_count = 0
-                if "/" in content_range:
-                    total_count = int(content_range.split("/")[1])
-                return data, total_count
-            else:
-                print(f"Error en consulta: {response.text}")
-                return [], 0
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_insumos: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en get_insumos: {e}")
-            return [], 0
-        
-    def insert_insumo(self, data: dict):
-        url = f"{self.url}/catalogo_insumos"
-        response = self.session.post(url, json=data, headers=self.headers, timeout=10)
-        if response.status_code in (200, 201):
-            return response.json()
-        return None
-
-    def update_insumo(self, codigo_insumo: str, datos_actualizados: dict) -> bool:
-        """
-        Actualiza un insumo existente en el catálogo.
-        """
-        url = f"{self.url}/catalogo_insumos?codigo_insumo=eq.{codigo_insumo}"
-        try:
-            response = self.session.patch(url, json=datos_actualizados, headers=self.headers, timeout=10)
-            if response.status_code in (200, 204):
-                return True
-            else:
-                print(f"Error al actualizar insumo: {response.text}")
-                return False
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en update_insumo: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en update_insumo: {e}")
-            return False
-
-    def get_compras(self, page=1, page_size=20, search="", fecha_corte=None):
-        url = f"{self.url}/registro_compras?select=*,catalogo_insumos(nombre)"
-        
-        filtros = []
-        if search:
-            filtros.append(f"or=(codigo_insumo.ilike.*{search}*,proveedor.ilike.*{search}*,numero_factura.ilike.*{search}*)")
-        
-        if fecha_corte:
-            filtros.append(f"fecha=eq.{fecha_corte}")
-            
-        if filtros:
-            url += "&" + "&".join(filtros)
-            
-        offset = (page - 1) * page_size
-        url += f"&order=fecha.desc,numero_entrada.desc&offset={offset}&limit={page_size}"
-        
-        headers = self.headers.copy()
-        headers["Prefer"] = "count=exact"
-        
-        try:
-            response = self.session.get(url, headers=headers, timeout=10)
-            if response.status_code in (200, 206):
-                data = response.json()
-                content_range = response.headers.get("Content-Range", "")
-                total_count = 0
-                if "/" in content_range:
-                    total_count = int(content_range.split("/")[1])
-                return data, total_count
-            else:
-                print(f"Error en consulta compras: {response.text}")
-                return [], 0
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_compras: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en get_compras: {e}")
-            return [], 0
-
-
-    def insert_compras(self, compras_list: list):
-        """
-        Inserta una lista de registros de compras de forma masiva (bulk insert).
-        """
-        url = f"{self.url}/registro_compras"
-        
-        payload = []
-        for c in compras_list:
-            compra = {
-                "fecha": c.get("fecha"),
-                "numero_entrada": str(c.get("numero_entrada", "")),
-                "numero_factura": str(c.get("numero_factura", "")),
-                "proveedor": str(c.get("proveedor", "")),
-                "codigo_insumo": str(c.get("codigo_insumo", "")),
-                "cantidad": float(c.get("cantidad", 0) or 0),
-                "costo_unitario": float(c.get("costo_unitario", 0) or 0),
-                "valor_iva": float(c.get("iva", 0) or 0),
-                "costo_total": float(c.get("costo_total", 0) or 0),
-                "estado_registro": "VÁLIDO"
-            }
-            payload.append(compra)
-            
-        try:
-            # PostgREST permite inserción masiva enviando una lista de diccionarios JSON
-            response = self.session.post(url, json=payload, headers=self.headers, timeout=10)
-            if response.status_code in (200, 201, 204):
-                return True
-            else:
-                print(f"Error al insertar compras: {response.text}")
-                return False
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en insert_compras: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en insert_compras: {e}")
-            return False
-
-    def get_entradas_existentes(self, lista_eas: list) -> set:
-        """
-        Consulta cuáles de los 'numero_entrada' proveídos ya existen en registro_compras.
-        """
-        if not lista_eas:
-            return set()
-            
-        url = f"{self.url}/registro_compras?select=numero_entrada"
-        # Crear un filtro in.(EA-1,EA-2)
-        eas_str = ",".join(lista_eas)
-        url += f"&numero_entrada=in.({eas_str})"
-        
-        try:
-            response = self.session.get(url, headers=self.headers, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                return {item["numero_entrada"] for item in data if item.get("numero_entrada")}
-            return set()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_entradas_existentes: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en get_entradas_existentes: {e}")
-            return set()
-
-    def eliminar_compras_por_entradas(self, lista_eas: list) -> bool:
-        """
-        Elimina las compras que coincidan con los numero_entrada dados para permitir sobreescritura.
-        """
-        if not lista_eas:
-            return True
-            
-        url = f"{self.url}/registro_compras"
-        eas_str = ",".join(lista_eas)
-        url += f"?numero_entrada=in.({eas_str})"
-        
-        try:
-            response = self.session.delete(url, headers=self.headers, timeout=10)
-            if response.status_code in (200, 204):
-                return True
-            else:
-                print(f"Error al eliminar compras por entradas: {response.text}")
-                return False
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en eliminar_compras_por_entradas: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en eliminar_compras_por_entradas: {e}")
-            return False
-            
-    def get_nombres_insumos(self, lista_codigos: list) -> dict:
-        """
-        Devuelve un diccionario {codigo: nombre} buscando en catalogo_insumos.
-        """
-        if not lista_codigos:
-            return {}
-            
-        url = f"{self.url}/catalogo_insumos?select=codigo_insumo,nombre"
-        
-        # Como los códigos pueden ser strings (ej "0471"), envolvemos en comillas simples para la API de supabase,
-        # o usamos in. sin problemas si PostgREST lo maneja.
-        # PostgREST maneja in.(a,b,c). Para strings con espacios podría requerir doble comilla, 
-        # pero para códigos numéricos en string basta unirlos con coma.
-        codigos_str = ",".join(lista_codigos)
-        url += f"&codigo_insumo=in.({codigos_str})"
-        
-        try:
-            response = self.session.get(url, headers=self.headers, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                return {item["codigo_insumo"]: item["nombre"] for item in data if item.get("codigo_insumo")}
-            return {}
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_nombres_insumos: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en get_nombres_insumos: {e}")
-            return {}
-
-
-    def get_ventas(self, page=1, page_size=20, search="", fecha_corte=None):
-        """
-        Obtiene el historial de ventas con paginación y búsqueda.
-        Cruza con catalogo_insumos para obtener el nombre real del producto.
-        """
-        url = f"{self.url}/registro_ventas?select=*,catalogo_insumos(nombre)"
-        
-        filtros = []
-        if search:
-            filtros.append(f"or=(codigo_insumo.ilike.*{search}*,factura_no.ilike.*{search}*,descripcion.ilike.*{search}*)")
-            
-        if fecha_corte:
-            filtros.append(f"fecha=eq.{fecha_corte}")
-            
-        if filtros:
-            url += "&" + "&".join(filtros)
-            
-        offset = (page - 1) * page_size
-        url += f"&order=fecha.desc,factura_no.desc&offset={offset}&limit={page_size}"
-        
-        headers = self.headers.copy()
-        headers["Prefer"] = "count=exact"
-        
-        try:
-            response = self.session.get(url, headers=headers, timeout=10)
-            if response.status_code in (200, 206):
-                data = response.json()
-                content_range = response.headers.get("Content-Range", "")
-                total_count = 0
-                if "/" in content_range:
-                    total_count = int(content_range.split("/")[1])
-                return data, total_count
-            else:
-                print(f"Error en consulta ventas: {response.text}")
-                return [], 0
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_ventas: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en get_ventas: {e}")
-            return [], 0
-
-
-    def get_ventas_existentes(self, lista_facturas: list) -> set:
-        """
-        Consulta cuáles de las facturas (factura_no) proveídas ya existen en registro_ventas.
-        """
-        if not lista_facturas:
-            return set()
-            
-        url = f"{self.url}/registro_ventas?select=factura_no"
-        facturas_str = ",".join(lista_facturas)
-        url += f"&factura_no=in.({facturas_str})"
-        
-        try:
-            response = self.session.get(url, headers=self.headers, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                return {item["factura_no"] for item in data if item.get("factura_no")}
-            return set()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_ventas_existentes: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en get_ventas_existentes: {e}")
-            return set()
-
-    def eliminar_ventas_origen(self, fecha: str, tipo_documento: str, pagina_origen: int) -> bool:
-        """Elimina las ventas de una fecha, tipo y página específica para permitir sobreescritura limpia."""
-        url = f"{self.url}/registro_ventas?fecha=gte.{fecha}T00:00:00&fecha=lte.{fecha}T23:59:59&tipo_documento=eq.{tipo_documento}&pagina_origen=eq.{pagina_origen}"
-        try:
-            response = self.session.delete(url, headers=self.headers, timeout=10)
-            return response.status_code in (200, 204)
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en eliminar_ventas_origen: el servidor no responde")
-        except Exception as e:
-            print(f"Error al eliminar ventas por origen: {e}")
-            return False
-
-    def insert_ventas(self, ventas_list: list):
-        """Inserta una lista de registros de ventas de forma masiva (bulk insert)."""
-        url = f"{self.url}/registro_ventas"
-        
-        payload = []
-        for v in ventas_list:
-            venta = {
-                "fecha": v.get("fecha"),
-                "factura_no": str(v.get("numero_factura", "")),
-                "codigo_insumo": str(v.get("codigo_item", "")),
-                "descripcion": str(v.get("descripcion", "")),
-                "cantidad": float(v.get("cantidad", 0) or 0),
-                "subtotal": float(v.get("precio_unitario", 0) or 0),
-                "iva": float(v.get("iva", 0) or 0),
-                "total": float(v.get("costo_total", 0) or 0),
-                "tipo_documento": str(v.get("tipo_documento", "Factura POS")),
-                "pagina_origen": int(v.get("pagina_origen", 1))
-            }
-            payload.append(venta)
-            
-        try:
-            response = self.session.post(url, json=payload, headers=self.headers, timeout=10)
-            if response.status_code in (200, 201, 204):
-                return True
-            else:
-                print(f"Error al insertar ventas: {response.text}")
-                return False
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en insert_ventas: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en insert_ventas: {e}")
-            return False
-
-
-
-    def get_datos_conteo_inicial(self, mes_seleccionado: str) -> list:
-        # mes_seleccionado is in format 'YYYY-MM'
-        try:
-            year, month = map(int, mes_seleccionado.split("-"))
-            if month == 1:
-                mes_anterior = f"{year - 1}-12"
-            else:
-                mes_anterior = f"{year}-{month - 1:02d}"
-        except:
-            return []
-            
-        # 1. Traer catalogo
-        catalogo = []
-        try:
-            res_cat = self.session.get(f"{self.url}/catalogo_insumos?select=codigo_insumo,nombre,categoria", headers=self.headers, timeout=10)
-            if res_cat.status_code == 200:
-                catalogo = res_cat.json()
-        except:
-            pass
-            
-        # 2. Traer registros FINAL mes anterior
-        cierre_anterior = {}
-        try:
-            url_ant = f"{self.url}/registro_auditorias_cierres?tipo_registro=eq.CIERRE_MENSUAL&fecha_cierre=gte.{mes_anterior}-01&fecha_cierre=lte.{mes_anterior}-31&select=codigo_insumo,cantidad_fisica"
-            res_ant = self.session.get(url_ant, headers=self.headers, timeout=10)
-            if res_ant.status_code == 200:
-                for r in res_ant.json():
-                    cierre_anterior[r.get("codigo_insumo")] = r.get("cantidad_fisica")
-        except:
-            pass
-            
-        # 3. Traer registros INICIAL mes seleccionado
-        inicio_actual = {}
-        try:
-            url_act = f"{self.url}/registro_auditorias_cierres?tipo_registro=eq.INVENTARIO_INICIAL&fecha_cierre=gte.{mes_seleccionado}-01&fecha_cierre=lte.{mes_seleccionado}-31&select=codigo_insumo,cantidad_fisica"
-            res_act = self.session.get(url_act, headers=self.headers, timeout=10)
-            if res_act.status_code == 200:
-                for r in res_act.json():
-                    inicio_actual[r.get("codigo_insumo")] = r.get("cantidad_fisica")
-        except:
-            pass
-            
-        resultado = []
-        for c in catalogo:
-            codigo = c.get("codigo_insumo")
-            if not codigo: continue
-            
-            resultado.append({
-                "codigo_insumo": codigo,
-                "nombre": c.get("nombre"),
-                "categoria": c.get("categoria"),
-                "cierre_mes_anterior": cierre_anterior.get(codigo, 0),
-                "stock_inicial_actual": inicio_actual.get(codigo, 0),
-            })
-            
-        return resultado
-
-    def upsert_conteos_iniciales(self, registros: list) -> bool:
-        if not registros: return True
-        
-        # Buscar IDs existentes para hacer merge por Primary Key (ya que no hay unique constraint compuesto)
-        try:
-            fecha_cierre = registros[0].get("fecha_cierre")
-            tipo_registro = registros[0].get("tipo_registro")
-            codigos = [r["codigo_insumo"] for r in registros]
-            
-            # Dividir en chunks si son muchos códigos para no exceder longitud de URL, o hacer query simple
-            if len(codigos) > 0:
-                codigos_str = ",".join(codigos)
-                url_exist = f"{self.url}/registro_auditorias_cierres?fecha_cierre=eq.{fecha_cierre}&tipo_registro=eq.{tipo_registro}&codigo_insumo=in.({codigos_str})&select=id_auditoria,codigo_insumo"
-                res_exist = self.session.get(url_exist, headers=self.headers, timeout=10)
-                if res_exist.status_code == 200:
-                    existentes = {item["codigo_insumo"]: item["id_auditoria"] for item in res_exist.json() if "id_auditoria" in item}
-                    for r in registros:
-                        if r["codigo_insumo"] in existentes:
-                            r["id_auditoria"] = existentes[r["codigo_insumo"]]
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en upsert_conteos_iniciales: el servidor no responde")
-        except Exception as e:
-            print(f"Error al buscar existentes para upsert: {e}")
-        
-        url = f"{self.url}/registro_auditorias_cierres"
-        
-        headers = self.headers.copy()
-        headers["Prefer"] = "resolution=merge-duplicates"
-        
-        try:
-            res = self.session.post(url, json=registros, headers=headers, timeout=10)
-            if res.status_code in (200, 201, 204):
-                return True
-            print(f"Error upsert_conteos: {res.text}")
-            return False
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en upsert_conteos_iniciales: el servidor no responde")
-        except Exception as e:
-            print(f"Excepcion upsert_conteos: {e}")
-            return False
-
-
-    def get_top_costo_inventario(self, limit=10) -> list:
-        # Cross reference with vista_inventario_completo to get rotacion (salidas)
-        url = f"{self.url}/vista_inventario_completo?select=codigo_insumo,nombre,stock_actual,costo_unitario,salidas"
-        resultado = []
-        try:
-            res = self.session.get(url, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                for row in res.json():
-                    stock = int(row.get("stock_actual", 0) or 0)
-                    costo = float(row.get("costo_unitario", 0) or 0)
-                    salidas = int(row.get("salidas", 0) or 0)
-                    valor = stock * costo
-                    
-                    rotacion = f"{(salidas / stock):.1f}x" if stock > 0 else ("Alta" if salidas > 0 else "0.0x")
-                    
-                    resultado.append({
-                        "codigo": row.get("codigo_insumo"),
-                        "producto": row.get("nombre"),
-                        "valor_inventario": valor,
-                        "rotacion": rotacion
-                    })
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_top_costo_inventario: el servidor no responde")
-        except Exception as e:
-            print(f"Error get_top_costo: {e}")
-            return []
-            
-        resultado.sort(key=lambda x: x["valor_inventario"], reverse=True)
-        return resultado[:limit]
-        
-
-    def get_compras_summary(self) -> dict:
-        """Invoca RPC para totales de compras"""
-        hoy = datetime.date.today().strftime("%Y-%m-%d")
-        mes_actual = hoy[:7]
-        
-        url = f"{self.url}/rpc/get_compras_summary_rpc"
-        try:
-            res = self.session.post(url, json={"mes_actual": mes_actual, "dia_hoy": hoy}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_compras_summary: el servidor no responde")
-        except Exception as e:
-            print(f"Error RPC compras_summary: {e}")
-        return {"total_mes": 0.0, "total_hoy": 0.0, "cantidad_total": 0.0}
-
-    def get_ventas_summary(self) -> dict:
-        """Invoca RPC para totales de ingresos e IVA"""
-        hoy = datetime.date.today().strftime("%Y-%m-%d")
-        mes_actual = hoy[:7]
-        
-        url = f"{self.url}/rpc/get_ventas_summary_rpc"
-        try:
-            res = self.session.post(url, json={"mes_actual": mes_actual, "dia_hoy": hoy}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_ventas_summary: el servidor no responde")
-        except Exception as e:
-            print(f"Error RPC ventas_summary: {e}")
-        return {"total_historico": 0.0, "total_mes": 0.0, "total_hoy": 0.0, "iva_historico": 0.0, "iva_hoy": 0.0}
-
-    def get_catalogo_summary(self) -> dict:
-        """Invoca RPC para compras totales y ventas totales en pesos"""
-        url = f"{self.url}/rpc/get_catalogo_summary_rpc"
-        try:
-            res = self.session.post(url, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_catalogo_summary: el servidor no responde")
-        except Exception as e:
-            print(f"Error RPC catalogo_summary: {e}")
-        return {"total_compras": 0.0, "total_ventas": 0.0}
-
-    def get_top_ventas_mes(self, limit=10) -> list:
-        mes_actual = datetime.date.today().strftime("%Y-%m")
-        url = f"{self.url}/rpc/get_top_ventas_mes_rpc"
-        try:
-            res = self.session.post(url, json={"mes_actual": mes_actual, "limite": limit}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_top_ventas_mes: el servidor no responde")
-        except Exception as e:
-            print(f"Error RPC top_ventas: {e}")
-        return []
-
-    def get_tendencia_diaria(self) -> dict:
-        """Invoca RPC para obtener ventas y compras agrupadas por día"""
-        hoy = datetime.date.today()
-        mes_actual = hoy.strftime("%Y-%m")
-        
-        # Pre-poblar el diccionario con ceros para todos los días transcurridos
-        tendencia = {f"{mes_actual}-{i:02d}": {"ventas": 0.0, "compras": 0.0} for i in range(1, hoy.day + 1)}
-        
-        url = f"{self.url}/rpc/get_tendencia_diaria_rpc"
-        try:
-            res = self.session.post(url, json={"mes_actual": mes_actual}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                for row in res.json():
-                    dia = row.get("dia")
-                    if dia in tendencia:
-                        tendencia[dia]["ventas"] = float(row.get("ventas", 0))
-                        tendencia[dia]["compras"] = float(row.get("compras", 0))
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_tendencia_diaria: el servidor no responde")
-        except Exception as e:
-            print(f"Error RPC tendencia_diaria: {e}")
-        return tendencia
-
-    def get_inventario_kpis(self) -> dict:
-        mes_actual = datetime.date.today().strftime("%Y-%m")
-        url = f"{self.url}/rpc/get_inventario_kpis_rpc"
-        try:
-            res = self.session.post(url, json={"mes_actual": mes_actual}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_inventario_kpis: el servidor no responde")
-        except Exception as e:
-            print(f"Error RPC inventario_kpis: {e}")
-        return {"valor_inventario": 0.0, "alertas_criticas": 0}
-
-    def get_kpis_por_categoria(self) -> list:
-        """Invoca RPC para extraer rendimiento y rotación agrupada por categoría."""
-        url = f"{self.url}/rpc/get_kpis_por_categoria_rpc"
-        try:
-            res = self.session.post(url, headers=self.headers, timeout=5)
-            if res.status_code == 200:
-                return res.json()
-        except:
-            pass
-            
-        # Fallback local para agrupar KPIs por categoría desde la vista principal
-        try:
-            url_vista = f"{self.url}/vista_inventario_completo?select=categoria,costo_total_insumo,valor_ventas"
-            res_vista = self.session.get(url_vista, headers=self.headers, timeout=10)
-            if res_vista.status_code == 200:
-                data = res_vista.json()
-                categorias = {}
-                for item in data:
-                    cat = item.get("categoria") or "SIN CATEGORIA"
-                    if cat not in categorias:
-                        categorias[cat] = {
-                            "categoria": cat,
-                            "costo_inventario": 0.0,
-                            "ventas_totales": 0.0,
-                            "rotacion": 0.0,
-                            "rentabilidad": 0.0
-                        }
-                    categorias[cat]["costo_inventario"] += float(item.get("costo_total_insumo") or 0)
-                    categorias[cat]["ventas_totales"] += float(item.get("valor_ventas") or 0)
-                
-                result = []
-                for cat, vals in categorias.items():
-                    costo_inv = vals["costo_inventario"]
-                    vtas = vals["ventas_totales"]
-                    if costo_inv > 0:
-                        vals["rotacion"] = vtas / costo_inv
-                    if vtas > 0:
-                        vals["rentabilidad"] = 25.0 # Margen simulado 25% si hay ventas
-                    result.append(vals)
-                    
-                result.sort(key=lambda x: x["ventas_totales"], reverse=True)
-                return result
-        except Exception as e:
-            print(f"Error en get_kpis_por_categoria fallback: {e}")
-            
-        return []
-
-    def iniciar_snapshot_cierre(self, mes_periodo: str) -> dict:
-        """Invoca el RPC para generar el snapshot preliminar del mes."""
-        url = f"{self.url}/rpc/fn_snapshot_cierre_mensual"
-        try:
-            res = self.session.post(url, json={"p_mes": mes_periodo}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-            return {"exito": False, "error": res.text}
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en iniciar_snapshot_cierre: el servidor no responde")
-        except Exception as e:
-            return {"exito": False, "error": str(e)}
-
-    def obtener_estado_cierre(self, mes_periodo: str) -> dict:
-        """Obtiene el resumen y los insumos del período especificado."""
-        url = f"{self.url}/rpc/fn_obtener_estado_cierre"
-        try:
-            res = self.session.post(url, json={"p_mes": mes_periodo}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                data = res.json()
-                return data if data is not None else {}
-            return {}
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en obtener_estado_cierre: el servidor no responde")
-        except Exception as e:
-            print(f"Error en obtener_estado_cierre: {e}")
-            return {}
-
-    def registrar_conteo_fisico(self, id_auditoria: str, cantidad: float, costo: float = None, observacion: str = None) -> dict:
-        """Registra el conteo físico y genera ajustes si existe diferencia."""
-        url = f"{self.url}/rpc/fn_registrar_conteo_fisico"
-        payload = {
-            "p_id_auditoria": id_auditoria,
-            "p_cantidad_fisica": cantidad
-        }
-        if costo is not None:
-            payload["p_costo_ajuste"] = costo
-        if observacion:
-            payload["p_observacion"] = observacion
-            
-        try:
-            res = self.session.post(url, json=payload, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-            return {"exito": False, "error": res.text}
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en registrar_conteo_fisico: el servidor no responde")
-        except Exception as e:
-            return {"exito": False, "error": str(e)}
-
-    def aceptar_stock_sistema(self, id_auditoria: str) -> dict:
-        """Acepta el stock calculado por el sistema sin conteo físico."""
-        url = f"{self.url}/rpc/fn_aceptar_stock_sistema"
-        try:
-            res = self.session.post(url, json={"p_id_auditoria": id_auditoria}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-            return {"exito": False, "error": res.text}
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en aceptar_stock_sistema: el servidor no responde")
-        except Exception as e:
-            return {"exito": False, "error": str(e)}
-
-    def aprobar_cierre_mes(self, id_periodo: str, aprobado_por: str) -> dict:
-        """Cierra el período y consolida el inventario inicial del mes siguiente."""
-        url = f"{self.url}/rpc/fn_aprobar_cierre_mes"
-        try:
-            res = self.session.post(url, json={"p_id_periodo": id_periodo, "p_aprobado_por": aprobado_por}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-            return {"exito": False, "error": res.text}
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en aprobar_cierre_mes: el servidor no responde")
-        except Exception as e:
-            return {"exito": False, "error": str(e)}
-
-    def get_catalogo_costos(self) -> dict:
-        """Obtiene un diccionario con los costos actuales del catálogo de insumos"""
-        url = f"{self.url}/catalogo_insumos?select=codigo_insumo,costo_unitario"
-        try:
-            res = self.session.get(url, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return {item.get('codigo_insumo'): float(item.get('costo_unitario') or 0) for item in res.json()}
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_catalogo_costos: el servidor no responde")
-        except Exception as e:
-            print(f"Error get_catalogo_costos: {e}")
-        return {}
-
-    def get_insumo_detalle(self, codigo: str) -> dict:
-        """Recupera el nombre, costo, precio y stock de un insumo específico para el autocompletado."""
-        url = f"{self.url}/catalogo_insumos?codigo_insumo=eq.{codigo}&select=nombre,costo_unitario,precio_venta,stock_actual"
-        try:
-            res = self.session.get(url, headers=self.headers, timeout=10)
-            if res.status_code == 200 and len(res.json()) > 0:
-                return res.json()[0]
-        except Exception:
-            pass
-        return {}
-
-    def get_ajustes_inventario(self) -> list:
-        """Obtiene el historial de ajustes cruzado con el catálogo para extraer el nombre."""
-        url = f"{self.url}/registro_ajustes_inventario?select=*,catalogo_insumos(nombre)&order=fecha_ajuste.desc"
-        try:
-            res = self.session.get(url, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_ajustes_inventario: el servidor no responde")
-        except Exception as e:
-            pass
-        return []
-
-    def insert_ajuste_individual(self, datos: dict) -> bool:
-        """Inserta un nuevo registro de ajuste operativo."""
-        url = f"{self.url}/registro_ajustes_inventario"
-        try:
-            res = self.session.post(url, json=datos, headers=self.headers, timeout=10)
-            return res.status_code in (200, 201, 204)
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en insert_ajuste_individual: el servidor no responde")
-        except Exception as e:
-            return False
-
-    def anular_ajuste(self, id_ajuste: str) -> bool:
-        """Cambia el estado del ajuste a ANULADO. El trigger en la BD revertirá el inventario."""
-        url = f"{self.url}/registro_ajustes_inventario?id_ajuste=eq.{id_ajuste}"
-        try:
-            res = self.session.patch(url, json={"estado_registro": "ANULADO"}, headers=self.headers, timeout=10)
-            return res.status_code in (200, 204)
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en anular_ajuste: el servidor no responde")
-        except Exception as e:
-            return False
-
-    def get_periodos_inventario(self) -> list:
-        """Obtiene la lista de periodos de inventario ordenados descendentemente."""
-        url = f"{self.url}/periodos_inventario?select=*&order=mes_periodo.desc"
-        try:
-            res = self.session.get(url, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return res.json()
-            return []
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_periodos_inventario: el servidor no responde")
-            return []
-        except Exception as e:
-            return []
-
-    def get_proyeccion_ventas(self) -> float:
-        """Invoca RPC get_proyeccion_ventas_rpc"""
-        url = f"{self.url}/rpc/get_proyeccion_ventas_rpc"
-        try:
-            res = self.session.post(url, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                data = res.json()
-                return float(data) if data is not None else 0.0
-            return 0.0
-        except requests.exceptions.RequestException:
-            print(f"Error de conexión con Supabase en get_proyeccion_ventas: el servidor no responde")
-            return 0.0
-        except Exception:
-            return 0.0
-
-    def get_ajustes_mes(self, mes_actual: str) -> list:
-        """Invoca RPC get_ajustes_mes_rpc"""
-        url = f"{self.url}/rpc/get_ajustes_mes_rpc"
-        try:
-            res = self.session.post(url, json={"mes_actual": mes_actual}, headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                data = res.json()
-                return data if data is not None else []
-            return []
-        except requests.exceptions.RequestException:
-            print(f"Error de conexión con Supabase en get_ajustes_mes: el servidor no responde")
-            return []
-        except Exception:
-            return []
-
-    def aceptar_stock_sistema_masivo(self, ids_auditoria: list) -> dict:
-        url = f"{self.url}/rpc/fn_aceptar_stock_sistema_masivo"
-        try:
-            res = self.session.post(url, json={"p_ids": ids_auditoria}, headers=self.headers, timeout=15)
-            if res.status_code == 200: return res.json()
-            return {"exito": False, "error": res.text}
-        except Exception as e: return {"exito": False, "error": str(e)}
-
-    def eliminar_ajuste_cierre(self, id_auditoria: str) -> dict:
-        url = f"{self.url}/rpc/fn_eliminar_ajuste_cierre"
-        try:
-            res = self.session.post(url, json={"p_id_auditoria": id_auditoria}, headers=self.headers, timeout=10)
-            if res.status_code == 200: return res.json()
-            return {"exito": False, "error": res.text}
-        except Exception as e: return {"exito": False, "error": str(e)}
 ````
 
 ## File: cargas_compras_locales.json
@@ -8164,639 +8495,1251 @@ class SupabaseClient:
 }
 ````
 
-## File: cargas_locales.json
-````json
-{
-    "2026-08-17_Factura POS": {
-        "1": {
-            "id": 1,
-            "pagina": 1,
-            "tipo": "Factura POS",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Factura_POS_Pag_1.pdf",
-            "estado": "Guardado",
-            "datos_extraidos": [
-                {
-                    "numero_factura": "26396",
-                    "productos": [
-                        {
-                            "cantidad": 50,
-                            "codigo_item": "2151",
-                            "costo_total": 95000,
-                            "iva": 0,
-                            "subtotal": 95000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26397",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0105",
-                            "costo_total": 400,
-                            "iva": 0,
-                            "subtotal": 400
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26398",
-                    "productos": [
-                        {
-                            "cantidad": 100,
-                            "codigo_item": "0573",
-                            "costo_total": 41500,
-                            "iva": 0,
-                            "subtotal": 41500
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0174",
-                            "costo_total": 2100,
-                            "iva": 0,
-                            "subtotal": 2100
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26399",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0615",
-                            "costo_total": 14600,
-                            "iva": 0,
-                            "subtotal": 14600
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26400",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "2333",
-                            "costo_total": 3500,
-                            "iva": 0,
-                            "subtotal": 3500
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26401",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0022",
-                            "costo_total": 2200,
-                            "iva": 0,
-                            "subtotal": 2200
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26402",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "2036",
-                            "costo_total": 4000,
-                            "iva": 0,
-                            "subtotal": 4000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26403",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0726",
-                            "costo_total": 12500,
-                            "iva": 0,
-                            "subtotal": 12500
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26404",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0483",
-                            "costo_total": 21900,
-                            "iva": 0,
-                            "subtotal": 21900
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0108",
-                            "costo_total": 17000,
-                            "iva": 0,
-                            "subtotal": 17000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26405",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0165",
-                            "costo_total": 7800,
-                            "iva": 0,
-                            "subtotal": 7800
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26406",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1591",
-                            "costo_total": 4600,
-                            "iva": 0,
-                            "subtotal": 4600
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0024",
-                            "costo_total": 8850,
-                            "iva": 0,
-                            "subtotal": 8850
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0644",
-                            "costo_total": 7600,
-                            "iva": 0,
-                            "subtotal": 7600
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1664",
-                            "costo_total": 2600,
-                            "iva": 0,
-                            "subtotal": 2600
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0655",
-                            "costo_total": 11200,
-                            "iva": 0,
-                            "subtotal": 11200
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0178",
-                            "costo_total": 2800,
-                            "iva": 0,
-                            "subtotal": 2800
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1639",
-                            "costo_total": 5600,
-                            "iva": 0,
-                            "subtotal": 5600
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26407",
-                    "productos": [
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0573",
-                            "costo_total": 8800,
-                            "iva": 0,
-                            "subtotal": 8800
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26408",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1176",
-                            "costo_total": 15900,
-                            "iva": 0,
-                            "subtotal": 15900
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26409",
-                    "productos": [
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0355",
-                            "costo_total": 19600,
-                            "iva": 0,
-                            "subtotal": 19600
-                        }
-                    ]
-                }
-            ]
-        },
-        "2": {
-            "id": 2,
-            "pagina": 2,
-            "tipo": "Factura POS",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Factura_POS_Pag_2.pdf",
-            "estado": "Procesado con \u00e9xito",
-            "datos_extraidos": [
-                {
-                    "numero_factura": "26410",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0074",
-                            "costo_total": 8000,
-                            "iva": 0,
-                            "subtotal": 8000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26411",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1639",
-                            "costo_total": 6500,
-                            "iva": 0,
-                            "subtotal": 6500
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26412",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1079",
-                            "costo_total": 5600,
-                            "iva": 0,
-                            "subtotal": 5600
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26413",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0043",
-                            "costo_total": 5000,
-                            "iva": 0,
-                            "subtotal": 5000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26414",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1080",
-                            "costo_total": 21000,
-                            "iva": 0,
-                            "subtotal": 21000
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0234",
-                            "costo_total": 5950,
-                            "iva": 0,
-                            "subtotal": 5950
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26415",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0425",
-                            "costo_total": 4000,
-                            "iva": 0,
-                            "subtotal": 4000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26416",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1847",
-                            "costo_total": 5200,
-                            "iva": 0,
-                            "subtotal": 5200
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26417",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1478",
-                            "costo_total": 5600,
-                            "iva": 0,
-                            "subtotal": 5600
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1009",
-                            "costo_total": 2200,
-                            "iva": 0,
-                            "subtotal": 2200
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26418",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0663",
-                            "costo_total": 6000,
-                            "iva": 0,
-                            "subtotal": 6000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26419",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0347",
-                            "costo_total": 8500,
-                            "iva": 0,
-                            "subtotal": 8500
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26420",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1472",
-                            "costo_total": 1700,
-                            "iva": 0,
-                            "subtotal": 1700
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26421",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0416",
-                            "costo_total": 9600,
-                            "iva": 0,
-                            "subtotal": 9600
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26422",
-                    "productos": [
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "1281",
-                            "costo_total": 2400,
-                            "iva": 0,
-                            "subtotal": 2400
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1009",
-                            "costo_total": 2000,
-                            "iva": 0,
-                            "subtotal": 2000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26423",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1478",
-                            "costo_total": 2200,
-                            "iva": 0,
-                            "subtotal": 2200
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26424",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0425",
-                            "costo_total": 2000,
-                            "iva": 0,
-                            "subtotal": 2000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26425",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1478",
-                            "costo_total": 2500,
-                            "iva": 0,
-                            "subtotal": 2500
-                        }
-                    ]
-                }
-            ]
+## File: core/supabase_client.py
+````python
+import requests
+import datetime
+import urllib.parse
+from config import Config
+
+_client_instance = None
+
+def get_client():
+    """Retorna la instancia singleton del cliente Supabase."""
+    global _client_instance
+    if _client_instance is None:
+        _client_instance = SupabaseClient()
+    return _client_instance
+
+class SupabaseClient:
+    def __init__(self):
+        self.url = Config.SUPABASE_URL
+        self.key = Config.SUPABASE_KEY
+        
+        if self.url and self.url.endswith('/'):
+            self.url = self.url[:-1]
+        if self.url and not self.url.endswith('/rest/v1'):
+            self.url = self.url + "/rest/v1"
+            
+        # 1. Instanciar la sesión compartida para mantener viva la conexión TCP
+        self.session = requests.Session()
+        
+        # 2. Configurar los encabezados globales directamente en la sesión
+        self.headers = {
+            "apikey": self.key,
+            "Authorization": f"Bearer {self.key}",
+            "Content-Type": "application/json"
         }
-    },
-    "2026-08-17_Remisi\u00f3n": {
-        "1": {
-            "id": 3,
-            "pagina": 1,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_1.pdf",
-            "estado": "Nuevo"
-        },
-        "2": {
-            "id": 4,
-            "pagina": 2,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_2.pdf",
-            "estado": "Nuevo"
-        },
-        "3": {
-            "id": 5,
-            "pagina": 3,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_3.pdf",
-            "estado": "Nuevo"
-        },
-        "4": {
-            "id": 6,
-            "pagina": 4,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_4.pdf",
-            "estado": "Nuevo"
-        },
-        "5": {
-            "id": 7,
-            "pagina": 5,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_5.pdf",
-            "estado": "Nuevo"
-        },
-        "6": {
-            "id": 8,
-            "pagina": 6,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_6.pdf",
-            "estado": "Nuevo"
-        },
-        "7": {
-            "id": 9,
-            "pagina": 7,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_7.pdf",
-            "estado": "Nuevo"
-        },
-        "8": {
-            "id": 10,
-            "pagina": 8,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_8.pdf",
-            "estado": "Nuevo"
-        },
-        "9": {
-            "id": 11,
-            "pagina": 9,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_9.pdf",
-            "estado": "Nuevo"
-        },
-        "10": {
-            "id": 12,
-            "pagina": 10,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_10.pdf",
-            "estado": "Nuevo"
-        },
-        "11": {
-            "id": 13,
-            "pagina": 11,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_11.pdf",
-            "estado": "Nuevo"
-        },
-        "12": {
-            "id": 14,
-            "pagina": 12,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_12.pdf",
-            "estado": "Nuevo"
-        },
-        "13": {
-            "id": 15,
-            "pagina": 13,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_13.pdf",
-            "estado": "Nuevo"
-        },
-        "14": {
-            "id": 16,
-            "pagina": 14,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_14.pdf",
-            "estado": "Nuevo"
-        },
-        "15": {
-            "id": 17,
-            "pagina": 15,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_15.pdf",
-            "estado": "Nuevo"
-        },
-        "16": {
-            "id": 18,
-            "pagina": 16,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_16.pdf",
-            "estado": "Nuevo"
-        },
-        "17": {
-            "id": 19,
-            "pagina": 17,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_17.pdf",
-            "estado": "Nuevo"
-        },
-        "18": {
-            "id": 20,
-            "pagina": 18,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_18.pdf",
-            "estado": "Nuevo"
-        },
-        "19": {
-            "id": 21,
-            "pagina": 19,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_19.pdf",
-            "estado": "Nuevo"
-        },
-        "20": {
-            "id": 22,
-            "pagina": 20,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_20.pdf",
-            "estado": "Nuevo"
-        },
-        "21": {
-            "id": 23,
-            "pagina": 21,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_21.pdf",
-            "estado": "Nuevo"
+        self.session.headers.update(self.headers)
+        
+    def check_connection(self):
+        if not self.url or not self.key:
+            return False, "Faltan credenciales"
+        try:
+            # Prueba simple a la tabla (limit 1)
+            response = self.session.get(f"{self.url}/catalogo_insumos?limit=1", headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                return True, "Conexión exitosa"
+            return False, f"Error: {response.text}"
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en check_connection: el servidor no responde")
+        except Exception as e:
+            return False, str(e)
+            
+    # --- CRUD Catálogo Insumos ---
+    
+    def get_categorias(self):
+        """Obtiene una lista de categorías únicas usando RPC si existe, o extrayendo de todo (simplificado)"""
+        # Para simplificar y dado que PostgREST soporta distinct
+        url = f"{self.url}/catalogo_insumos?select=categoria"
+        headers = self.headers.copy()
+        # En PostgREST podemos usar un header o query para distintos, pero es más fácil
+        # traerlos y filtrarlos en memoria (limitado a unos cientos si hay muchos, pero está bien).
+        response = self.session.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            categorias = set([item.get('categoria', 'SIN CATEGORIA') for item in data if item.get('categoria')])
+            return sorted(list(categorias))
+        return []
+
+    def get_insumos(self, page=1, page_size=20, search="", categoria="", fecha_corte=None, sort_col="Insumo", sort_asc=True, codigos_filtro=None):
+        """
+        Obtiene los insumos con paginación, filtros y ordenamiento desde el servidor.
+        Retorna (lista_datos, total_count)
+        """
+        if fecha_corte:
+            url = f"{self.url}/rpc/obtener_inventario_por_fecha?select=*"
+        else:
+            url = f"{self.url}/vista_inventario_completo?select=*"
+        
+        filtros = []
+        if codigos_filtro is not None:
+            if not codigos_filtro:
+                filtros.append("codigo_insumo=in.(INVALID_FORCE_EMPTY)")
+            else:
+                codigos_str = ",".join(codigos_filtro)
+                filtros.append(f"codigo_insumo=in.({codigos_str})")
+                
+        if categoria and categoria != "Todas":
+            filtros.append(f"categoria=eq.{categoria}")
+            
+        if search:
+            filtros.append(f"or=(nombre.ilike.*{search}*,codigo_insumo.ilike.*{search}*)")
+            
+        if filtros:
+            url += "&" + "&".join(filtros)
+            
+        # Mapeo de columnas de la interfaz a las columnas de la vista SQL
+        db_col_stock = "stock_real" if fecha_corte else "stock_actual"
+        map_columnas = {
+            "Código": "codigo_insumo",
+            "Insumo": "nombre",
+            "Categoría": "categoria",
+            "Ubicación": "ubicacion",
+            "Stock Inicial": "stock_inicial",
+            "Stock Mínimo": "stock_minimo",
+            "Entradas": "entradas",
+            "Salidas": "salidas",
+            "Stock Real": db_col_stock
         }
-    }
-}
+        
+        db_col = map_columnas.get(sort_col, "nombre")
+        direccion = "asc" if sort_asc else "desc"
+        
+        offset = (page - 1) * page_size
+        url += f"&order={db_col}.{direccion}&offset={offset}&limit={page_size}"
+        
+        headers = self.headers.copy()
+        headers["Prefer"] = "count=exact"
+        
+        try:
+            if fecha_corte:
+                payload = {"p_fecha_corte": f"{fecha_corte} 23:59:59"}
+                response = self.session.post(url, headers=headers, json=payload, timeout=10)
+            else:
+                response = self.session.get(url, headers=headers, timeout=10)
+            
+            if response.status_code in (200, 201, 206):
+                data = response.json()
+                content_range = response.headers.get("Content-Range", "")
+                total_count = 0
+                if "/" in content_range:
+                    total_count = int(content_range.split("/")[1])
+                return data, total_count
+            else:
+                print(f"Error en consulta: {response.text}")
+                return [], 0
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_insumos: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en get_insumos: {e}")
+            return [], 0
+        
+    def insert_insumo(self, data: dict):
+        url = f"{self.url}/catalogo_insumos"
+        response = self.session.post(url, json=data, headers=self.headers, timeout=10)
+        if response.status_code in (200, 201):
+            return response.json()
+        return None
+
+    def update_insumo(self, codigo_insumo: str, datos_actualizados: dict) -> bool:
+        """
+        Actualiza un insumo existente en el catálogo.
+        """
+        url = f"{self.url}/catalogo_insumos?codigo_insumo=eq.{codigo_insumo}"
+        try:
+            response = self.session.patch(url, json=datos_actualizados, headers=self.headers, timeout=10)
+            if response.status_code in (200, 204):
+                return True
+            else:
+                print(f"Error al actualizar insumo: {response.text}")
+                return False
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en update_insumo: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en update_insumo: {e}")
+            return False
+
+    def get_compras(self, page=1, page_size=20, search="", fecha_corte=None, factura_filtro=None, proveedor_filtro=None):
+        url = f"{self.url}/registro_compras?select=*,catalogo_insumos(nombre,categoria)"
+        
+        filtros = []
+        
+        # 1. Búsqueda por texto general
+        if search:
+            search_enc = urllib.parse.quote(search.strip())
+            filtros.append(f"or=(codigo_insumo.ilike.*{search_enc}*,proveedor.ilike.*{search_enc}*,numero_factura.ilike.*{search_enc}*)")
+        
+        # 2. Fecha de corte
+        if fecha_corte:
+            filtros.append(f"fecha=eq.{fecha_corte}")
+
+        # 3. Filtro cruzado por Factura / Entrada
+        if factura_filtro:
+            factura_enc = urllib.parse.quote(str(factura_filtro).strip())
+            filtros.append(f"or=(numero_entrada.eq.{factura_enc},numero_factura.eq.{factura_enc})")
+
+        # 4. Filtro cruzado por Proveedor (Con ilike y quote para tolerar espacios y mayúsculas/minúsculas)
+        if proveedor_filtro:
+            prov_enc = urllib.parse.quote(str(proveedor_filtro).strip())
+            filtros.append(f"proveedor.ilike.*{prov_enc}*")
+            
+        if filtros:
+            url += "&" + "&".join(filtros)
+            
+        offset = (page - 1) * page_size
+        url += f"&order=fecha.desc,numero_entrada.desc&offset={offset}&limit={page_size}"
+        
+        headers = self.headers.copy()
+        headers["Prefer"] = "count=exact"
+        
+        try:
+            response = self.session.get(url, headers=headers, timeout=10)
+            if response.status_code in (200, 206):
+                data = response.json()
+                content_range = response.headers.get("Content-Range", "")
+                total_count = 0
+                if "/" in content_range:
+                    total_count = int(content_range.split("/")[1])
+                return data, total_count
+            else:
+                print(f"Error HTTP {response.status_code} en get_compras: {response.text}")
+                return [], 0
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_compras: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en get_compras: {e}")
+            return [], 0
+
+    def get_historial_compras_dia(self, fecha_dia: str, agrupar_por: str = "FACTURA") -> list:
+        """
+        Recupera todas las compras de un día (YYYY-MM-DD),
+        agrupados por 'FACTURA' o por 'PROVEEDOR'.
+        """
+        items_resultado = []
+        try:
+            # Consulta exclusiva a compras del día
+            url_c = f"{self.url}/registro_compras?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=numero_entrada,numero_factura,proveedor,costo_total,fecha,cantidad&order=fecha.desc"
+            res_c = self.session.get(url_c, headers=self.headers, timeout=10)
+    
+            if res_c.status_code == 200:
+                data_c = res_c.json()
+    
+                if agrupar_por == "FACTURA":
+                    agrupado = {}
+                    for r in data_c:
+                        ref = r.get("numero_entrada") or r.get("numero_factura") or "S/N"
+                        if ref not in agrupado:
+                            agrupado[ref] = {
+                                "tipo": "COMPRA",
+                                "ref": ref,
+                                "factura": r.get("numero_factura") or ref,
+                                "proveedor": r.get("proveedor") or "Clientes Varios",
+                                "total": 0.0,
+                                "unidades": 0.0,
+                                "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
+                            }
+                        agrupado[ref]["total"] += float(r.get("costo_total") or 0)
+                        agrupado[ref]["unidades"] += float(r.get("cantidad") or 0)
+                    items_resultado.extend(list(agrupado.values()))
+    
+                elif agrupar_por == "PROVEEDOR":
+                    agrupado = {}
+                    for r in data_c:
+                        prov = r.get("proveedor") or "Clientes Varios"
+                        if prov not in agrupado:
+                            agrupado[prov] = {
+                                "tipo": "PROVEEDOR_RESUMEN",
+                                "ref": prov,
+                                "proveedor": prov,
+                                "facturas_count": set(),
+                                "total": 0.0,
+                                "unidades": 0.0,
+                                "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
+                            }
+                        agrupado[prov]["facturas_count"].add(r.get("numero_factura") or r.get("numero_entrada"))
+                        agrupado[prov]["total"] += float(r.get("costo_total") or 0)
+                        agrupado[prov]["unidades"] += float(r.get("cantidad") or 0)
+    
+                    for p in agrupado.values():
+                        p["facturas_cant"] = len(p["facturas_count"])
+                        del p["facturas_count"]
+                        items_resultado.append(p)
+    
+        except Exception as ex:
+            print(f"Error en historial de compras del día: {ex}")
+    
+        # Ordenar por hora/valor descendente
+        items_resultado.sort(key=lambda x: x["total"], reverse=True)
+        return items_resultado
+
+
+    def insert_compras(self, compras_list: list):
+        """
+        Inserta una lista de registros de compras de forma masiva (bulk insert).
+        """
+        url = f"{self.url}/registro_compras"
+        
+        payload = []
+        for c in compras_list:
+            compra = {
+                "fecha": c.get("fecha"),
+                "numero_entrada": str(c.get("numero_entrada", "")),
+                "numero_factura": str(c.get("numero_factura", "")),
+                "proveedor": str(c.get("proveedor", "")),
+                "codigo_insumo": str(c.get("codigo_insumo", "")),
+                "cantidad": float(c.get("cantidad", 0) or 0),
+                "costo_unitario": float(c.get("costo_unitario", 0) or 0),
+                "valor_iva": float(c.get("iva", 0) or 0),
+                "costo_total": float(c.get("costo_total", 0) or 0),
+                "estado_registro": "VÁLIDO"
+            }
+            payload.append(compra)
+            
+        try:
+            # PostgREST permite inserción masiva enviando una lista de diccionarios JSON
+            response = self.session.post(url, json=payload, headers=self.headers, timeout=10)
+            if response.status_code in (200, 201, 204):
+                return True
+            else:
+                print(f"Error al insertar compras: {response.text}")
+                return False
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en insert_compras: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en insert_compras: {e}")
+            return False
+
+    def get_entradas_existentes(self, lista_eas: list) -> set:
+        """
+        Consulta cuáles de los 'numero_entrada' proveídos ya existen en registro_compras.
+        """
+        if not lista_eas:
+            return set()
+            
+        url = f"{self.url}/registro_compras?select=numero_entrada"
+        # Crear un filtro in.(EA-1,EA-2)
+        eas_str = ",".join(lista_eas)
+        url += f"&numero_entrada=in.({eas_str})"
+        
+        try:
+            response = self.session.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                return {item["numero_entrada"] for item in data if item.get("numero_entrada")}
+            return set()
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_entradas_existentes: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en get_entradas_existentes: {e}")
+            return set()
+
+    def eliminar_compras_por_entradas(self, lista_eas: list) -> bool:
+        """
+        Elimina las compras que coincidan con los numero_entrada dados para permitir sobreescritura.
+        """
+        if not lista_eas:
+            return True
+            
+        url = f"{self.url}/registro_compras"
+        eas_str = ",".join(lista_eas)
+        url += f"?numero_entrada=in.({eas_str})"
+        
+        try:
+            response = self.session.delete(url, headers=self.headers, timeout=10)
+            if response.status_code in (200, 204):
+                return True
+            else:
+                print(f"Error al eliminar compras por entradas: {response.text}")
+                return False
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en eliminar_compras_por_entradas: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en eliminar_compras_por_entradas: {e}")
+            return False
+            
+    def get_nombres_insumos(self, lista_codigos: list) -> dict:
+        """
+        Devuelve un diccionario {codigo: nombre} buscando en catalogo_insumos.
+        """
+        if not lista_codigos:
+            return {}
+            
+        url = f"{self.url}/catalogo_insumos?select=codigo_insumo,nombre"
+        
+        # Como los códigos pueden ser strings (ej "0471"), envolvemos en comillas simples para la API de supabase,
+        # o usamos in. sin problemas si PostgREST lo maneja.
+        # PostgREST maneja in.(a,b,c). Para strings con espacios podría requerir doble comilla, 
+        # pero para códigos numéricos en string basta unirlos con coma.
+        codigos_str = ",".join(lista_codigos)
+        url += f"&codigo_insumo=in.({codigos_str})"
+        
+        try:
+            response = self.session.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                return {item["codigo_insumo"]: item["nombre"] for item in data if item.get("codigo_insumo")}
+            return {}
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_nombres_insumos: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en get_nombres_insumos: {e}")
+            return {}
+
+
+    def get_ventas(self, page=1, page_size=20, search="", fecha_corte=None, categoria_filtro=None, factura_filtro=None):
+        # Si hay filtro de categoría, necesitamos !inner para que PostgREST aplique un INNER JOIN
+        if categoria_filtro:
+            url = f"{self.url}/registro_ventas?select=*,catalogo_insumos!inner(nombre,categoria)"
+        else:
+            url = f"{self.url}/registro_ventas?select=*,catalogo_insumos(nombre,categoria)"
+        
+        filtros = []
+        
+        # 1. Buscador por texto general
+        if search:
+            s_enc = urllib.parse.quote(search.strip())
+            filtros.append(f"or=(codigo_insumo.ilike.*{s_enc}*,factura_no.ilike.*{s_enc}*,descripcion.ilike.*{s_enc}*)")
+            
+        # 2. Fecha
+        if fecha_corte:
+            filtros.append(f"fecha=gte.{fecha_corte}T00:00:00&fecha=lte.{fecha_corte}T23:59:59")
+
+        # 3. Filtro por Categoría (Requiere catalogo_insumos.categoria)
+        if categoria_filtro:
+            cat_enc = urllib.parse.quote(str(categoria_filtro).strip())
+            filtros.append(f"catalogo_insumos.categoria=eq.{cat_enc}")
+
+        # 4. Filtro por Nro. Factura / Documento (Uso de ilike para coincidencia flexible)
+        if factura_filtro:
+            fact_enc = urllib.parse.quote(str(factura_filtro).strip())
+            filtros.append(f"factura_no.ilike.*{fact_enc}*")
+            
+        if filtros:
+            url += "&" + "&".join(filtros)
+            
+        offset = (page - 1) * page_size
+        url += f"&order=fecha.desc,factura_no.desc&offset={offset}&limit={page_size}"
+        
+        headers = self.headers.copy()
+        headers["Prefer"] = "count=exact"
+        
+        try:
+            response = self.session.get(url, headers=headers, timeout=10)
+            if response.status_code in (200, 206):
+                data = response.json()
+                content_range = response.headers.get("Content-Range", "")
+                total_count = 0
+                if "/" in content_range:
+                    total_count = int(content_range.split("/")[1])
+                return data, total_count
+            else:
+                print(f"Error HTTP {response.status_code} en get_ventas: {response.text}")
+                return [], 0
+        except Exception as e:
+            print(f"Excepción en get_ventas: {e}")
+            return [], 0
+
+    def get_historial_ventas_dia(self, fecha_dia: str, agrupar_por: str = "CATEGORIA") -> list:
+        """
+        Recupera todas las ventas de un día (YYYY-MM-DD),
+        agrupadas por 'CATEGORIA' o por 'FACTURA'.
+        """
+        items_resultado = []
+        try:
+            url_v = f"{self.url}/registro_ventas?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=factura_no,tipo_documento,descripcion,total,cantidad,codigo_insumo,fecha,catalogo_insumos(categoria,nombre)&order=fecha.desc"
+            res_v = self.session.get(url_v, headers=self.headers, timeout=10)
+            
+            if res_v.status_code == 200:
+                data_v = res_v.json()
+                
+                if agrupar_por == "CATEGORIA":
+                    agrupado = {}
+                    for r in data_v:
+                        cat = r.get("catalogo_insumos", {}).get("categoria") if r.get("catalogo_insumos") else None
+                        if not cat: cat = "SIN CATEGORÍA"
+                        
+                        if cat not in agrupado:
+                            agrupado[cat] = {
+                                "tipo": "CATEGORIA_RESUMEN",
+                                "ref": cat,
+                                "categoria": cat,
+                                "total": 0.0,
+                                "unidades": 0.0,
+                                "items_count": 0
+                            }
+                        agrupado[cat]["total"] += float(r.get("total") or 0)
+                        agrupado[cat]["unidades"] += float(r.get("cantidad") or 0)
+                        agrupado[cat]["items_count"] += 1
+                    items_resultado.extend(list(agrupado.values()))
+    
+                elif agrupar_por == "FACTURA":
+                    agrupado = {}
+                    for r in data_v:
+                        ref = r.get("factura_no") or "S/N"
+                        tipo_doc = r.get("tipo_documento") or "Factura POS"
+                        if ref not in agrupado:
+                            agrupado[ref] = {
+                                "tipo": "FACTURA_VENTA",
+                                "ref": ref,
+                                "factura": ref,
+                                "subtipo": tipo_doc,
+                                "total": 0.0,
+                                "unidades": 0.0
+                            }
+                        agrupado[ref]["total"] += float(r.get("total") or 0)
+                        agrupado[ref]["unidades"] += float(r.get("cantidad") or 0)
+                    items_resultado.extend(list(agrupado.values()))
+    
+        except Exception as ex:
+            print(f"Error en historial de ventas del día: {ex}")
+    
+        items_resultado.sort(key=lambda x: x["total"], reverse=True)
+        return items_resultado
+
+
+    def get_ventas_existentes(self, lista_facturas: list) -> set:
+        """
+        Consulta cuáles de las facturas (factura_no) proveídas ya existen en registro_ventas.
+        """
+        if not lista_facturas:
+            return set()
+            
+        url = f"{self.url}/registro_ventas?select=factura_no"
+        facturas_str = ",".join(lista_facturas)
+        url += f"&factura_no=in.({facturas_str})"
+        
+        try:
+            response = self.session.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                return {item["factura_no"] for item in data if item.get("factura_no")}
+            return set()
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_ventas_existentes: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en get_ventas_existentes: {e}")
+            return set()
+
+    def eliminar_ventas_origen(self, fecha: str, tipo_documento: str, pagina_origen: int) -> bool:
+        """Elimina las ventas de una fecha, tipo y página específica para permitir sobreescritura limpia."""
+        url = f"{self.url}/registro_ventas?fecha=gte.{fecha}T00:00:00&fecha=lte.{fecha}T23:59:59&tipo_documento=eq.{tipo_documento}&pagina_origen=eq.{pagina_origen}"
+        try:
+            response = self.session.delete(url, headers=self.headers, timeout=10)
+            return response.status_code in (200, 204)
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en eliminar_ventas_origen: el servidor no responde")
+        except Exception as e:
+            print(f"Error al eliminar ventas por origen: {e}")
+            return False
+
+    def insert_ventas(self, ventas_list: list):
+        """Inserta una lista de registros de ventas de forma masiva (bulk insert)."""
+        url = f"{self.url}/registro_ventas"
+        
+        payload = []
+        for v in ventas_list:
+            venta = {
+                "fecha": v.get("fecha"),
+                "factura_no": str(v.get("numero_factura", "")),
+                "codigo_insumo": str(v.get("codigo_item", "")),
+                "descripcion": str(v.get("descripcion", "")),
+                "cantidad": float(v.get("cantidad", 0) or 0),
+                "subtotal": float(v.get("precio_unitario", 0) or 0),
+                "iva": float(v.get("iva", 0) or 0),
+                "total": float(v.get("costo_total", 0) or 0),
+                "tipo_documento": str(v.get("tipo_documento", "Factura POS")),
+                "pagina_origen": int(v.get("pagina_origen", 1))
+            }
+            payload.append(venta)
+            
+        try:
+            response = self.session.post(url, json=payload, headers=self.headers, timeout=10)
+            if response.status_code in (200, 201, 204):
+                return True
+            else:
+                print(f"Error al insertar ventas: {response.text}")
+                return False
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en insert_ventas: el servidor no responde")
+        except Exception as e:
+            print(f"Excepción en insert_ventas: {e}")
+            return False
+
+
+
+    def get_datos_conteo_inicial(self, mes_seleccionado: str) -> list:
+        # mes_seleccionado is in format 'YYYY-MM'
+        try:
+            year, month = map(int, mes_seleccionado.split("-"))
+            if month == 1:
+                mes_anterior = f"{year - 1}-12"
+            else:
+                mes_anterior = f"{year}-{month - 1:02d}"
+        except:
+            return []
+            
+        # 1. Traer catalogo
+        catalogo = []
+        try:
+            res_cat = self.session.get(f"{self.url}/catalogo_insumos?select=codigo_insumo,nombre,categoria", headers=self.headers, timeout=10)
+            if res_cat.status_code == 200:
+                catalogo = res_cat.json()
+        except:
+            pass
+            
+        # 2. Traer registros FINAL mes anterior
+        cierre_anterior = {}
+        try:
+            url_ant = f"{self.url}/registro_auditorias_cierres?tipo_registro=eq.CIERRE_MENSUAL&fecha_cierre=gte.{mes_anterior}-01&fecha_cierre=lte.{mes_anterior}-31&select=codigo_insumo,cantidad_fisica"
+            res_ant = self.session.get(url_ant, headers=self.headers, timeout=10)
+            if res_ant.status_code == 200:
+                for r in res_ant.json():
+                    cierre_anterior[r.get("codigo_insumo")] = r.get("cantidad_fisica")
+        except:
+            pass
+            
+        # 3. Traer registros INICIAL mes seleccionado
+        inicio_actual = {}
+        try:
+            url_act = f"{self.url}/registro_auditorias_cierres?tipo_registro=eq.INVENTARIO_INICIAL&fecha_cierre=gte.{mes_seleccionado}-01&fecha_cierre=lte.{mes_seleccionado}-31&select=codigo_insumo,cantidad_fisica"
+            res_act = self.session.get(url_act, headers=self.headers, timeout=10)
+            if res_act.status_code == 200:
+                for r in res_act.json():
+                    inicio_actual[r.get("codigo_insumo")] = r.get("cantidad_fisica")
+        except:
+            pass
+            
+        resultado = []
+        for c in catalogo:
+            codigo = c.get("codigo_insumo")
+            if not codigo: continue
+            
+            resultado.append({
+                "codigo_insumo": codigo,
+                "nombre": c.get("nombre"),
+                "categoria": c.get("categoria"),
+                "cierre_mes_anterior": cierre_anterior.get(codigo, 0),
+                "stock_inicial_actual": inicio_actual.get(codigo, 0),
+            })
+            
+        return resultado
+
+    def upsert_conteos_iniciales(self, registros: list) -> bool:
+        if not registros: return True
+        
+        # Buscar IDs existentes para hacer merge por Primary Key (ya que no hay unique constraint compuesto)
+        try:
+            fecha_cierre = registros[0].get("fecha_cierre")
+            tipo_registro = registros[0].get("tipo_registro")
+            codigos = [r["codigo_insumo"] for r in registros]
+            
+            # Dividir en chunks si son muchos códigos para no exceder longitud de URL, o hacer query simple
+            if len(codigos) > 0:
+                codigos_str = ",".join(codigos)
+                url_exist = f"{self.url}/registro_auditorias_cierres?fecha_cierre=eq.{fecha_cierre}&tipo_registro=eq.{tipo_registro}&codigo_insumo=in.({codigos_str})&select=id_auditoria,codigo_insumo"
+                res_exist = self.session.get(url_exist, headers=self.headers, timeout=10)
+                if res_exist.status_code == 200:
+                    existentes = {item["codigo_insumo"]: item["id_auditoria"] for item in res_exist.json() if "id_auditoria" in item}
+                    for r in registros:
+                        if r["codigo_insumo"] in existentes:
+                            r["id_auditoria"] = existentes[r["codigo_insumo"]]
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en upsert_conteos_iniciales: el servidor no responde")
+        except Exception as e:
+            print(f"Error al buscar existentes para upsert: {e}")
+        
+        url = f"{self.url}/registro_auditorias_cierres"
+        
+        headers = self.headers.copy()
+        headers["Prefer"] = "resolution=merge-duplicates"
+        
+        try:
+            res = self.session.post(url, json=registros, headers=headers, timeout=10)
+            if res.status_code in (200, 201, 204):
+                return True
+            print(f"Error upsert_conteos: {res.text}")
+            return False
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en upsert_conteos_iniciales: el servidor no responde")
+        except Exception as e:
+            print(f"Excepcion upsert_conteos: {e}")
+            return False
+
+
+    def get_top_costo_inventario(self, limit=10) -> list:
+        # Cross reference with vista_inventario_completo to get rotacion (salidas)
+        url = f"{self.url}/vista_inventario_completo?select=codigo_insumo,nombre,stock_actual,costo_unitario,salidas"
+        resultado = []
+        try:
+            res = self.session.get(url, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                for row in res.json():
+                    stock = int(row.get("stock_actual", 0) or 0)
+                    costo = float(row.get("costo_unitario", 0) or 0)
+                    salidas = int(row.get("salidas", 0) or 0)
+                    valor = stock * costo
+                    
+                    rotacion = f"{(salidas / stock):.1f}x" if stock > 0 else ("Alta" if salidas > 0 else "0.0x")
+                    
+                    resultado.append({
+                        "codigo": row.get("codigo_insumo"),
+                        "producto": row.get("nombre"),
+                        "valor_inventario": valor,
+                        "rotacion": rotacion
+                    })
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_top_costo_inventario: el servidor no responde")
+        except Exception as e:
+            print(f"Error get_top_costo: {e}")
+            return []
+            
+        resultado.sort(key=lambda x: x["valor_inventario"], reverse=True)
+        return resultado[:limit]
+        
+
+    def get_compras_summary(self, fecha_corte=None) -> dict:
+        """Invoca RPC para totales de compras"""
+        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
+        mes_actual = hoy[:7]
+        
+        url = f"{self.url}/rpc/get_compras_summary_rpc"
+        try:
+            res = self.session.post(url, json={"mes_actual": mes_actual, "dia_hoy": hoy}, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_compras_summary: el servidor no responde")
+        except Exception as e:
+            print(f"Error RPC compras_summary: {e}")
+        return {"total_mes": 0.0, "total_hoy": 0.0, "cantidad_total": 0.0}
+
+    def get_ventas_summary(self, fecha_corte=None) -> dict:
+        """Invoca RPC para totales de ingresos e IVA"""
+        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
+        mes_actual = hoy[:7]
+        
+        url = f"{self.url}/rpc/get_ventas_summary_rpc"
+        try:
+            res = self.session.post(url, json={"mes_actual": mes_actual, "dia_hoy": hoy}, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_ventas_summary: el servidor no responde")
+        except Exception as e:
+            print(f"Error RPC ventas_summary: {e}")
+        return {"total_historico": 0.0, "total_mes": 0.0, "total_hoy": 0.0, "iva_historico": 0.0, "iva_hoy": 0.0}
+
+    def get_catalogo_summary(self, fecha_corte=None) -> dict:
+        """Invoca RPC para compras totales y ventas totales en pesos"""
+        url = f"{self.url}/rpc/get_catalogo_summary_rpc"
+        try:
+            payload = {}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.session.post(url, json=payload if payload else None, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_catalogo_summary: el servidor no responde")
+        except Exception as e:
+            print(f"Error RPC catalogo_summary: {e}")
+        return {"total_compras": 0.0, "total_ventas": 0.0}
+
+    def get_top_ventas_mes(self, limit=10, fecha_corte=None) -> list:
+        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
+        mes_actual = hoy[:7]
+        url = f"{self.url}/rpc/get_top_ventas_mes_rpc"
+        try:
+            res = self.session.post(url, json={"mes_actual": mes_actual, "limite": limit, "fecha_corte": fecha_corte} if fecha_corte else {"mes_actual": mes_actual, "limite": limit}, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_top_ventas_mes: el servidor no responde")
+        except Exception as e:
+            print(f"Error RPC top_ventas: {e}")
+        return []
+
+    def get_tendencia_diaria(self, fecha_corte=None) -> dict:
+        """Invoca RPC para obtener ventas y compras agrupadas por día"""
+        if fecha_corte:
+            hoy = datetime.datetime.strptime(fecha_corte, "%Y-%m-%d").date()
+        else:
+            hoy = datetime.date.today()
+        mes_actual = hoy.strftime("%Y-%m")
+        
+        # Pre-poblar el diccionario con ceros para todos los días transcurridos
+        tendencia = {f"{mes_actual}-{i:02d}": {"ventas": 0.0, "compras": 0.0} for i in range(1, hoy.day + 1)}
+        
+        url = f"{self.url}/rpc/get_tendencia_diaria_rpc"
+        try:
+            payload = {"mes_actual": mes_actual}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.session.post(url, json=payload, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                for row in res.json():
+                    dia = row.get("dia")
+                    if dia in tendencia:
+                        tendencia[dia]["ventas"] = float(row.get("ventas", 0))
+                        tendencia[dia]["compras"] = float(row.get("compras", 0))
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_tendencia_diaria: el servidor no responde")
+        except Exception as e:
+            print(f"Error RPC tendencia_diaria: {e}")
+        return tendencia
+
+    def get_inventario_kpis(self, fecha_corte=None) -> dict:
+        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
+        mes_actual = hoy[:7]
+        url = f"{self.url}/rpc/get_inventario_kpis_rpc"
+        try:
+            res = self.session.post(url, json={"mes_actual": mes_actual, "fecha_corte": fecha_corte} if fecha_corte else {"mes_actual": mes_actual}, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_inventario_kpis: el servidor no responde")
+        except Exception as e:
+            print(f"Error RPC inventario_kpis: {e}")
+        return {"valor_inventario": 0.0, "alertas_criticas": 0}
+
+    def get_kpis_por_categoria(self, fecha_corte=None) -> list:
+        """Invoca RPC para extraer rendimiento y rotación agrupada por categoría."""
+        url = f"{self.url}/rpc/get_kpis_por_categoria_rpc"
+        try:
+            payload = {}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.session.post(url, json=payload if payload else None, headers=self.headers, timeout=5)
+            if res.status_code == 200:
+                return res.json()
+        except:
+            pass
+            
+        # Fallback local para agrupar KPIs por categoría desde la vista principal
+        try:
+            url_vista = f"{self.url}/vista_inventario_completo?select=categoria,costo_total_insumo,valor_ventas"
+            res_vista = self.session.get(url_vista, headers=self.headers, timeout=10)
+            if res_vista.status_code == 200:
+                data = res_vista.json()
+                categorias = {}
+                for item in data:
+                    cat = item.get("categoria") or "SIN CATEGORIA"
+                    if cat not in categorias:
+                        categorias[cat] = {
+                            "categoria": cat,
+                            "costo_inventario": 0.0,
+                            "ventas_totales": 0.0,
+                            "rotacion": 0.0,
+                            "rentabilidad": 0.0
+                        }
+                    categorias[cat]["costo_inventario"] += float(item.get("costo_total_insumo") or 0)
+                    categorias[cat]["ventas_totales"] += float(item.get("valor_ventas") or 0)
+                
+                result = []
+                for cat, vals in categorias.items():
+                    costo_inv = vals["costo_inventario"]
+                    vtas = vals["ventas_totales"]
+                    if costo_inv > 0:
+                        vals["rotacion"] = vtas / costo_inv
+                    if vtas > 0:
+                        vals["rentabilidad"] = 25.0 # Margen simulado 25% si hay ventas
+                    result.append(vals)
+                    
+                result.sort(key=lambda x: x["ventas_totales"], reverse=True)
+                return result
+        except Exception as e:
+            print(f"Error en get_kpis_por_categoria fallback: {e}")
+            
+        return []
+
+    def iniciar_snapshot_cierre(self, mes_periodo: str) -> dict:
+        """Invoca el RPC para generar el snapshot preliminar del mes."""
+        url = f"{self.url}/rpc/fn_snapshot_cierre_mensual"
+        try:
+            res = self.session.post(url, json={"p_mes": mes_periodo}, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+            return {"exito": False, "error": res.text}
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en iniciar_snapshot_cierre: el servidor no responde")
+        except Exception as e:
+            return {"exito": False, "error": str(e)}
+
+    def obtener_estado_cierre(self, mes_periodo: str) -> dict:
+        """Obtiene el resumen y los insumos del período especificado."""
+        url = f"{self.url}/rpc/fn_obtener_estado_cierre"
+        try:
+            res = self.session.post(url, json={"p_mes": mes_periodo}, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                return data if data is not None else {}
+            return {}
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en obtener_estado_cierre: el servidor no responde")
+        except Exception as e:
+            print(f"Error en obtener_estado_cierre: {e}")
+            return {}
+
+    def registrar_conteo_fisico(self, id_auditoria: str, cantidad: float, costo: float = None, observacion: str = None) -> dict:
+        """Registra el conteo físico y genera ajustes si existe diferencia."""
+        url = f"{self.url}/rpc/fn_registrar_conteo_fisico"
+        payload = {
+            "p_id_auditoria": id_auditoria,
+            "p_cantidad_fisica": cantidad
+        }
+        if costo is not None:
+            payload["p_costo_ajuste"] = costo
+        if observacion:
+            payload["p_observacion"] = observacion
+            
+        try:
+            res = self.session.post(url, json=payload, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+            return {"exito": False, "error": res.text}
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en registrar_conteo_fisico: el servidor no responde")
+        except Exception as e:
+            return {"exito": False, "error": str(e)}
+
+    def aceptar_stock_sistema(self, id_auditoria: str) -> dict:
+        """Acepta el stock calculado por el sistema sin conteo físico."""
+        url = f"{self.url}/rpc/fn_aceptar_stock_sistema"
+        try:
+            res = self.session.post(url, json={"p_id_auditoria": id_auditoria}, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+            return {"exito": False, "error": res.text}
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en aceptar_stock_sistema: el servidor no responde")
+        except Exception as e:
+            return {"exito": False, "error": str(e)}
+
+    def aprobar_cierre_mes(self, id_periodo: str, aprobado_por: str) -> dict:
+        """Cierra el período y consolida el inventario inicial del mes siguiente."""
+        url = f"{self.url}/rpc/fn_aprobar_cierre_mes"
+        try:
+            res = self.session.post(url, json={"p_id_periodo": id_periodo, "p_aprobado_por": aprobado_por}, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+            return {"exito": False, "error": res.text}
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en aprobar_cierre_mes: el servidor no responde")
+        except Exception as e:
+            return {"exito": False, "error": str(e)}
+
+    def get_catalogo_costos(self) -> dict:
+        """Obtiene un diccionario con los costos actuales del catálogo de insumos"""
+        url = f"{self.url}/catalogo_insumos?select=codigo_insumo,costo_unitario"
+        try:
+            res = self.session.get(url, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return {item.get('codigo_insumo'): float(item.get('costo_unitario') or 0) for item in res.json()}
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_catalogo_costos: el servidor no responde")
+        except Exception as e:
+            print(f"Error get_catalogo_costos: {e}")
+        return {}
+
+    def get_insumo_detalle(self, codigo: str) -> dict:
+        """Recupera el nombre, costo, precio y stock de un insumo específico para el autocompletado."""
+        url = f"{self.url}/catalogo_insumos?codigo_insumo=eq.{codigo}&select=nombre,costo_unitario,precio_venta,stock_actual"
+        try:
+            res = self.session.get(url, headers=self.headers, timeout=10)
+            if res.status_code == 200 and len(res.json()) > 0:
+                return res.json()[0]
+        except Exception:
+            pass
+        return {}
+
+    def get_ajustes_inventario(self) -> list:
+        """Obtiene el historial de ajustes cruzado con el catálogo para extraer el nombre."""
+        url = f"{self.url}/registro_ajustes_inventario?select=*,catalogo_insumos(nombre,categoria)&order=fecha_ajuste.desc"
+        try:
+            res = self.session.get(url, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_ajustes_inventario: el servidor no responde")
+        except Exception as e:
+            pass
+
+    def get_historial_facturas_dia(self, fecha_dia: str) -> list:
+        """
+        Recupera todas las facturas y documentos cargados en un día específico (YYYY-MM-DD),
+        agrupados por número de factura/entrada con su hora de registro y valor total.
+        """
+        facturas = []
+        try:
+            # 1. Compras del día
+            url_c = f"{self.url}/registro_compras?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=numero_entrada,numero_factura,proveedor,costo_total,fecha&order=fecha.desc"
+            res_c = self.session.get(url_c, headers=self.headers, timeout=10)
+            if res_c.status_code == 200:
+                agrupado_c = {}
+                for r in res_c.json():
+                    ref = r.get("numero_entrada") or r.get("numero_factura")
+                    if not ref: continue
+                    if ref not in agrupado_c:
+                        agrupado_c[ref] = {
+                            "tipo": "COMPRA",
+                            "ref": ref,
+                            "factura": r.get("numero_factura", "N/A"),
+                            "proveedor": r.get("proveedor") or "Clientes Varios",
+                            "total": 0.0,
+                            "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
+                        }
+                    agrupado_c[ref]["total"] += float(r.get("costo_total") or 0)
+                facturas.extend(list(agrupado_c.values()))
+
+            # 2. Ventas del día (Diferenciando POS y Remisión)
+            url_v = f"{self.url}/registro_ventas?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=factura_no,tipo_documento,total,fecha&order=fecha.desc"
+            res_v = self.session.get(url_v, headers=self.headers, timeout=10)
+            if res_v.status_code == 200:
+                agrupado_v = {}
+                for r in res_v.json():
+                    ref = r.get("factura_no")
+                    if not ref: continue
+                    if ref not in agrupado_v:
+                        tipo_doc = r.get("tipo_documento") or "Factura POS"
+                        agrupado_v[ref] = {
+                            "tipo": f"VENTA_{'POS' if 'POS' in tipo_doc.upper() else 'REVISION'}",
+                            "ref": ref,
+                            "factura": ref,
+                            "subtipo": tipo_doc,
+                            "total": 0.0,
+                            "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
+                        }
+                    agrupado_v[ref]["total"] += float(r.get("total") or 0)
+                facturas.extend(list(agrupado_v.values()))
+
+            # 3. Ajustes del día
+            url_a = f"{self.url}/registro_ajustes_inventario?fecha_ajuste=gte.{fecha_dia}T00:00:00&fecha_ajuste=lte.{fecha_dia}T23:59:59&select=id_ajuste,tipo_ajuste,motivo_observacion,costo_total_ajuste,fecha_ajuste&order=fecha_ajuste.desc"
+            res_a = self.session.get(url_a, headers=self.headers, timeout=10)
+            if res_a.status_code == 200:
+                for r in res_a.json():
+                    es_entrada = r.get("tipo_ajuste") in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
+                    facturas.append({
+                        "tipo": "AJUSTE_ENTRADA" if es_entrada else "AJUSTE_SALIDA",
+                        "ref": r.get("id_ajuste"),
+                        "factura": r.get("motivo_observacion") or "Ajuste Directo",
+                        "total": float(r.get("costo_total_ajuste") or 0),
+                        "hora": r.get("fecha_ajuste", "") if len(r.get("fecha_ajuste", "")) >= 16 else "12:00"
+                    })
+
+        except Exception as ex:
+            print(f"Error cargando historial del día: {ex}")
+
+        # Ordenar por hora descendente (más reciente arriba)
+        facturas.sort(key=lambda x: x["hora"], reverse=True)
+        return facturas
+
+    def get_codigos_factura_especifica(self, tipo: str, ref: str) -> list:
+        try:
+            if tipo == "COMPRA":
+                res = self.session.get(f"{self.url}/registro_compras?numero_entrada=eq.{ref}&select=codigo_insumo", headers=self.headers, timeout=5)
+            elif tipo.startswith("VENTA"):
+                res = self.session.get(f"{self.url}/registro_ventas?factura_no=eq.{ref}&select=codigo_insumo", headers=self.headers, timeout=5)
+            else:
+                res = self.session.get(f"{self.url}/registro_ajustes_inventario?id_ajuste=eq.{ref}&select=codigo_insumo", headers=self.headers, timeout=5)
+            
+            if res.status_code == 200:
+                return list(set([r.get("codigo_insumo") for r in res.json() if r.get("codigo_insumo")]))
+        except: pass
+        return []
+        return []
+
+    def insert_ajuste_individual(self, datos: dict) -> bool:
+        """Inserta un nuevo registro de ajuste operativo."""
+        url = f"{self.url}/registro_ajustes_inventario"
+        try:
+            res = self.session.post(url, json=datos, headers=self.headers, timeout=10)
+            return res.status_code in (200, 201, 204)
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en insert_ajuste_individual: el servidor no responde")
+        except Exception as e:
+            return False
+
+    def anular_ajuste(self, id_ajuste: str) -> bool:
+        """Cambia el estado del ajuste a ANULADO. El trigger en la BD revertirá el inventario."""
+        url = f"{self.url}/registro_ajustes_inventario?id_ajuste=eq.{id_ajuste}"
+        try:
+            res = self.session.patch(url, json={"estado_registro": "ANULADO"}, headers=self.headers, timeout=10)
+            return res.status_code in (200, 204)
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en anular_ajuste: el servidor no responde")
+        except Exception as e:
+            return False
+
+    def get_periodos_inventario(self) -> list:
+        """Obtiene la lista de periodos de inventario ordenados descendentemente."""
+        url = f"{self.url}/periodos_inventario?select=*&order=mes_periodo.desc"
+        try:
+            res = self.session.get(url, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+            return []
+        except requests.exceptions.RequestException as req_e:
+            print(f"Error de conexión con Supabase en get_periodos_inventario: el servidor no responde")
+            return []
+        except Exception as e:
+            return []
+
+    def get_proyeccion_ventas(self, fecha_corte=None) -> float:
+        """Invoca RPC get_proyeccion_ventas_rpc"""
+        url = f"{self.url}/rpc/get_proyeccion_ventas_rpc"
+        try:
+            payload = {}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.session.post(url, json=payload if payload else None, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                return float(data) if data is not None else 0.0
+            return 0.0
+        except requests.exceptions.RequestException:
+            print(f"Error de conexión con Supabase en get_proyeccion_ventas: el servidor no responde")
+            return 0.0
+        except Exception:
+            return 0.0
+
+    def get_ajustes_mes(self, mes_actual: str, fecha_corte=None) -> list:
+        """Invoca RPC get_ajustes_mes_rpc"""
+        url = f"{self.url}/rpc/get_ajustes_mes_rpc"
+        try:
+            payload = {"mes_actual": mes_actual}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.session.post(url, json=payload, headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                return data if data is not None else []
+            return []
+        except requests.exceptions.RequestException:
+            print(f"Error de conexión con Supabase en get_ajustes_mes: el servidor no responde")
+            return []
+        except Exception:
+            return []
+
+    def aceptar_stock_sistema_masivo(self, ids_auditoria: list) -> dict:
+        url = f"{self.url}/rpc/fn_aceptar_stock_sistema_masivo"
+        try:
+            res = self.session.post(url, json={"p_ids": ids_auditoria}, headers=self.headers, timeout=15)
+            if res.status_code == 200: return res.json()
+            return {"exito": False, "error": res.text}
+        except Exception as e: return {"exito": False, "error": str(e)}
+
+    def eliminar_ajuste_cierre(self, id_auditoria: str) -> dict:
+        url = f"{self.url}/rpc/fn_eliminar_ajuste_cierre"
+        try:
+            res = self.session.post(url, json={"p_id_auditoria": id_auditoria}, headers=self.headers, timeout=10)
+            if res.status_code == 200: return res.json()
+            return {"exito": False, "error": res.text}
+        except Exception as e: return {"exito": False, "error": str(e)}
+
+    def get_rendimiento_categorias_periodo(self, fecha_inicio=None, fecha_fin=None) -> list:
+        """
+        Calcula las métricas reales por categoría combinando la tabla catalogo_insumos
+        y registro_ventas.
+        """
+        categorias_map = {}
+    
+        try:
+            # 1. Obtener todos los insumos del catálogo
+            url_insumos = f"{self.url}/catalogo_insumos?select=codigo_insumo,categoria,stock_actual,costo_unitario,precio_venta,costo_total_insumo"
+            res_i = self.session.get(url_insumos, headers=self.headers, timeout=10)
+            
+            if res_i.status_code == 200:
+                for item in res_i.json():
+                    cat_nombre = (item.get("categoria") or "SIN CATEGORÍA").strip().upper()
+                    
+                    # Extraer métricas de insumo con fallbacks seguros
+                    stock = float(item.get("stock_actual") or 0)
+                    costo_u = float(item.get("costo_unitario") or 0)
+                    precio_v = float(item.get("precio_venta") or 0)
+                    
+                    # Si costo_total_insumo existe en BD se usa, si no, se calcula stock * costo_u
+                    costo_tot_item = float(item.get("costo_total_insumo") or (stock * costo_u))
+                    proy_venta_item = stock * precio_v
+    
+                    if cat_nombre not in categorias_map:
+                        categorias_map[cat_nombre] = {
+                            "categoria": cat_nombre,
+                            "inventario_costo": 0.0,
+                            "proyeccion_venta": 0.0,
+                            "ventas_realizadas": 0.0,
+                            "costo_vendido": 0.0
+                        }
+    
+                    categorias_map[cat_nombre]["inventario_costo"] += costo_tot_item
+                    categorias_map[cat_nombre]["proyeccion_venta"] += proy_venta_item
+    
+            # 2. Obtener las ventas del periodo
+            url_ventas = f"{self.url}/registro_ventas?select=total,cantidad,codigo_insumo,catalogo_insumos(categoria,costo_unitario)"
+            if fecha_inicio and fecha_fin:
+                url_ventas += f"&fecha=gte.{fecha_inicio}T00:00:00&fecha=lte.{fecha_fin}T23:59:59"
+            elif fecha_fin:
+                url_ventas += f"&fecha=lte.{fecha_fin}T23:59:59"
+            elif fecha_inicio:
+                url_ventas += f"&fecha=gte.{fecha_inicio}T00:00:00"
+    
+            res_v = self.session.get(url_ventas, headers=self.headers, timeout=10)
+            
+            if res_v.status_code == 200:
+                for v in res_v.json():
+                    cat_v = None
+                    costo_u_v = 0.0
+                    
+                    if v.get("catalogo_insumos"):
+                        cat_v = v["catalogo_insumos"].get("categoria")
+                        costo_u_v = float(v["catalogo_insumos"].get("costo_unitario") or 0)
+                    
+                    cat_nombre = (cat_v or "SIN CATEGORÍA").strip().upper()
+                    tot_venta = float(v.get("total") or 0)
+                    cant_v = float(v.get("cantidad") or 0)
+    
+                    if cat_nombre not in categorias_map:
+                        categorias_map[cat_nombre] = {
+                            "categoria": cat_nombre,
+                            "inventario_costo": 0.0,
+                            "proyeccion_venta": 0.0,
+                            "ventas_realizadas": 0.0,
+                            "costo_vendido": 0.0
+                        }
+    
+                    categorias_map[cat_nombre]["ventas_realizadas"] += tot_venta
+                    categorias_map[cat_nombre]["costo_vendido"] += (cant_v * costo_u_v)
+    
+        except Exception as ex:
+            print(f"Error calculando rendimiento por categorías: {ex}")
+    
+        # 3. Formatear y calcular porcentajes finales
+        resultado = []
+        for cat_nombre, d in categorias_map.items():
+            inv_c = d["inventario_costo"]
+            v_real = d["ventas_realizadas"]
+            proy_v = d["proyeccion_venta"]
+            c_vend = d["costo_vendido"]
+    
+            cumplimiento = (v_real / proy_v * 100) if proy_v > 0 else 0.0
+            rotacion = (v_real / inv_c) if inv_c > 0 else 0.0
+            
+            # Rendimiento Real % = (Ventas - CostoVendido) / Ventas * 100
+            rendimiento = ((v_real - c_vend) / v_real * 100) if v_real > 0 else 100.0
+    
+            resultado.append({
+                "categoria": cat_nombre,
+                "inventario_costo": inv_c,
+                "ventas_realizadas": v_real,
+                "proyeccion_venta": proy_v,
+                "cumplimiento_pct": cumplimiento,
+                "rotacion": rotacion,
+                "rendimiento_pct": rendimiento
+            })
+    
+        # Ordenar de mayor a menor por inventario o ventas
+        resultado.sort(key=lambda x: (x["inventario_costo"], x["ventas_realizadas"]), reverse=True)
+        return resultado
 ````
 
 ## File: ui/views/cierre_inventario.py
@@ -8828,9 +9771,9 @@ class CierreInventarioView(ft.Container):
         self.filtro_estado = "Todos"
         
         # Filtros Visuales
-        self.input_search = ft.TextField(hint_text="Buscar código o nombre...", prefix_icon=ft.icons.SEARCH, height=40, expand=True, on_change=self.on_filter_change)
-        self.drop_categoria = ft.Dropdown(label="Categoría", options=[ft.dropdown.Option("Todas")], height=40, width=150, on_change=self.on_filter_change)
-        self.drop_estado = ft.Dropdown(label="Estado", options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("PENDIENTE"), ft.dropdown.Option("AUDITADO"), ft.dropdown.Option("AJUSTADO")], value="Todos", height=40, width=150, on_change=self.on_filter_change)
+        self.input_search = ft.TextField(hint_text="Buscar código o nombre...", prefix_icon=ft.icons.SEARCH, height=38, expand=True, dense=True, text_size=12, on_submit=self.on_filter_change)
+        self.drop_categoria = ft.Dropdown(label="Categoría", options=[ft.dropdown.Option("Todas")], height=38, width=150, dense=True, text_size=12, content_padding=ft.padding.symmetric(horizontal=10, vertical=8), on_change=self.on_filter_change)
+        self.drop_estado = ft.Dropdown(label="Estado", options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("PENDIENTE"), ft.dropdown.Option("AUDITADO"), ft.dropdown.Option("AJUSTADO")], value="Todos", height=38, width=150, dense=True, text_size=12, content_padding=ft.padding.symmetric(horizontal=10, vertical=8), on_change=self.on_filter_change)
         
         self.btn_masivo = ft.ElevatedButton("Aceptar Stock Seleccionado", icon=ft.icons.CHECK_BOX, bgcolor="green", color="white", on_click=self.abrir_modal_masivo)
         self.action_bar_masiva = ft.Row([self.btn_masivo], visible=False)
@@ -8925,31 +9868,45 @@ class CierreInventarioView(ft.Container):
 
         # Controles Paginación Interfaz
         self.lbl_page_info = ft.Text('Página 1 de 1')
-        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, on_click=self.on_prev_page, disabled=True)
-        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, on_click=self.on_next_page, disabled=True)
+        self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, tooltip="Página Anterior", on_click=self.on_prev_page, disabled=True)
+        self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, tooltip="Página Siguiente", on_click=self.on_next_page, disabled=True)
 
         # Controles Dashboard Financiero
-        self.lbl_valor_sistema = ft.Text('$0.00', size=16, weight='bold', color=Config.COLOR_PRIMARY)
+        self.lbl_valor_sistema = ft.Text("$0.00", size=15, weight="bold", color=Config.COLOR_PRIMARY)
         self.lbl_ajustes_entrada = ft.Text('$0.00', size=16, weight='bold', color='green')
         self.lbl_cant_entrada = ft.Text('0 unds', size=10, color='grey')
         self.lbl_ajustes_salida = ft.Text('$0.00', size=16, weight='bold', color='red')
         self.lbl_cant_salida = ft.Text('0 unds', size=10, color='grey')
         self.lbl_neto_ajustes = ft.Text('$0.00', size=16, weight='bold')
-        self.lbl_valor_fisico = ft.Text('$0.00', size=18, weight='bold', color=Config.COLOR_SECONDARY)
-        
+        self.lbl_valor_fisico = ft.Text("$0.00", size=15, weight="bold", color="blue700")
+
         self.kpi_compacto = ft.Container(
-            content=ft.Column([
-                ft.Row([
-                    ft.Text("Valor del Sistema:", weight="bold", color="grey"), self.lbl_valor_sistema,
-                    ft.Text(" | Valor Físico Proyectado:", weight="bold", color="grey"), self.lbl_valor_fisico,
-                ]),
-                ft.Row([
-                    ft.Text("Sobrantes (+):", weight="bold", color="grey"), self.lbl_ajustes_entrada,
-                    ft.Text(" | Faltantes (-):", weight="bold", color="grey"), self.lbl_ajustes_salida,
-                    ft.Text(" | Neto Ajustes:", weight="bold", color="grey"), self.lbl_neto_ajustes,
-                ])
-            ], spacing=2),
-            bgcolor="#f8f9fa", padding=10, border_radius=8, border=ft.border.all(1, "#e0e0e0")
+            content=ft.Row([
+                # Columna 1: Valorizaciones
+                ft.Column([
+                    ft.Text("COSTO DE INVENTARIO", size=10, weight="bold", color="grey"),
+                    ft.Row([
+                        ft.Column([ft.Text("Sistema Actual", size=10, color="grey"), self.lbl_valor_sistema]),
+                        ft.Container(width=1, height=25, bgcolor="#e0e0e0", margin=ft.padding.symmetric(horizontal=10)),
+                        ft.Column([ft.Text("Proyectado Tras Ajustes", size=10, color="grey"), self.lbl_valor_fisico]),
+                    ])
+                ], expand=True),
+                
+                ft.Container(width=1, height=35, bgcolor="#cccccc", margin=ft.padding.symmetric(horizontal=15)),
+                
+                # Columna 2: Impacto Auditado
+                ft.Column([
+                    ft.Text("DESVIACIONES Y AUDITORÍA", size=10, weight="bold", color="grey"),
+                    ft.Row([
+                        ft.Column([ft.Text("Sobrantes (+)", size=10, color="grey"), self.lbl_ajustes_entrada]),
+                        ft.Container(width=1, height=25, bgcolor="#e0e0e0", margin=ft.padding.symmetric(horizontal=10)),
+                        ft.Column([ft.Text("Faltantes (-)", size=10, color="grey"), self.lbl_ajustes_salida]),
+                        ft.Container(width=1, height=25, bgcolor="#e0e0e0", margin=ft.padding.symmetric(horizontal=10)),
+                        ft.Column([ft.Text("Neto Ajustes", size=10, color="grey"), self.lbl_neto_ajustes]),
+                    ])
+                ], expand=True)
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor="white", padding=12, border_radius=8, border=ft.border.all(1, "#e0e0e0")
         )
 
         # Controles vista_lista (Maestro)
@@ -9222,7 +10179,7 @@ class CierreInventarioView(ft.Container):
                 ft.DataCell(ft.Text(month)),
                 ft.DataCell(ft.Text(year)),
                 ft.DataCell(ft.Text(estado, color=color_estado.get(estado, 'black'), weight='bold')),
-                ft.DataCell(ft.ElevatedButton('Ver', on_click=lambda e, m=mes_periodo: self.mostrar_detalle(m)))
+                ft.DataCell(ft.ElevatedButton('Ver', tooltip="Ver Detalles del Cierre", on_click=lambda e, m=mes_periodo: self.mostrar_detalle(m)))
             ])
             self.dt_periodos.rows.append(row)
             
@@ -9590,8 +10547,8 @@ class CierreInventarioView(ft.Container):
         
         botones_accion = []
         if estado_insumo == "PENDIENTE":
-            botones_accion.append(ft.ElevatedButton("Aceptar", icon=ft.icons.CHECK, bgcolor="green50", color="green900", on_click=lambda e, i_id=id_auditoria: self.procesar_aceptar_sistema(i_id), scale=0.85, disabled=(estado_periodo == 'CERRADO' or estado_insumo == 'APROBADO')))
-            btn_ajuste_pendiente = ft.OutlinedButton("Ingresar Ajuste", icon=ft.icons.TUNE, on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value), scale=0.85, disabled=True)
+            botones_accion.append(ft.ElevatedButton("Aceptar", tooltip="Aceptar sin diferencias", icon=ft.icons.CHECK, bgcolor="green50", color="green900", on_click=lambda e, i_id=id_auditoria: self.procesar_aceptar_sistema(i_id), scale=0.85, disabled=(estado_periodo == 'CERRADO' or estado_insumo == 'APROBADO')))
+            btn_ajuste_pendiente = ft.OutlinedButton("Ingresar Ajuste", tooltip="Registrar diferencia", icon=ft.icons.TUNE, on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value), scale=0.85, disabled=True)
             botones_accion.append(btn_ajuste_pendiente)
             if txt_conteo.value:
                 try:
@@ -9602,17 +10559,17 @@ class CierreInventarioView(ft.Container):
             # Update the original btn_ajuste reference used by on_txt_conteo_change closure
             btn_ajuste = btn_ajuste_pendiente
         elif estado_insumo == "AUDITADO":
-            btn_ajuste = ft.OutlinedButton("Editar Ajuste", icon=ft.icons.EDIT, on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value), scale=0.85, disabled=(estado_periodo == 'CERRADO'))
+            btn_ajuste = ft.OutlinedButton("Editar Ajuste", tooltip="Modificar ajuste", icon=ft.icons.EDIT, on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value), scale=0.85, disabled=(estado_periodo == 'CERRADO'))
             botones_accion.append(btn_ajuste)
             btn_ajuste.disabled = False if txt_conteo.value else True
         elif estado_insumo == "AJUSTADO":
-            btn_ajuste = ft.OutlinedButton("Editar Ajuste", icon=ft.icons.EDIT, on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value), scale=0.85, disabled=(estado_periodo == 'CERRADO'))
+            btn_ajuste = ft.OutlinedButton("Editar Ajuste", tooltip="Modificar ajuste", icon=ft.icons.EDIT, on_click=lambda e, i=insumo, tc=txt_conteo: self.abrir_modal_ajuste_cierre(i, tc.value), scale=0.85, disabled=(estado_periodo == 'CERRADO'))
             botones_accion.append(btn_ajuste)
-            botones_accion.append(ft.OutlinedButton("Eliminar Ajuste", icon=ft.icons.DELETE, icon_color="red", style=ft.ButtonStyle(color="red"), on_click=lambda e, i_id=id_auditoria: self.procesar_eliminar_ajuste(i_id), scale=0.85, disabled=(estado_periodo == 'CERRADO')))
+            botones_accion.append(ft.OutlinedButton("Eliminar Ajuste", tooltip="Descartar ajuste", icon=ft.icons.DELETE, icon_color="red", style=ft.ButtonStyle(color="red"), on_click=lambda e, i_id=id_auditoria: self.procesar_eliminar_ajuste(i_id), scale=0.85, disabled=(estado_periodo == 'CERRADO')))
             btn_ajuste.disabled = False if txt_conteo.value else True
         else:
             # Fallback (e.g., APROBADO) - disabled buttons or none
-            btn_ajuste = ft.OutlinedButton("Bloqueado", disabled=True, scale=0.85)
+            btn_ajuste = ft.OutlinedButton("Bloqueado", tooltip="Acción no permitida", disabled=True, scale=0.85)
             botones_accion.append(btn_ajuste)
 
         cant_final = float(insumo.get("cantidad_fisica") if insumo.get("cantidad_fisica") is not None else insumo.get("cantidad_sistema", 0))
@@ -9862,4 +10819,3702 @@ class CierreInventarioView(ft.Container):
             self.page.snack_bar = ft.SnackBar(ft.Text(f'Error: {res.get("error")}'), bgcolor='red')
             self.page.snack_bar.open = True
             if self.page: self.page.update()
+````
+
+## File: cargas_locales.json
+````json
+{
+    "2026-08-17_Factura POS": {
+        "1": {
+            "id": 1,
+            "pagina": 1,
+            "tipo": "Factura POS",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Factura_POS_Pag_1.pdf",
+            "estado": "Guardado",
+            "datos_extraidos": [
+                {
+                    "numero_factura": "26396",
+                    "productos": [
+                        {
+                            "cantidad": 50,
+                            "codigo_item": "2151",
+                            "costo_total": 95000,
+                            "iva": 0,
+                            "subtotal": 95000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26397",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0105",
+                            "costo_total": 400,
+                            "iva": 0,
+                            "subtotal": 400
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26398",
+                    "productos": [
+                        {
+                            "cantidad": 100,
+                            "codigo_item": "0573",
+                            "costo_total": 41500,
+                            "iva": 0,
+                            "subtotal": 41500
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0174",
+                            "costo_total": 2100,
+                            "iva": 0,
+                            "subtotal": 2100
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26399",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0615",
+                            "costo_total": 14600,
+                            "iva": 0,
+                            "subtotal": 14600
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26400",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "2333",
+                            "costo_total": 3500,
+                            "iva": 0,
+                            "subtotal": 3500
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26401",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0022",
+                            "costo_total": 2200,
+                            "iva": 0,
+                            "subtotal": 2200
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26402",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "2036",
+                            "costo_total": 4000,
+                            "iva": 0,
+                            "subtotal": 4000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26403",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0726",
+                            "costo_total": 12500,
+                            "iva": 0,
+                            "subtotal": 12500
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26404",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0483",
+                            "costo_total": 21900,
+                            "iva": 0,
+                            "subtotal": 21900
+                        },
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0108",
+                            "costo_total": 17000,
+                            "iva": 0,
+                            "subtotal": 17000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26405",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0165",
+                            "costo_total": 7800,
+                            "iva": 0,
+                            "subtotal": 7800
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26406",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1591",
+                            "costo_total": 4600,
+                            "iva": 0,
+                            "subtotal": 4600
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0024",
+                            "costo_total": 8850,
+                            "iva": 0,
+                            "subtotal": 8850
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0644",
+                            "costo_total": 7600,
+                            "iva": 0,
+                            "subtotal": 7600
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1664",
+                            "costo_total": 2600,
+                            "iva": 0,
+                            "subtotal": 2600
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0655",
+                            "costo_total": 11200,
+                            "iva": 0,
+                            "subtotal": 11200
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0178",
+                            "costo_total": 2800,
+                            "iva": 0,
+                            "subtotal": 2800
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1639",
+                            "costo_total": 5600,
+                            "iva": 0,
+                            "subtotal": 5600
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26407",
+                    "productos": [
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0573",
+                            "costo_total": 8800,
+                            "iva": 0,
+                            "subtotal": 8800
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26408",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1176",
+                            "costo_total": 15900,
+                            "iva": 0,
+                            "subtotal": 15900
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26409",
+                    "productos": [
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0355",
+                            "costo_total": 19600,
+                            "iva": 0,
+                            "subtotal": 19600
+                        }
+                    ]
+                }
+            ]
+        },
+        "2": {
+            "id": 2,
+            "pagina": 2,
+            "tipo": "Factura POS",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Factura_POS_Pag_2.pdf",
+            "estado": "Guardado",
+            "datos_extraidos": [
+                {
+                    "numero_factura": "26410",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0074",
+                            "costo_total": 8000,
+                            "iva": 0,
+                            "subtotal": 8000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26411",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1639",
+                            "costo_total": 6500,
+                            "iva": 0,
+                            "subtotal": 6500
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26412",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1079",
+                            "costo_total": 5600,
+                            "iva": 0,
+                            "subtotal": 5600
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26413",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0043",
+                            "costo_total": 5000,
+                            "iva": 0,
+                            "subtotal": 5000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26414",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1080",
+                            "costo_total": 21000,
+                            "iva": 0,
+                            "subtotal": 21000
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0234",
+                            "costo_total": 5950,
+                            "iva": 0,
+                            "subtotal": 5950
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26415",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0425",
+                            "costo_total": 4000,
+                            "iva": 0,
+                            "subtotal": 4000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26416",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1847",
+                            "costo_total": 5200,
+                            "iva": 0,
+                            "subtotal": 5200
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26417",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1478",
+                            "costo_total": 5600,
+                            "iva": 0,
+                            "subtotal": 5600
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1009",
+                            "costo_total": 2200,
+                            "iva": 0,
+                            "subtotal": 2200
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26418",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0663",
+                            "costo_total": 6000,
+                            "iva": 0,
+                            "subtotal": 6000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26419",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0347",
+                            "costo_total": 8500,
+                            "iva": 0,
+                            "subtotal": 8500
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26420",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1472",
+                            "costo_total": 1700,
+                            "iva": 0,
+                            "subtotal": 1700
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26421",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0416",
+                            "costo_total": 9600,
+                            "iva": 0,
+                            "subtotal": 9600
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26422",
+                    "productos": [
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "1281",
+                            "costo_total": 2400,
+                            "iva": 0,
+                            "subtotal": 2400
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1009",
+                            "costo_total": 2000,
+                            "iva": 0,
+                            "subtotal": 2000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26423",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1478",
+                            "costo_total": 2200,
+                            "iva": 0,
+                            "subtotal": 2200
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26424",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0425",
+                            "costo_total": 2000,
+                            "iva": 0,
+                            "subtotal": 2000
+                        }
+                    ]
+                },
+                {
+                    "numero_factura": "26425",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1478",
+                            "costo_total": 2500,
+                            "iva": 0,
+                            "subtotal": 2500
+                        }
+                    ]
+                }
+            ]
+        }
+    },
+    "2026-08-17_Remisi\u00f3n": {
+        "1": {
+            "id": 3,
+            "pagina": 1,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_1.pdf",
+            "estado": "Guardado",
+            "datos_extraidos": [
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37921",
+                    "productos": [
+                        {
+                            "cantidad": 37,
+                            "codigo_item": "0847",
+                            "costo_total": 111000,
+                            "iva": 17723,
+                            "subtotal": 93277
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0658",
+                            "costo_total": 37950,
+                            "iva": 6059,
+                            "subtotal": 31891
+                        },
+                        {
+                            "cantidad": 50,
+                            "codigo_item": "0331",
+                            "costo_total": 20000,
+                            "iva": 3193,
+                            "subtotal": 16807
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0653",
+                            "costo_total": 4000,
+                            "iva": 639,
+                            "subtotal": 3361
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0399",
+                            "costo_total": 30500,
+                            "iva": 4870,
+                            "subtotal": 25630
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0424",
+                            "costo_total": 9500,
+                            "iva": 1517,
+                            "subtotal": 7983
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37922",
+                    "productos": [
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "1839",
+                            "costo_total": 9300,
+                            "iva": 1485,
+                            "subtotal": 7815
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0681",
+                            "costo_total": 8600,
+                            "iva": 1373,
+                            "subtotal": 7227
+                        },
+                        {
+                            "cantidad": 50,
+                            "codigo_item": "4860",
+                            "costo_total": 25000,
+                            "iva": 3992,
+                            "subtotal": 21008
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0644",
+                            "costo_total": 11400,
+                            "iva": 1820,
+                            "subtotal": 9580
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "4156",
+                            "costo_total": 8950,
+                            "iva": 1429,
+                            "subtotal": 7521
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "2206",
+                            "costo_total": 5300,
+                            "iva": 846,
+                            "subtotal": 4454
+                        },
+                        {
+                            "cantidad": 40,
+                            "codigo_item": "0571-1",
+                            "costo_total": 22800,
+                            "iva": 3640,
+                            "subtotal": 19160
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "0105",
+                            "costo_total": 4000,
+                            "iva": 639,
+                            "subtotal": 3361
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "2016",
+                            "costo_total": 7800,
+                            "iva": 1245,
+                            "subtotal": 6555
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37923",
+                    "productos": [
+                        {
+                            "cantidad": 8,
+                            "codigo_item": "0858",
+                            "costo_total": 33200,
+                            "iva": 5301,
+                            "subtotal": 27899
+                        },
+                        {
+                            "cantidad": 8,
+                            "codigo_item": "0690",
+                            "costo_total": 50000,
+                            "iva": 7983,
+                            "subtotal": 42017
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0304",
+                            "costo_total": 20400,
+                            "iva": 3257,
+                            "subtotal": 17143
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0313",
+                            "costo_total": 19500,
+                            "iva": 3113,
+                            "subtotal": 16387
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0713",
+                            "costo_total": 19500,
+                            "iva": 3113,
+                            "subtotal": 16387
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0171",
+                            "costo_total": 5850,
+                            "iva": 934,
+                            "subtotal": 4916
+                        },
+                        {
+                            "cantidad": 12,
+                            "codigo_item": "0250",
+                            "costo_total": 114000,
+                            "iva": 18202,
+                            "subtotal": 95798
+                        },
+                        {
+                            "cantidad": 200,
+                            "codigo_item": "0578",
+                            "costo_total": 95000,
+                            "iva": 15168,
+                            "subtotal": 79832
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0649",
+                            "costo_total": 30900,
+                            "iva": 4934,
+                            "subtotal": 25966
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37924",
+                    "productos": [
+                        {
+                            "cantidad": 200,
+                            "codigo_item": "0570",
+                            "costo_total": 82800,
+                            "iva": 13220,
+                            "subtotal": 69580
+                        },
+                        {
+                            "cantidad": 200,
+                            "codigo_item": "0572",
+                            "costo_total": 50000,
+                            "iva": 7983,
+                            "subtotal": 42017
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0658",
+                            "costo_total": 59500,
+                            "iva": 9500,
+                            "subtotal": 50000
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "0563",
+                            "costo_total": 32200,
+                            "iva": 5141,
+                            "subtotal": 27059
+                        },
+                        {
+                            "cantidad": 6,
+                            "codigo_item": "0560",
+                            "costo_total": 30000,
+                            "iva": 4790,
+                            "subtotal": 25210
+                        },
+                        {
+                            "cantidad": 7,
+                            "codigo_item": "0558",
+                            "costo_total": 32200,
+                            "iva": 5141,
+                            "subtotal": 27059
+                        },
+                        {
+                            "cantidad": 12,
+                            "codigo_item": "0554",
+                            "costo_total": 26400,
+                            "iva": 4215,
+                            "subtotal": 22185
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0537",
+                            "costo_total": 19998,
+                            "iva": 3193,
+                            "subtotal": 16805
+                        }
+                    ]
+                }
+            ]
+        },
+        "2": {
+            "id": 4,
+            "pagina": 2,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_2.pdf",
+            "estado": "Procesado con \u00e9xito",
+            "datos_extraidos": [
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37924",
+                    "productos": [
+                        {
+                            "cantidad": 7,
+                            "codigo_item": "0385",
+                            "costo_total": 12600,
+                            "iva": 2012,
+                            "subtotal": 10588
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "2000",
+                            "costo_total": 16500,
+                            "iva": 2634,
+                            "subtotal": 13866
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0449",
+                            "costo_total": 741,
+                            "iva": 118,
+                            "subtotal": 623
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "1039",
+                            "costo_total": 950,
+                            "iva": 152,
+                            "subtotal": 798
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0262",
+                            "costo_total": 2300,
+                            "iva": 367,
+                            "subtotal": 1933
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37925",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0609",
+                            "costo_total": 30500,
+                            "iva": 4870,
+                            "subtotal": 25630
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0074",
+                            "costo_total": 17250,
+                            "iva": 2754,
+                            "subtotal": 14496
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1665",
+                            "costo_total": 4200,
+                            "iva": 671,
+                            "subtotal": 3529
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1079",
+                            "costo_total": 11200,
+                            "iva": 1788,
+                            "subtotal": 9412
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1387",
+                            "costo_total": 12200,
+                            "iva": 1948,
+                            "subtotal": 10252
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0304",
+                            "costo_total": 12600,
+                            "iva": 2012,
+                            "subtotal": 10588
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0313",
+                            "costo_total": 12600,
+                            "iva": 2012,
+                            "subtotal": 10588
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0713",
+                            "costo_total": 12600,
+                            "iva": 2012,
+                            "subtotal": 10588
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0174",
+                            "costo_total": 3800,
+                            "iva": 607,
+                            "subtotal": 3193
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0849",
+                            "costo_total": 4000,
+                            "iva": 639,
+                            "subtotal": 3361
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1004",
+                            "costo_total": 5450,
+                            "iva": 870,
+                            "subtotal": 4580
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37926",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1991",
+                            "costo_total": 138000,
+                            "iva": 22034,
+                            "subtotal": 115966
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37927",
+                    "productos": [
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0882",
+                            "costo_total": 59500,
+                            "iva": 9500,
+                            "subtotal": 50000
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "1818",
+                            "costo_total": 23000,
+                            "iva": 3672,
+                            "subtotal": 19328
+                        },
+                        {
+                            "cantidad": 7,
+                            "codigo_item": "0842",
+                            "costo_total": 14000,
+                            "iva": 2235,
+                            "subtotal": 11765
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1976",
+                            "costo_total": 22500,
+                            "iva": 3592,
+                            "subtotal": 18908
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0500",
+                            "costo_total": 17400,
+                            "iva": 2778,
+                            "subtotal": 14622
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37928",
+                    "productos": [
+                        {
+                            "cantidad": 200,
+                            "codigo_item": "0578",
+                            "costo_total": 92000,
+                            "iva": 14689,
+                            "subtotal": 77311
+                        },
+                        {
+                            "cantidad": 100,
+                            "codigo_item": "0572",
+                            "costo_total": 25466,
+                            "iva": 4066,
+                            "subtotal": 21400
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0654",
+                            "costo_total": 56000,
+                            "iva": 8941,
+                            "subtotal": 47059
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "0657",
+                            "costo_total": 50600,
+                            "iva": 8079,
+                            "subtotal": 42521
+                        },
+                        {
+                            "cantidad": 6,
+                            "codigo_item": "0855",
+                            "costo_total": 14100,
+                            "iva": 2251,
+                            "subtotal": 11849
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0848",
+                            "costo_total": 18500,
+                            "iva": 2954,
+                            "subtotal": 15546
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0688",
+                            "costo_total": 12000,
+                            "iva": 1916,
+                            "subtotal": 10084
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0044",
+                            "costo_total": 8000,
+                            "iva": 381,
+                            "subtotal": 7619
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "1241",
+                            "costo_total": 8800,
+                            "iva": 1405,
+                            "subtotal": 7395
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1428",
+                            "costo_total": 8400,
+                            "iva": 1341,
+                            "subtotal": 7059
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "5467",
+                            "costo_total": 3800,
+                            "iva": 607,
+                            "subtotal": 3193
+                        }
+                    ]
+                }
+            ]
+        },
+        "3": {
+            "id": 5,
+            "pagina": 3,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_3.pdf",
+            "estado": "Procesado con \u00e9xito",
+            "datos_extraidos": [
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37928",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0629",
+                            "costo_total": 18200,
+                            "iva": 2906,
+                            "subtotal": 15294
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0605",
+                            "costo_total": 8850,
+                            "iva": 1413,
+                            "subtotal": 7437
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0626",
+                            "costo_total": 35200,
+                            "iva": 5620,
+                            "subtotal": 29580
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0622",
+                            "costo_total": 9950,
+                            "iva": 1589,
+                            "subtotal": 8361
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0170",
+                            "costo_total": 5400,
+                            "iva": 862,
+                            "subtotal": 4538
+                        },
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0108",
+                            "costo_total": 17000,
+                            "iva": 2714,
+                            "subtotal": 14286
+                        },
+                        {
+                            "cantidad": 15,
+                            "codigo_item": "0105",
+                            "costo_total": 6000,
+                            "iva": 958,
+                            "subtotal": 5042
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37929",
+                    "productos": [
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "1402",
+                            "costo_total": 17250,
+                            "iva": 2754,
+                            "subtotal": 14496
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "1518",
+                            "costo_total": 23000,
+                            "iva": 3672,
+                            "subtotal": 19328
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "1428",
+                            "costo_total": 30000,
+                            "iva": 4790,
+                            "subtotal": 25210
+                        },
+                        {
+                            "cantidad": 15,
+                            "codigo_item": "0105",
+                            "costo_total": 6000,
+                            "iva": 958,
+                            "subtotal": 5042
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0130",
+                            "costo_total": 9000,
+                            "iva": 1437,
+                            "subtotal": 7563
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "1664",
+                            "costo_total": 13000,
+                            "iva": 2076,
+                            "subtotal": 10924
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0187",
+                            "costo_total": 8700,
+                            "iva": 1389,
+                            "subtotal": 7311
+                        },
+                        {
+                            "cantidad": 200,
+                            "codigo_item": "0581",
+                            "costo_total": 88000,
+                            "iva": 14050,
+                            "subtotal": 73950
+                        },
+                        {
+                            "cantidad": 50,
+                            "codigo_item": "0572",
+                            "costo_total": 13500,
+                            "iva": 2155,
+                            "subtotal": 11345
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1764",
+                            "costo_total": 5200,
+                            "iva": 830,
+                            "subtotal": 4370
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "0654",
+                            "costo_total": 112000,
+                            "iva": 17882,
+                            "subtotal": 94118
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0283",
+                            "costo_total": 7500,
+                            "iva": 1197,
+                            "subtotal": 6303
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0668",
+                            "costo_total": 2400,
+                            "iva": 383,
+                            "subtotal": 2017
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0304",
+                            "costo_total": 19500,
+                            "iva": 3113,
+                            "subtotal": 16387
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0313",
+                            "costo_total": 19500,
+                            "iva": 3113,
+                            "subtotal": 16387
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0917",
+                            "costo_total": 4100,
+                            "iva": 655,
+                            "subtotal": 3445
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "0477",
+                            "costo_total": 2400,
+                            "iva": 383,
+                            "subtotal": 2017
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "965",
+                            "costo_total": 13500,
+                            "iva": 2155,
+                            "subtotal": 11345
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0713",
+                            "costo_total": 19500,
+                            "iva": 3113,
+                            "subtotal": 16387
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0438",
+                            "costo_total": 9000,
+                            "iva": 1437,
+                            "subtotal": 7563
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0629",
+                            "costo_total": 18600,
+                            "iva": 2970,
+                            "subtotal": 15630
+                        },
+                        {
+                            "cantidad": 15,
+                            "codigo_item": "0781",
+                            "costo_total": 72000,
+                            "iva": 11496,
+                            "subtotal": 60504
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0959",
+                            "costo_total": 4950,
+                            "iva": 790,
+                            "subtotal": 4160
+                        },
+                        {
+                            "cantidad": 15,
+                            "codigo_item": "0263",
+                            "costo_total": 8250,
+                            "iva": 1317,
+                            "subtotal": 6933
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1974",
+                            "costo_total": 63000,
+                            "iva": 10059,
+                            "subtotal": 52941
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0852",
+                            "costo_total": 13500,
+                            "iva": 2155,
+                            "subtotal": 11345
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0659",
+                            "costo_total": 21000,
+                            "iva": 3353,
+                            "subtotal": 17647
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "0774",
+                            "costo_total": 95000,
+                            "iva": 15168,
+                            "subtotal": 79832
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "0961",
+                            "costo_total": 21400,
+                            "iva": 3417,
+                            "subtotal": 17983
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37930",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0484",
+                            "costo_total": 22800,
+                            "iva": 3640,
+                            "subtotal": 19160
+                        }
+                    ]
+                }
+            ]
+        },
+        "4": {
+            "id": 6,
+            "pagina": 4,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_4.pdf",
+            "estado": "Procesado con \u00e9xito",
+            "datos_extraidos": [
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37930",
+                    "productos": [
+                        {
+                            "cantidad": 15,
+                            "codigo_item": "0644",
+                            "costo_total": 57000,
+                            "iva": 9101,
+                            "subtotal": 47899
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0313",
+                            "costo_total": 34000,
+                            "iva": 5429,
+                            "subtotal": 28571
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1770",
+                            "costo_total": 23700,
+                            "iva": 3784,
+                            "subtotal": 19916
+                        },
+                        {
+                            "cantidad": 7,
+                            "codigo_item": "0858",
+                            "costo_total": 29050,
+                            "iva": 4638,
+                            "subtotal": 24412
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0298",
+                            "costo_total": 19200,
+                            "iva": 3066,
+                            "subtotal": 16134
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1665",
+                            "costo_total": 4600,
+                            "iva": 734,
+                            "subtotal": 3866
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1852",
+                            "costo_total": 9700,
+                            "iva": 1549,
+                            "subtotal": 8151
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "5467",
+                            "costo_total": 11700,
+                            "iva": 1868,
+                            "subtotal": 9832
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0725",
+                            "costo_total": 17100,
+                            "iva": 2730,
+                            "subtotal": 14370
+                        },
+                        {
+                            "cantidad": 30,
+                            "codigo_item": "0263",
+                            "costo_total": 16500,
+                            "iva": 2634,
+                            "subtotal": 13866
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0678",
+                            "costo_total": 32500,
+                            "iva": 5189,
+                            "subtotal": 27311
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1336",
+                            "costo_total": 15000,
+                            "iva": 2395,
+                            "subtotal": 12605
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37931",
+                    "productos": [
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0519",
+                            "costo_total": 71000,
+                            "iva": 11336,
+                            "subtotal": 59664
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "965",
+                            "costo_total": 54800,
+                            "iva": 8750,
+                            "subtotal": 46050
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37932",
+                    "productos": [
+                        {
+                            "cantidad": 40,
+                            "codigo_item": "0106",
+                            "costo_total": 8800,
+                            "iva": 1405,
+                            "subtotal": 7395
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0411",
+                            "costo_total": 8600,
+                            "iva": 1373,
+                            "subtotal": 7227
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0029",
+                            "costo_total": 15950,
+                            "iva": 2547,
+                            "subtotal": 13403
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "4880",
+                            "costo_total": 4500,
+                            "iva": 718,
+                            "subtotal": 3782
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "4883",
+                            "costo_total": 4500,
+                            "iva": 718,
+                            "subtotal": 3782
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0841",
+                            "costo_total": 11250,
+                            "iva": 1796,
+                            "subtotal": 9454
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1149",
+                            "costo_total": 27450,
+                            "iva": 4383,
+                            "subtotal": 23067
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "4879",
+                            "costo_total": 4500,
+                            "iva": 718,
+                            "subtotal": 3782
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0105",
+                            "costo_total": 4000,
+                            "iva": 639,
+                            "subtotal": 3361
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37933",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0029",
+                            "costo_total": 16000,
+                            "iva": 2555,
+                            "subtotal": 13445
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0033",
+                            "costo_total": 7500,
+                            "iva": 1197,
+                            "subtotal": 6303
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0646",
+                            "costo_total": 14900,
+                            "iva": 2379,
+                            "subtotal": 12521
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0849",
+                            "costo_total": 4200,
+                            "iva": 671,
+                            "subtotal": 3529
+                        },
+                        {
+                            "cantidad": 6,
+                            "codigo_item": "1075",
+                            "costo_total": 21600,
+                            "iva": 3449,
+                            "subtotal": 18151
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1369",
+                            "costo_total": 4600,
+                            "iva": 734,
+                            "subtotal": 3866
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0044",
+                            "costo_total": 16000,
+                            "iva": 762,
+                            "subtotal": 15238
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37934",
+                    "productos": [
+                        {
+                            "cantidad": 30,
+                            "codigo_item": "0646",
+                            "costo_total": 120002,
+                            "iva": 19160,
+                            "subtotal": 109842.1
+                        }
+                    ]
+                }
+            ]
+        },
+        "5": {
+            "id": 7,
+            "pagina": 5,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_5.pdf",
+            "estado": "Procesado con \u00e9xito",
+            "datos_extraidos": [
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37934",
+                    "productos": [
+                        {
+                            "cantidad": 6,
+                            "codigo_item": "0848",
+                            "costo_total": 23100,
+                            "iva": 3688,
+                            "subtotal": 19412
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37935",
+                    "productos": [
+                        {
+                            "cantidad": 200,
+                            "codigo_item": "4860",
+                            "costo_total": 106000,
+                            "iva": 16924,
+                            "subtotal": 89076
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37936",
+                    "productos": [
+                        {
+                            "cantidad": 17,
+                            "codigo_item": "1347",
+                            "costo_total": 303600,
+                            "iva": 48474,
+                            "subtotal": 255126
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37937",
+                    "productos": [
+                        {
+                            "cantidad": 50,
+                            "codigo_item": "0385",
+                            "costo_total": 82500,
+                            "iva": 13172,
+                            "subtotal": 69328
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "1722",
+                            "costo_total": 35245,
+                            "iva": 5627,
+                            "subtotal": 29618
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0847",
+                            "costo_total": 17000,
+                            "iva": 2714,
+                            "subtotal": 14286
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0688",
+                            "costo_total": 20000,
+                            "iva": 3193,
+                            "subtotal": 16807
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0394",
+                            "costo_total": 15500,
+                            "iva": 2475,
+                            "subtotal": 13025
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37938",
+                    "productos": [
+                        {
+                            "cantidad": 145,
+                            "codigo_item": "1893",
+                            "costo_total": 362500,
+                            "iva": 57878,
+                            "subtotal": 304622
+                        },
+                        {
+                            "cantidad": 60,
+                            "codigo_item": "0098",
+                            "costo_total": 174000,
+                            "iva": 27782,
+                            "subtotal": 146218
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0990",
+                            "costo_total": 38550,
+                            "iva": 6155,
+                            "subtotal": 32395
+                        },
+                        {
+                            "cantidad": 24,
+                            "codigo_item": "0555",
+                            "costo_total": 57600,
+                            "iva": 9197,
+                            "subtotal": 48403
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37939",
+                    "productos": [
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "0074",
+                            "costo_total": 36000,
+                            "iva": 5748,
+                            "subtotal": 30252
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "0250",
+                            "costo_total": 36000,
+                            "iva": 5748,
+                            "subtotal": 30252
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0280",
+                            "costo_total": 19000,
+                            "iva": 3034,
+                            "subtotal": 15966
+                        },
+                        {
+                            "cantidad": 200,
+                            "codigo_item": "0572",
+                            "costo_total": 51000,
+                            "iva": 8143,
+                            "subtotal": 42857
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "0654",
+                            "costo_total": 42400,
+                            "iva": 6770,
+                            "subtotal": 35630
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "0846",
+                            "costo_total": 55000,
+                            "iva": 8782,
+                            "subtotal": 46218
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "0849",
+                            "costo_total": 42000,
+                            "iva": 6706,
+                            "subtotal": 35294
+                        },
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "1089",
+                            "costo_total": 76000,
+                            "iva": 12134,
+                            "subtotal": 63866
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0688",
+                            "costo_total": 18500,
+                            "iva": 2954,
+                            "subtotal": 15546
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0674",
+                            "costo_total": 14200,
+                            "iva": 2267,
+                            "subtotal": 11933
+                        },
+                        {
+                            "cantidad": 15,
+                            "codigo_item": "0644",
+                            "costo_total": 57000,
+                            "iva": 9101,
+                            "subtotal": 47899
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37940",
+                    "productos": [
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "1665",
+                            "costo_total": 18000,
+                            "iva": 2874,
+                            "subtotal": 15126
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "1667",
+                            "costo_total": 26700,
+                            "iva": 4263,
+                            "subtotal": 22437
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "1079",
+                            "costo_total": 44000,
+                            "iva": 7025,
+                            "subtotal": 36975
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "1666",
+                            "costo_total": 46000,
+                            "iva": 7345,
+                            "subtotal": 38655
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "1172",
+                            "costo_total": 24750,
+                            "iva": 3952,
+                            "subtotal": 20798
+                        }
+                    ]
+                }
+            ]
+        },
+        "6": {
+            "id": 8,
+            "pagina": 6,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_6.pdf",
+            "estado": "Procesado con \u00e9xito",
+            "datos_extraidos": [
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37940",
+                    "productos": [
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "1174",
+                            "costo_total": 33600,
+                            "iva": 5365,
+                            "subtotal": 28235
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37941",
+                    "productos": [
+                        {
+                            "cantidad": 100,
+                            "codigo_item": "0578",
+                            "costo_total": 46000,
+                            "iva": 7345,
+                            "subtotal": 38655
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "0056",
+                            "costo_total": 3400,
+                            "iva": 543,
+                            "subtotal": 2857
+                        },
+                        {
+                            "cantidad": 6,
+                            "codigo_item": "0847",
+                            "costo_total": 18000,
+                            "iva": 2874,
+                            "subtotal": 15126
+                        },
+                        {
+                            "cantidad": 6,
+                            "codigo_item": "0688",
+                            "costo_total": 22200,
+                            "iva": 3545,
+                            "subtotal": 18655
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1089",
+                            "costo_total": 3800,
+                            "iva": 607,
+                            "subtotal": 3193
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0007",
+                            "costo_total": 6500,
+                            "iva": 1038,
+                            "subtotal": 5462
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1784",
+                            "costo_total": 7500,
+                            "iva": 1197,
+                            "subtotal": 6303
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0386",
+                            "costo_total": 3600,
+                            "iva": 171,
+                            "subtotal": 3429
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0001",
+                            "costo_total": 23000,
+                            "iva": 3672,
+                            "subtotal": 19328
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0594",
+                            "costo_total": 3300,
+                            "iva": 0,
+                            "subtotal": 3300
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1451",
+                            "costo_total": 8000,
+                            "iva": 0,
+                            "subtotal": 8000
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0070",
+                            "costo_total": 4500,
+                            "iva": 718,
+                            "subtotal": 3782
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1272",
+                            "costo_total": 23700,
+                            "iva": 3784,
+                            "subtotal": 19916
+                        },
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0108",
+                            "costo_total": 17000,
+                            "iva": 2714,
+                            "subtotal": 14286
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1818",
+                            "costo_total": 9200,
+                            "iva": 1469,
+                            "subtotal": 7731
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1817",
+                            "costo_total": 9200,
+                            "iva": 1469,
+                            "subtotal": 7731
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1591",
+                            "costo_total": 9200,
+                            "iva": 1469,
+                            "subtotal": 7731
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0170",
+                            "costo_total": 3000,
+                            "iva": 479,
+                            "subtotal": 2521
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0653",
+                            "costo_total": 4000,
+                            "iva": 639,
+                            "subtotal": 3361
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1297",
+                            "costo_total": 4500,
+                            "iva": 718,
+                            "subtotal": 3782
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37942",
+                    "productos": [
+                        {
+                            "cantidad": 15,
+                            "codigo_item": "9104",
+                            "costo_total": 135000,
+                            "iva": 21555,
+                            "subtotal": 113445
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "9103",
+                            "costo_total": 58550,
+                            "iva": 9348,
+                            "subtotal": 49202
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37943",
+                    "productos": [
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "2315",
+                            "costo_total": 24000,
+                            "iva": 3832,
+                            "subtotal": 20168
+                        },
+                        {
+                            "cantidad": 15,
+                            "codigo_item": "1953",
+                            "costo_total": 56250,
+                            "iva": 8981,
+                            "subtotal": 47269
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "0523",
+                            "costo_total": 76500,
+                            "iva": 12214,
+                            "subtotal": 64286
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0471",
+                            "costo_total": 31500,
+                            "iva": 5029,
+                            "subtotal": 26471
+                        }
+                    ]
+                },
+                {
+                    "fecha": "03/08/2026",
+                    "numero_factura": "37944",
+                    "productos": [
+                        {
+                            "cantidad": 90,
+                            "codigo_item": "0659",
+                            "costo_total": 409500,
+                            "iva": 65382,
+                            "subtotal": 344118
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37946",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0250",
+                            "costo_total": 9500,
+                            "iva": 1517,
+                            "subtotal": 7983
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1227",
+                            "costo_total": 19149,
+                            "iva": 3057,
+                            "subtotal": 16092
+                        }
+                    ]
+                }
+            ]
+        },
+        "7": {
+            "id": 9,
+            "pagina": 7,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_7.pdf",
+            "estado": "Procesado con \u00e9xito",
+            "datos_extraidos": [
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37946",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1402",
+                            "costo_total": 3450,
+                            "iva": 551,
+                            "subtotal": 2899
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1518",
+                            "costo_total": 4600,
+                            "iva": 734,
+                            "subtotal": 3866
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1404",
+                            "costo_total": 5000,
+                            "iva": 798,
+                            "subtotal": 4202
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1967",
+                            "costo_total": 4600,
+                            "iva": 734,
+                            "subtotal": 3866
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "2357",
+                            "costo_total": 10800,
+                            "iva": 1724,
+                            "subtotal": 9076
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "0741",
+                            "costo_total": 26000,
+                            "iva": 4151,
+                            "subtotal": 21849
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "1839",
+                            "costo_total": 15500,
+                            "iva": 2475,
+                            "subtotal": 13025
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "0999",
+                            "costo_total": 15200,
+                            "iva": 2427,
+                            "subtotal": 12773
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0680",
+                            "costo_total": 15700,
+                            "iva": 2507,
+                            "subtotal": 13193
+                        },
+                        {
+                            "cantidad": 30,
+                            "codigo_item": "0572",
+                            "costo_total": 8100,
+                            "iva": 1293,
+                            "subtotal": 6807
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "0578",
+                            "costo_total": 4900,
+                            "iva": 782,
+                            "subtotal": 4118
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "1093",
+                            "costo_total": 14500,
+                            "iva": 2315,
+                            "subtotal": 12185
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1511",
+                            "costo_total": 2000,
+                            "iva": 319,
+                            "subtotal": 1681
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0044",
+                            "costo_total": 8000,
+                            "iva": 381,
+                            "subtotal": 7619
+                        },
+                        {
+                            "cantidad": 50,
+                            "codigo_item": "0449",
+                            "costo_total": 20000,
+                            "iva": 3193,
+                            "subtotal": 16807
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0842",
+                            "costo_total": 2300,
+                            "iva": 367,
+                            "subtotal": 1933
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37947",
+                    "productos": [
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "0304",
+                            "costo_total": 65000,
+                            "iva": 10378,
+                            "subtotal": 54622
+                        },
+                        {
+                            "cantidad": 9,
+                            "codigo_item": "0313",
+                            "costo_total": 58500,
+                            "iva": 9340,
+                            "subtotal": 49160
+                        },
+                        {
+                            "cantidad": 9,
+                            "codigo_item": "0713",
+                            "costo_total": 58500,
+                            "iva": 9340,
+                            "subtotal": 49160
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37948",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0815",
+                            "costo_total": 6000,
+                            "iva": 958,
+                            "subtotal": 5042
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0276",
+                            "costo_total": 7800,
+                            "iva": 1245,
+                            "subtotal": 6555
+                        },
+                        {
+                            "cantidad": 8,
+                            "codigo_item": "0842",
+                            "costo_total": 16800,
+                            "iva": 2682,
+                            "subtotal": 14118
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0612",
+                            "costo_total": 19800,
+                            "iva": 3161,
+                            "subtotal": 16639
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0250",
+                            "costo_total": 23000,
+                            "iva": 3672,
+                            "subtotal": 19328
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0655",
+                            "costo_total": 25000,
+                            "iva": 3992,
+                            "subtotal": 21008
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0686",
+                            "costo_total": 4000,
+                            "iva": 639,
+                            "subtotal": 3361
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37949",
+                    "productos": [
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0044",
+                            "costo_total": 39500,
+                            "iva": 1881,
+                            "subtotal": 37619
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37950",
+                    "productos": [
+                        {
+                            "cantidad": 100,
+                            "codigo_item": "0250",
+                            "costo_total": 1490000,
+                            "iva": 237899,
+                            "subtotal": 1252101
+                        },
+                        {
+                            "cantidad": 50,
+                            "codigo_item": "1591",
+                            "costo_total": 230000,
+                            "iva": 36723,
+                            "subtotal": 193277
+                        },
+                        {
+                            "cantidad": 100,
+                            "codigo_item": "0783",
+                            "costo_total": 490000,
+                            "iva": 78235,
+                            "subtotal": 411765
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1589",
+                            "costo_total": 135000,
+                            "iva": 21555,
+                            "subtotal": 113445
+                        },
+                        {
+                            "cantidad": 96,
+                            "codigo_item": "0560",
+                            "costo_total": 576000,
+                            "iva": 91966,
+                            "subtotal": 484034
+                        },
+                        {
+                            "cantidad": 72,
+                            "codigo_item": "0556",
+                            "costo_total": 266400,
+                            "iva": 42534,
+                            "subtotal": 223866
+                        }
+                    ]
+                }
+            ]
+        },
+        "8": {
+            "id": 10,
+            "pagina": 8,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_8.pdf",
+            "estado": "Procesado con \u00e9xito",
+            "datos_extraidos": [
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37950",
+                    "productos": [
+                        {
+                            "cantidad": 60,
+                            "codigo_item": "0841",
+                            "costo_total": 126000,
+                            "iva": 20118,
+                            "subtotal": 105882
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37951",
+                    "productos": [
+                        {
+                            "cantidad": 1200,
+                            "codigo_item": "0581",
+                            "costo_total": 496800,
+                            "iva": 79321,
+                            "subtotal": 417479
+                        },
+                        {
+                            "cantidad": 30,
+                            "codigo_item": "4126",
+                            "costo_total": 75000,
+                            "iva": 11975,
+                            "subtotal": 63025
+                        },
+                        {
+                            "cantidad": 30,
+                            "codigo_item": "4129",
+                            "costo_total": 138000,
+                            "iva": 22034,
+                            "subtotal": 115966
+                        },
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0655",
+                            "costo_total": 230000,
+                            "iva": 36723,
+                            "subtotal": 193277
+                        },
+                        {
+                            "cantidad": 60,
+                            "codigo_item": "1776",
+                            "costo_total": 354000,
+                            "iva": 56521,
+                            "subtotal": 297479
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "0302",
+                            "costo_total": 94300,
+                            "iva": 15056,
+                            "subtotal": 79244
+                        },
+                        {
+                            "cantidad": 15,
+                            "codigo_item": "0631",
+                            "costo_total": 129750,
+                            "iva": 20716,
+                            "subtotal": 109034
+                        },
+                        {
+                            "cantidad": 30,
+                            "codigo_item": "0644",
+                            "costo_total": 109000,
+                            "iva": 17403,
+                            "subtotal": 91597
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37952",
+                    "productos": [
+                        {
+                            "cantidad": 40,
+                            "codigo_item": "2252",
+                            "costo_total": 498000,
+                            "iva": 79513,
+                            "subtotal": 418487
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37953",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0029",
+                            "costo_total": 27000,
+                            "iva": 4311,
+                            "subtotal": 22689
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1832",
+                            "costo_total": 27000,
+                            "iva": 4311,
+                            "subtotal": 22689
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1652",
+                            "costo_total": 29700,
+                            "iva": 4742,
+                            "subtotal": 24958
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0411",
+                            "costo_total": 25800,
+                            "iva": 4119,
+                            "subtotal": 21681
+                        },
+                        {
+                            "cantidad": 6,
+                            "codigo_item": "1092",
+                            "costo_total": 99000,
+                            "iva": 15807,
+                            "subtotal": 83193
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1321",
+                            "costo_total": 18900,
+                            "iva": 0,
+                            "subtotal": 18900
+                        },
+                        {
+                            "cantidad": 37,
+                            "codigo_item": "0848",
+                            "costo_total": 142450,
+                            "iva": 22744,
+                            "subtotal": 119706
+                        },
+                        {
+                            "cantidad": 50,
+                            "codigo_item": "0845",
+                            "costo_total": 230000,
+                            "iva": 36723,
+                            "subtotal": 193277
+                        },
+                        {
+                            "cantidad": 48,
+                            "codigo_item": "0486",
+                            "costo_total": 96000,
+                            "iva": 15328,
+                            "subtotal": 80672
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1724",
+                            "costo_total": 17000,
+                            "iva": 2714,
+                            "subtotal": 14286
+                        },
+                        {
+                            "cantidad": 18,
+                            "codigo_item": "0962",
+                            "costo_total": 201600,
+                            "iva": 32188,
+                            "subtotal": 169412
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1814",
+                            "costo_total": 80400,
+                            "iva": 12837,
+                            "subtotal": 67563
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37954",
+                    "productos": [
+                        {
+                            "cantidad": 37,
+                            "codigo_item": "0847",
+                            "costo_total": 111000,
+                            "iva": 17723,
+                            "subtotal": 93277
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1570",
+                            "costo_total": 6600,
+                            "iva": 1054,
+                            "subtotal": 5546
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0179",
+                            "costo_total": 3300,
+                            "iva": 527,
+                            "subtotal": 2773
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "0658",
+                            "costo_total": 50600,
+                            "iva": 8079,
+                            "subtotal": 42521
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37955",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0007",
+                            "costo_total": 6500,
+                            "iva": 1038,
+                            "subtotal": 5462
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0629",
+                            "costo_total": 18200,
+                            "iva": 2906,
+                            "subtotal": 15294
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "972",
+                            "costo_total": 27000,
+                            "iva": 0,
+                            "subtotal": 27000
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0655",
+                            "costo_total": 22400,
+                            "iva": 3576,
+                            "subtotal": 18824
+                        }
+                    ]
+                }
+            ]
+        },
+        "9": {
+            "id": 11,
+            "pagina": 9,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_9.pdf",
+            "estado": "Procesado con \u00e9xito",
+            "datos_extraidos": [
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37955",
+                    "productos": [
+                        {
+                            "cantidad": 6,
+                            "codigo_item": "0837",
+                            "costo_total": 18600,
+                            "iva": 2970,
+                            "subtotal": 15630
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1402",
+                            "costo_total": 6900,
+                            "iva": 1102,
+                            "subtotal": 5798
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37956",
+                    "productos": [
+                        {
+                            "cantidad": 15,
+                            "codigo_item": "0463",
+                            "costo_total": 78750,
+                            "iva": 12574,
+                            "subtotal": 66176
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "0460",
+                            "costo_total": 56000,
+                            "iva": 8941,
+                            "subtotal": 47059
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37957",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0519",
+                            "costo_total": 31200,
+                            "iva": 4982,
+                            "subtotal": 26218
+                        },
+                        {
+                            "cantidad": 200,
+                            "codigo_item": "0581",
+                            "costo_total": 83062,
+                            "iva": 13262,
+                            "subtotal": 69800
+                        },
+                        {
+                            "cantidad": 200,
+                            "codigo_item": "0574",
+                            "costo_total": 92000,
+                            "iva": 14689,
+                            "subtotal": 77311
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0684",
+                            "costo_total": 27250,
+                            "iva": 4351,
+                            "subtotal": 22899
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "0814",
+                            "costo_total": 50000,
+                            "iva": 7983,
+                            "subtotal": 42017
+                        },
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0657",
+                            "costo_total": 253000,
+                            "iva": 40395,
+                            "subtotal": 212605
+                        },
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0654",
+                            "costo_total": 224000,
+                            "iva": 35765,
+                            "subtotal": 188235
+                        },
+                        {
+                            "cantidad": 6,
+                            "codigo_item": "1591",
+                            "costo_total": 2880,
+                            "iva": 460,
+                            "subtotal": 2420
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "1817",
+                            "costo_total": 22500,
+                            "iva": 3592,
+                            "subtotal": 18908
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "1818",
+                            "costo_total": 22500,
+                            "iva": 3592,
+                            "subtotal": 18908
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "1776",
+                            "costo_total": 31500,
+                            "iva": 5029,
+                            "subtotal": 26471
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "1890",
+                            "costo_total": 22050,
+                            "iva": 3521,
+                            "subtotal": 18529
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37958",
+                    "productos": [
+                        {
+                            "cantidad": 18,
+                            "codigo_item": "0653",
+                            "costo_total": 66000,
+                            "iva": 10538,
+                            "subtotal": 55462
+                        },
+                        {
+                            "cantidad": 30,
+                            "codigo_item": "0050",
+                            "costo_total": 3000,
+                            "iva": 479,
+                            "subtotal": 2521
+                        },
+                        {
+                            "cantidad": 30,
+                            "codigo_item": "0328",
+                            "costo_total": 16500,
+                            "iva": 2634,
+                            "subtotal": 13866
+                        },
+                        {
+                            "cantidad": 30,
+                            "codigo_item": "0263",
+                            "costo_total": 15000,
+                            "iva": 2395,
+                            "subtotal": 12605
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0385",
+                            "costo_total": 4000,
+                            "iva": 639,
+                            "subtotal": 3361
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "1664",
+                            "costo_total": 21000,
+                            "iva": 3353,
+                            "subtotal": 17647
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37959",
+                    "productos": [
+                        {
+                            "cantidad": 200,
+                            "codigo_item": "2278",
+                            "costo_total": 92000,
+                            "iva": 14689,
+                            "subtotal": 77311
+                        },
+                        {
+                            "cantidad": 300,
+                            "codigo_item": "2256",
+                            "costo_total": 330000,
+                            "iva": 52689,
+                            "subtotal": 277311
+                        },
+                        {
+                            "cantidad": 400,
+                            "codigo_item": "4815",
+                            "costo_total": 280000,
+                            "iva": 44706,
+                            "subtotal": 235294
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37960",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1230",
+                            "costo_total": 38900,
+                            "iva": 6211,
+                            "subtotal": 32689
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0462",
+                            "costo_total": 106000,
+                            "iva": 16924,
+                            "subtotal": 89076
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0461",
+                            "costo_total": 99000,
+                            "iva": 15807,
+                            "subtotal": 83193
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0463",
+                            "costo_total": 15750,
+                            "iva": 2515,
+                            "subtotal": 13235
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0460",
+                            "costo_total": 16800,
+                            "iva": 2682,
+                            "subtotal": 14118
+                        }
+                    ]
+                }
+            ]
+        },
+        "10": {
+            "id": 12,
+            "pagina": 10,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_10.pdf",
+            "estado": "Procesado con \u00e9xito",
+            "datos_extraidos": [
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37960",
+                    "productos": []
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37961",
+                    "productos": [
+                        {
+                            "cantidad": 8,
+                            "codigo_item": "0713",
+                            "costo_total": 52000,
+                            "iva": 8303,
+                            "subtotal": 43697
+                        },
+                        {
+                            "cantidad": 7,
+                            "codigo_item": "0313",
+                            "costo_total": 45500,
+                            "iva": 7265,
+                            "subtotal": 38235
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "0304",
+                            "costo_total": 32500,
+                            "iva": 5189,
+                            "subtotal": 27311
+                        },
+                        {
+                            "cantidad": 400,
+                            "codigo_item": "0571",
+                            "costo_total": 166000,
+                            "iva": 26504,
+                            "subtotal": 139496
+                        },
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0655",
+                            "costo_total": 224000,
+                            "iva": 35765,
+                            "subtotal": 188235
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "1967",
+                            "costo_total": 23000,
+                            "iva": 3672,
+                            "subtotal": 19328
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37962",
+                    "productos": [
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "1839",
+                            "costo_total": 31000,
+                            "iva": 4950,
+                            "subtotal": 26050
+                        },
+                        {
+                            "cantidad": 8,
+                            "codigo_item": "0816",
+                            "costo_total": 28000,
+                            "iva": 4471,
+                            "subtotal": 23529
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0304",
+                            "costo_total": 20400,
+                            "iva": 3257,
+                            "subtotal": 17143
+                        },
+                        {
+                            "cantidad": 6,
+                            "codigo_item": "0283",
+                            "costo_total": 15000,
+                            "iva": 2395,
+                            "subtotal": 12605
+                        },
+                        {
+                            "cantidad": 6,
+                            "codigo_item": "0668",
+                            "costo_total": 14400,
+                            "iva": 2299,
+                            "subtotal": 12101
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1164",
+                            "costo_total": 14200,
+                            "iva": 0,
+                            "subtotal": 14200
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1079",
+                            "costo_total": 11100,
+                            "iva": 1772,
+                            "subtotal": 9328
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1666",
+                            "costo_total": 9600,
+                            "iva": 1533,
+                            "subtotal": 8067
+                        },
+                        {
+                            "cantidad": 8,
+                            "codigo_item": "1114",
+                            "costo_total": 95200,
+                            "iva": 15200,
+                            "subtotal": 80000
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0387",
+                            "costo_total": 4200,
+                            "iva": 0,
+                            "subtotal": 4200
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0882",
+                            "costo_total": 12700,
+                            "iva": 2028,
+                            "subtotal": 10672
+                        },
+                        {
+                            "cantidad": 50,
+                            "codigo_item": "0570",
+                            "costo_total": 22000,
+                            "iva": 3513,
+                            "subtotal": 18487
+                        },
+                        {
+                            "cantidad": 50,
+                            "codigo_item": "0572",
+                            "costo_total": 13500,
+                            "iva": 2155,
+                            "subtotal": 11345
+                        },
+                        {
+                            "cantidad": 500,
+                            "codigo_item": "0296",
+                            "costo_total": 225000,
+                            "iva": 35924,
+                            "subtotal": 189076
+                        },
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0108",
+                            "costo_total": 18000,
+                            "iva": 2874,
+                            "subtotal": 15126
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "0009",
+                            "costo_total": 12000,
+                            "iva": 1916,
+                            "subtotal": 10084
+                        },
+                        {
+                            "cantidad": 6,
+                            "codigo_item": "1075",
+                            "costo_total": 21600,
+                            "iva": 3449,
+                            "subtotal": 18151
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0179",
+                            "costo_total": 6600,
+                            "iva": 1054,
+                            "subtotal": 5546
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0631",
+                            "costo_total": 8600,
+                            "iva": 1373,
+                            "subtotal": 7227
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "2286",
+                            "costo_total": 15006,
+                            "iva": 2396,
+                            "subtotal": 12610
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "0687",
+                            "costo_total": 16400,
+                            "iva": 2618,
+                            "subtotal": 13782
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0674",
+                            "costo_total": 7100,
+                            "iva": 1134,
+                            "subtotal": 5966
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0596",
+                            "costo_total": 12850,
+                            "iva": 2052,
+                            "subtotal": 10798
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0378",
+                            "costo_total": 21400,
+                            "iva": 3417,
+                            "subtotal": 17983
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37963",
+                    "productos": [
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "1727",
+                            "costo_total": 47850,
+                            "iva": 7640,
+                            "subtotal": 40210
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0411",
+                            "costo_total": 25800,
+                            "iva": 4119,
+                            "subtotal": 21681
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0842",
+                            "costo_total": 4500,
+                            "iva": 718,
+                            "subtotal": 3782
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "1574",
+                            "costo_total": 18000,
+                            "iva": 2874,
+                            "subtotal": 15126
+                        }
+                    ]
+                }
+            ]
+        },
+        "11": {
+            "id": 13,
+            "pagina": 11,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_11.pdf",
+            "estado": "Procesado con \u00e9xito",
+            "datos_extraidos": [
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37964",
+                    "productos": [
+                        {
+                            "cantidad": 12,
+                            "codigo_item": "0023",
+                            "costo_total": 59400,
+                            "iva": 9484,
+                            "subtotal": 49916
+                        },
+                        {
+                            "cantidad": 6,
+                            "codigo_item": "4902",
+                            "costo_total": 37200,
+                            "iva": 5939,
+                            "subtotal": 31261
+                        },
+                        {
+                            "cantidad": 12,
+                            "codigo_item": "0022",
+                            "costo_total": 24000,
+                            "iva": 3832,
+                            "subtotal": 20168
+                        },
+                        {
+                            "cantidad": 5,
+                            "codigo_item": "2026",
+                            "costo_total": 42500,
+                            "iva": 6786,
+                            "subtotal": 35714
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37965",
+                    "productos": [
+                        {
+                            "cantidad": 200,
+                            "codigo_item": "0572",
+                            "costo_total": 49000,
+                            "iva": 7824,
+                            "subtotal": 41176
+                        },
+                        {
+                            "cantidad": 60,
+                            "codigo_item": "1014",
+                            "costo_total": 108000,
+                            "iva": 17244,
+                            "subtotal": 90756
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37966",
+                    "productos": [
+                        {
+                            "cantidad": 6,
+                            "codigo_item": "1092",
+                            "costo_total": 92100,
+                            "iva": 14705,
+                            "subtotal": 77395
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37967",
+                    "productos": [
+                        {
+                            "cantidad": 27,
+                            "codigo_item": "0518",
+                            "costo_total": 630450,
+                            "iva": 100660,
+                            "subtotal": 529790
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37968",
+                    "productos": [
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0609",
+                            "costo_total": 91500,
+                            "iva": 14609,
+                            "subtotal": 76891
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0629",
+                            "costo_total": 18600,
+                            "iva": 2970,
+                            "subtotal": 15630
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0612",
+                            "costo_total": 18650,
+                            "iva": 2978,
+                            "subtotal": 15672
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0621",
+                            "costo_total": 23000,
+                            "iva": 3672,
+                            "subtotal": 19328
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0948",
+                            "costo_total": 27000,
+                            "iva": 4311,
+                            "subtotal": 22689
+                        },
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0105",
+                            "costo_total": 8000,
+                            "iva": 1277,
+                            "subtotal": 6723
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37969",
+                    "productos": [
+                        {
+                            "cantidad": 15,
+                            "codigo_item": "1518",
+                            "costo_total": 63750,
+                            "iva": 10179,
+                            "subtotal": 53571
+                        },
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "1667",
+                            "costo_total": 52000,
+                            "iva": 8303,
+                            "subtotal": 43697
+                        },
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "1666",
+                            "costo_total": 75400,
+                            "iva": 12039,
+                            "subtotal": 63361
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37970",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0612",
+                            "costo_total": 39800,
+                            "iva": 6355,
+                            "subtotal": 33445
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0629",
+                            "costo_total": 18650,
+                            "iva": 2978,
+                            "subtotal": 15672
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0609",
+                            "costo_total": 30500,
+                            "iva": 4870,
+                            "subtotal": 25630
+                        },
+                        {
+                            "cantidad": 30,
+                            "codigo_item": "1093",
+                            "costo_total": 76590,
+                            "iva": 12229,
+                            "subtotal": 64361
+                        },
+                        {
+                            "cantidad": 6,
+                            "codigo_item": "1574",
+                            "costo_total": 22800,
+                            "iva": 3640,
+                            "subtotal": 19160
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0255",
+                            "costo_total": 9200,
+                            "iva": 1469,
+                            "subtotal": 7731
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0849",
+                            "costo_total": 4200,
+                            "iva": 671,
+                            "subtotal": 3529
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0688",
+                            "costo_total": 3700,
+                            "iva": 591,
+                            "subtotal": 3109
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0631",
+                            "costo_total": 8650,
+                            "iva": 1381,
+                            "subtotal": 7269
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0484",
+                            "costo_total": 32100,
+                            "iva": 5125,
+                            "subtotal": 26975
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0842",
+                            "costo_total": 4400,
+                            "iva": 703,
+                            "subtotal": 3697
+                        }
+                    ]
+                }
+            ]
+        },
+        "12": {
+            "id": 14,
+            "pagina": 12,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_12.pdf",
+            "estado": "Procesado con \u00e9xito",
+            "datos_extraidos": [
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37970",
+                    "productos": [
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "1976",
+                            "costo_total": 49000,
+                            "iva": 7824,
+                            "subtotal": 41176
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1784",
+                            "costo_total": 6500,
+                            "iva": 1038,
+                            "subtotal": 5462
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37971",
+                    "productos": [
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "1606",
+                            "costo_total": 68100,
+                            "iva": 10873,
+                            "subtotal": 57227
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0982",
+                            "costo_total": 20300,
+                            "iva": 3241,
+                            "subtotal": 17059
+                        },
+                        {
+                            "cantidad": 200,
+                            "codigo_item": "0572",
+                            "costo_total": 54000,
+                            "iva": 8622,
+                            "subtotal": 45378
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1333",
+                            "costo_total": 15450,
+                            "iva": 2467,
+                            "subtotal": 12983
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0842",
+                            "costo_total": 6750,
+                            "iva": 1078,
+                            "subtotal": 5672
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37972",
+                    "productos": [
+                        {
+                            "cantidad": 80,
+                            "codigo_item": "0578",
+                            "costo_total": 36800,
+                            "iva": 5876,
+                            "subtotal": 30924
+                        },
+                        {
+                            "cantidad": 20,
+                            "codigo_item": "0055",
+                            "costo_total": 17000,
+                            "iva": 2714,
+                            "subtotal": 14286
+                        },
+                        {
+                            "cantidad": 10,
+                            "codigo_item": "0056",
+                            "costo_total": 3400,
+                            "iva": 543,
+                            "subtotal": 2857
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1591",
+                            "costo_total": 4600,
+                            "iva": 734,
+                            "subtotal": 3866
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1818",
+                            "costo_total": 4600,
+                            "iva": 734,
+                            "subtotal": 3866
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1817",
+                            "costo_total": 4600,
+                            "iva": 734,
+                            "subtotal": 3866
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0170",
+                            "costo_total": 1500,
+                            "iva": 239,
+                            "subtotal": 1261
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0847",
+                            "costo_total": 9000,
+                            "iva": 1437,
+                            "subtotal": 7563
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0688",
+                            "costo_total": 11100,
+                            "iva": 1772,
+                            "subtotal": 9328
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0007",
+                            "costo_total": 6500,
+                            "iva": 1038,
+                            "subtotal": 5462
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1114",
+                            "costo_total": 9500,
+                            "iva": 1517,
+                            "subtotal": 7983
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0606",
+                            "costo_total": 30500,
+                            "iva": 4870,
+                            "subtotal": 25630
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0386",
+                            "costo_total": 3600,
+                            "iva": 171,
+                            "subtotal": 3429
+                        },
+                        {
+                            "cantidad": 2,
+                            "codigo_item": "0387",
+                            "costo_total": 4000,
+                            "iva": 0.0,
+                            "subtotal": 4000
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "0594",
+                            "costo_total": 6600,
+                            "iva": 0.0,
+                            "subtotal": 6600
+                        },
+                        {
+                            "cantidad": 8,
+                            "codigo_item": "1386",
+                            "costo_total": 38400,
+                            "iva": 0.0,
+                            "subtotal": 38400
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "0001",
+                            "costo_total": 92000,
+                            "iva": 14689,
+                            "subtotal": 77311
+                        },
+                        {
+                            "cantidad": 4,
+                            "codigo_item": "1297",
+                            "costo_total": 18000,
+                            "iva": 2874,
+                            "subtotal": 15126
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0653",
+                            "costo_total": 4000,
+                            "iva": 639,
+                            "subtotal": 3361
+                        }
+                    ]
+                },
+                {
+                    "fecha": "04/08/2026",
+                    "numero_factura": "37973",
+                    "productos": [
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0601",
+                            "costo_total": 5500,
+                            "iva": 878,
+                            "subtotal": 4622
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0629",
+                            "costo_total": 18200,
+                            "iva": 2906,
+                            "subtotal": 15294
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0631",
+                            "costo_total": 8600,
+                            "iva": 1373,
+                            "subtotal": 7227
+                        },
+                        {
+                            "cantidad": 3,
+                            "codigo_item": "0657",
+                            "costo_total": 37950,
+                            "iva": 6059,
+                            "subtotal": 31891
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0741",
+                            "costo_total": 6500,
+                            "iva": 1038,
+                            "subtotal": 5462
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0848",
+                            "costo_total": 3800,
+                            "iva": 607,
+                            "subtotal": 3193
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0854",
+                            "costo_total": 2500,
+                            "iva": 399,
+                            "subtotal": 2101
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "0963",
+                            "costo_total": 9300,
+                            "iva": 1485,
+                            "subtotal": 7815
+                        },
+                        {
+                            "cantidad": 1,
+                            "codigo_item": "1784",
+                            "costo_total": 7500,
+                            "iva": 1197,
+                            "subtotal": 6303
+                        }
+                    ]
+                }
+            ]
+        },
+        "13": {
+            "id": 15,
+            "pagina": 13,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_13.pdf",
+            "estado": "Fall\u00f3",
+            "datos_extraidos": []
+        },
+        "14": {
+            "id": 16,
+            "pagina": 14,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_14.pdf",
+            "estado": "Nuevo"
+        },
+        "15": {
+            "id": 17,
+            "pagina": 15,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_15.pdf",
+            "estado": "Nuevo"
+        },
+        "16": {
+            "id": 18,
+            "pagina": 16,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_16.pdf",
+            "estado": "Nuevo"
+        },
+        "17": {
+            "id": 19,
+            "pagina": 17,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_17.pdf",
+            "estado": "Nuevo"
+        },
+        "18": {
+            "id": 20,
+            "pagina": 18,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_18.pdf",
+            "estado": "Nuevo"
+        },
+        "19": {
+            "id": 21,
+            "pagina": 19,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_19.pdf",
+            "estado": "Nuevo"
+        },
+        "20": {
+            "id": 22,
+            "pagina": 20,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_20.pdf",
+            "estado": "Nuevo"
+        },
+        "21": {
+            "id": 23,
+            "pagina": 21,
+            "tipo": "Remisi\u00f3n",
+            "fecha": "2026-08-17",
+            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_21.pdf",
+            "estado": "Nuevo"
+        }
+    }
+}
 ````

@@ -700,36 +700,53 @@ class SupabaseClient:
         
 
     def get_compras_summary(self, fecha_corte=None) -> dict:
-        """Invoca RPC para totales de compras"""
-        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
-        mes_actual = hoy[:7]
-        
-        url = f"{self.url}/rpc/get_compras_summary_rpc"
+        url = f"{self.url}/registro_compras?select=costo_total,cantidad,fecha&estado_registro=eq.VÁLIDO"
+        if fecha_corte:
+            url += f"&fecha=lte.{fecha_corte}T23:59:59"
+            
         try:
-            res = self.session.post(url, json={"mes_actual": mes_actual, "dia_hoy": hoy}, headers=self.headers, timeout=10)
+            res = self.session.get(url, headers=self.headers, timeout=10)
             if res.status_code == 200:
-                return res.json()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_compras_summary: el servidor no responde")
+                data = res.json()
+                total_acumulado = sum([float(r.get("costo_total") or 0) for r in data])
+                cant_acumulada = sum([float(r.get("cantidad") or 0) for r in data])
+                
+                hoy_str = datetime.date.today().strftime("%Y-%m-%d")
+                total_hoy = sum([float(r.get("costo_total") or 0) for r in data if r.get("fecha", "")[:10] == hoy_str])
+                
+                return {
+                    "total_mes": total_acumulado,
+                    "total_hoy": total_hoy,
+                    "cantidad_total": cant_acumulada
+                }
         except Exception as e:
-            print(f"Error RPC compras_summary: {e}")
-        return {"total_mes": 0.0, "total_hoy": 0.0, "cantidad_total": 0.0}
-
+            print(f"Error en get_compras_summary: {e}")
+        return {"total_mes": 0, "total_hoy": 0, "cantidad_total": 0}
+    
     def get_ventas_summary(self, fecha_corte=None) -> dict:
-        """Invoca RPC para totales de ingresos e IVA"""
-        hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
-        mes_actual = hoy[:7]
-        
-        url = f"{self.url}/rpc/get_ventas_summary_rpc"
+        url = f"{self.url}/registro_ventas?select=total,iva,fecha&estado_registro=eq.VÁLIDO"
+        if fecha_corte:
+            url += f"&fecha=lte.{fecha_corte}T23:59:59"
+            
         try:
-            res = self.session.post(url, json={"mes_actual": mes_actual, "dia_hoy": hoy}, headers=self.headers, timeout=10)
+            res = self.session.get(url, headers=self.headers, timeout=10)
             if res.status_code == 200:
-                return res.json()
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_ventas_summary: el servidor no responde")
+                data = res.json()
+                total_acumulado = sum([float(r.get("total") or 0) for r in data])
+                iva_acumulado = sum([float(r.get("iva") or 0) for r in data])
+                
+                hoy_str = datetime.date.today().strftime("%Y-%m-%d")
+                total_hoy = sum([float(r.get("total") or 0) for r in data if r.get("fecha", "")[:10] == hoy_str])
+                
+                return {
+                    "total_mes": total_acumulado,
+                    "total_historico": total_acumulado,
+                    "total_hoy": total_hoy,
+                    "iva_historico": iva_acumulado
+                }
         except Exception as e:
-            print(f"Error RPC ventas_summary: {e}")
-        return {"total_historico": 0.0, "total_mes": 0.0, "total_hoy": 0.0, "iva_historico": 0.0, "iva_hoy": 0.0}
+            print(f"Error en get_ventas_summary: {e}")
+        return {"total_mes": 0, "total_historico": 0, "total_hoy": 0, "iva_historico": 0}
 
     def get_catalogo_summary(self, fecha_corte=None) -> dict:
         """Invoca RPC para compras totales y ventas totales en pesos"""
@@ -1139,86 +1156,69 @@ class SupabaseClient:
         except Exception as e: return {"exito": False, "error": str(e)}
 
     def get_rendimiento_categorias_periodo(self, fecha_inicio=None, fecha_fin=None) -> list:
-        """Calcula el rendimiento real, rotación y cumplimiento por categoría."""
-        categorias = {}
-        
-        # 1. Insumos
+        """
+        Calcula el rendimiento y costo acumulado real por categoría hasta 'fecha_fin'
+        usando la vista/RPC de inventario calculado.
+        """
+        categorias_map = {}
         try:
-            res_cat = self.session.get(f"{self.url}/catalogo_insumos?select=categoria,stock_actual,costo_unitario,precio_venta,codigo_insumo", headers=self.headers, timeout=10)
-            if res_cat.status_code == 200:
-                for r in res_cat.json():
-                    cat = r.get("categoria") or "SIN CATEGORÍA"
-                    if cat not in categorias:
-                        categorias[cat] = {
-                            "categoria": cat,
-                            "inventario_costo": 0.0,
-                            "proyeccion_venta": 0.0,
-                            "ventas_realizadas": 0.0,
-                            "costo_vendido": 0.0,
-                            "cumplimiento_pct": 0.0,
-                            "rotacion": 0.0,
-                            "rendimiento_pct": 0.0
-                        }
-                    stock = float(r.get("stock_actual") or 0)
-                    costo = float(r.get("costo_unitario") or 0)
-                    precio = float(r.get("precio_venta") or 0)
-                    
-                    categorias[cat]["inventario_costo"] += (stock * costo)
-                    categorias[cat]["proyeccion_venta"] += (stock * precio)
-        except Exception as e:
-            print(f"Error en get_rendimiento_categorias_periodo (insumos): {e}")
-
-        # 2. Ventas Realizadas
-        url_v = f"{self.url}/registro_ventas?select=total,cantidad,codigo_insumo,catalogo_insumos(categoria,costo_unitario)"
-        filtros_v = []
-        if fecha_inicio:
-            filtros_v.append(f"fecha=gte.{fecha_inicio}T00:00:00")
-        if fecha_fin:
-            filtros_v.append(f"fecha=lte.{fecha_fin}T23:59:59")
-        if filtros_v:
-            url_v += "&" + "&".join(filtros_v)
+            # Obtener todos los insumos calculados hasta fecha_fin
+            insumos, _ = self.get_insumos(page=1, page_size=99999, fecha_corte=fecha_fin)
             
-        try:
-            res_v = self.session.get(url_v, headers=self.headers, timeout=10)
-            if res_v.status_code == 200:
-                for v in res_v.json():
-                    cat_info = v.get("catalogo_insumos") or {}
-                    cat = cat_info.get("categoria") or "SIN CATEGORÍA"
-                    if cat not in categorias:
-                        categorias[cat] = {
-                            "categoria": cat,
-                            "inventario_costo": 0.0,
-                            "proyeccion_venta": 0.0,
-                            "ventas_realizadas": 0.0,
-                            "costo_vendido": 0.0,
-                            "cumplimiento_pct": 0.0,
-                            "rotacion": 0.0,
-                            "rendimiento_pct": 0.0
-                        }
-                        
-                    total_venta = float(v.get("total") or 0)
-                    cantidad_vendida = float(v.get("cantidad") or 0)
-                    costo_unit = float(cat_info.get("costo_unitario") or 0)
-                    
-                    categorias[cat]["ventas_realizadas"] += total_venta
-                    categorias[cat]["costo_vendido"] += (cantidad_vendida * costo_unit)
-        except Exception as e:
-            print(f"Error en get_rendimiento_categorias_periodo (ventas): {e}")
-
-        # 3. Cálculos
+            for item in insumos:
+                cat_nombre = (item.get("categoria") or "SIN CATEGORÍA").strip().upper()
+                
+                # Stock real calculado por el servidor (vista o RPC)
+                stock = float(item.get("stock_actual") or item.get("stock_real") or 0)
+                costo_u = float(item.get("costo_unitario") or 0)
+                precio_v = float(item.get("precio_venta") or 0)
+                
+                # Costo total calculado por la BD o fallback producto
+                inv_costo_item = float(item.get("costo_total_insumo") or (stock * costo_u))
+                proy_venta_item = stock * precio_v
+                ventas_item = float(item.get("valor_ventas") or 0)
+                cant_ventas = float(item.get("ventas") or 0)
+                costo_vendido_item = cant_ventas * costo_u
+    
+                if cat_nombre not in categorias_map:
+                    categorias_map[cat_nombre] = {
+                        "categoria": cat_nombre,
+                        "inventario_costo": 0.0,
+                        "proyeccion_venta": 0.0,
+                        "ventas_realizadas": 0.0,
+                        "costo_vendido": 0.0
+                    }
+    
+                categorias_map[cat_nombre]["inventario_costo"] += inv_costo_item
+                categorias_map[cat_nombre]["proyeccion_venta"] += proy_venta_item
+                categorias_map[cat_nombre]["ventas_realizadas"] += ventas_item
+                categorias_map[cat_nombre]["costo_vendido"] += costo_vendido_item
+    
+        except Exception as ex:
+            print(f"Error calculando rendimiento acumulado por categoría: {ex}")
+    
+        # Formatear lista final con indicadores matemáticos reales
         resultado = []
-        for cat, data in categorias.items():
-            inv_costo = data["inventario_costo"]
-            proy = data["proyeccion_venta"]
-            ventas = data["ventas_realizadas"]
-            costo_vendido = data["costo_vendido"]
-            
-            data["cumplimiento_pct"] = (ventas / proy * 100) if proy > 0 else 0.0
-            data["rotacion"] = (ventas / inv_costo) if inv_costo > 0 else 0.0
-            data["rendimiento_pct"] = ((ventas - costo_vendido) / ventas * 100) if ventas > 0 else 0.0
-            
-            resultado.append(data)
-            
-        # Ordenar por ventas realizadas (descendente)
-        resultado.sort(key=lambda x: x["ventas_realizadas"], reverse=True)
+        for cat_nombre, d in categorias_map.items():
+            inv_c = d["inventario_costo"]
+            v_real = d["ventas_realizadas"]
+            proy_v = d["proyeccion_venta"]
+            c_vend = d["costo_vendido"]
+    
+            cumplimiento = (v_real / proy_v * 100) if proy_v > 0 else 0.0
+            rotacion = (v_real / inv_c) if inv_c > 0 else 0.0
+            rendimiento = ((v_real - c_vend) / v_real * 100) if v_real > 0 else (100.0 if v_real == 0 else 0.0)
+    
+            resultado.append({
+                "categoria": cat_nombre,
+                "inventario_costo": inv_c,
+                "ventas_realizadas": v_real,
+                "proyeccion_venta": proy_v,
+                "cumplimiento_pct": cumplimiento,
+                "rotacion": rotacion,
+                "rendimiento_pct": rendimiento
+            })
+    
+        # Ordenar por costo de inventario descendente
+        resultado.sort(key=lambda x: (x["inventario_costo"], x["ventas_realizadas"]), reverse=True)
         return resultado
