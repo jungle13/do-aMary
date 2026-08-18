@@ -26,10 +26,10 @@ class InventarioView(ft.Container):
         self.sort_col_name = "Insumo"
         self.sort_is_asc = True
         
-        self.view_mode = "table"
+        self.view_mode = "cards"
         self.btn_toggle_view = ft.IconButton(
-            icon=ft.icons.GRID_VIEW,
-            tooltip="Cambiar a vista de Tarjetas",
+            icon=ft.icons.TABLE_ROWS,
+            tooltip="Cambiar a vista de Tabla",
             on_click=self.toggle_view
         )
         
@@ -80,31 +80,6 @@ class InventarioView(ft.Container):
             icon_color="red"
         )
         
-        # Diccionario base de columnas
-        self.columnas_def = {
-            "": ft.DataColumn(ft.Container(width=25)),
-            "Código": ft.DataColumn(ft.Text("Código", weight="bold"), on_sort=self.on_sort_table),
-            "Insumo": ft.DataColumn(ft.Container(content=ft.Text("Insumo", weight="bold"), width=250), on_sort=self.on_sort_table),
-            "Categoría": ft.DataColumn(ft.Text("Categoría", weight="bold"), on_sort=self.on_sort_table),
-            "Ubicación": ft.DataColumn(ft.Text("Ubicación", weight="bold")),
-            "Stock Inicial": ft.DataColumn(ft.Container(content=ft.Text("Stock Ini.", weight="bold", size=11, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True),
-            "Stock Mínimo": ft.DataColumn(ft.Container(content=ft.Text("Stock Mín.", weight="bold", size=11, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True),
-            "Entradas": ft.DataColumn(ft.Container(content=ft.Text("Entradas", weight="bold", size=11, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True, on_sort=self.on_sort_table),
-            "Salidas": ft.DataColumn(ft.Container(content=ft.Text("Salidas", weight="bold", size=11, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True, on_sort=self.on_sort_table),
-            "Stock Real": ft.DataColumn(ft.Container(content=ft.Text("Stock Real", weight="bold", size=11, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True, on_sort=self.on_sort_table),
-            "Costo Unit.": ft.DataColumn(ft.Text("Costo Unit.", weight="bold"), numeric=True),
-            "Costo Total": ft.DataColumn(ft.Text("Costo Total", weight="bold"), numeric=True),
-            "Precio Venta": ft.DataColumn(ft.Text("Precio Venta", weight="bold"), numeric=True),
-            "Venta Total": ft.DataColumn(ft.Text("Venta Total", weight="bold"), numeric=True),
-        }
-        self.columnas_visibles = {k: True for k in self.columnas_def.keys()}
-        
-        self.btn_columns = ft.PopupMenuButton(
-            icon=ft.icons.VIEW_COLUMN,
-            tooltip="Mostrar/Ocultar Columnas",
-            items=[]
-        )
-        
         # Definición de la Tabla de Datos (Ajuste de espacios y ordenamiento)
         self.data_table = ft.DataTable(
             column_spacing=10, # Reduce el espacio entre columnas
@@ -114,7 +89,22 @@ class InventarioView(ft.Container):
             heading_row_height=40,
             sort_column_index=0,
             sort_ascending=True,
-            columns=[],
+            columns=[
+                ft.DataColumn(ft.Container(width=25)),
+                ft.DataColumn(ft.Text("Código", weight="bold", size=10), on_sort=self.on_sort_table),
+                ft.DataColumn(ft.Container(content=ft.Text("Insumo", weight="bold", size=10), width=250), on_sort=self.on_sort_table),
+                ft.DataColumn(ft.Text("Categoría", weight="bold", size=10), on_sort=self.on_sort_table),
+                ft.DataColumn(ft.Text("Ubicación", weight="bold", size=10)),
+                ft.DataColumn(ft.Container(content=ft.Text("Stock Ini.", weight="bold", size=10, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True),
+                ft.DataColumn(ft.Container(content=ft.Text("Stock Mín.", weight="bold", size=10, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True),
+                ft.DataColumn(ft.Container(content=ft.Text("Entradas", weight="bold", size=10, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True, on_sort=self.on_sort_table),
+                ft.DataColumn(ft.Container(content=ft.Text("Salidas", weight="bold", size=10, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True, on_sort=self.on_sort_table),
+                ft.DataColumn(ft.Container(content=ft.Text("Stock Real", weight="bold", size=10, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True, on_sort=self.on_sort_table),
+                ft.DataColumn(ft.Text("Costo Unit.", weight="bold", size=10), numeric=True),
+                ft.DataColumn(ft.Text("Costo Total", weight="bold", size=10), numeric=True),
+                ft.DataColumn(ft.Text("Precio Venta", weight="bold", size=10), numeric=True),
+                ft.DataColumn(ft.Text("Venta Total", weight="bold", size=10), numeric=True),
+            ],
             rows=[],
             heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
             border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
@@ -147,10 +137,10 @@ class InventarioView(ft.Container):
             border_radius=10,
             expand=True,
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=ft.colors.with_opacity(0.05, "black")),
-            visible=True
+            visible=False
         )
         
-        self.card_list_view = ft.ListView(expand=True, spacing=10, visible=False)
+        self.card_list_view = ft.ListView(expand=True, spacing=10, visible=True)
         
         # Controles Paginación
         self.lbl_page_info = ft.Text("Página 1 de 1")
@@ -364,7 +354,6 @@ class InventarioView(ft.Container):
                         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
                     ),
                     self.btn_toggle_view,
-                    self.btn_columns,
                     self.btn_fullscreen
                 ]),
                 bgcolor="white",
@@ -416,13 +405,6 @@ class InventarioView(ft.Container):
         if self.date_picker not in self.page.overlay:
             self.page.overlay.append(self.date_picker)
             self.safe_update()
-            
-        # Cargar configuración de columnas guardada
-        if self.page.client_storage.contains_key("inventario_columnas"):
-            stored_cols = self.page.client_storage.get("inventario_columnas")
-            if stored_cols and isinstance(stored_cols, dict):
-                self.columnas_visibles.update(stored_cols)
-        self.update_columns_ui()
             
         # Lógica responsiva para la tabla
         def handle_resize(e):
@@ -478,29 +460,6 @@ class InventarioView(ft.Container):
         for c in cats:
             if c: options.append(ft.dropdown.Option(c))
         self.category_dropdown.options = options
-        
-    def update_columns_ui(self):
-        # Actualiza las columnas de la tabla
-        self.data_table.columns = [col for name, col in self.columnas_def.items() if self.columnas_visibles.get(name, True)]
-        
-        # Reconstruye el menú del Popup
-        items = []
-        for name in self.columnas_def.keys():
-            is_visible = self.columnas_visibles.get(name, True)
-            items.append(
-                ft.PopupMenuItem(
-                    text=name,
-                    checked=is_visible,
-                    on_click=lambda e, n=name: self.toggle_column(n)
-                )
-            )
-        self.btn_columns.items = items
-        
-    def toggle_column(self, name):
-        self.columnas_visibles[name] = not self.columnas_visibles.get(name, True)
-        self.page.client_storage.set("inventario_columnas", self.columnas_visibles)
-        self.update_columns_ui()
-        self.load_data()
         
     def toggle_view(self, e):
         if self.view_mode == "table":
@@ -613,24 +572,24 @@ class InventarioView(ft.Container):
 
         checkbox = ft.Checkbox(value=False, on_change=lambda e, i=item, r=row_ref: self.toggle_edit(e, i, r))
         
-        cells_data = {
-            "": ft.DataCell(ft.Container(content=checkbox, width=25, alignment=ft.alignment.center)),
-            "Código": ft.DataCell(ft.Text(codigo)),
-            "Insumo": ft.DataCell(ft.Container(content=ft.Text(nombre, no_wrap=True, tooltip=nombre), width=250)),
-            "Categoría": ft.DataCell(ft.Text(categoria)),
-            "Ubicación": ft.DataCell(ft.Text(ubicacion)),
-            "Stock Inicial": ft.DataCell(ft.Container(content=ft.Text(str(stock_inicial)), width=60, alignment=ft.alignment.center_right)),
-            "Stock Mínimo": ft.DataCell(ft.Container(content=ft.Text(str(stock_minimo)), width=60, alignment=ft.alignment.center_right)),
-            "Entradas": ft.DataCell(ft.Container(content=ft.Text(str(entradas), color=color_entradas, weight="bold"), width=60, alignment=ft.alignment.center_right)),
-            "Salidas": ft.DataCell(ft.Container(content=ft.Text(str(salidas), color=color_salidas, weight="bold"), width=60, alignment=ft.alignment.center_right)),
-            "Stock Real": ft.DataCell(ft.Container(content=ft.Text(str(stock_final), color=color_stock, weight="bold"), width=60, alignment=ft.alignment.center_right)),
-            "Costo Unit.": ft.DataCell(ft.Text(str_costo_unit)),
-            "Costo Total": ft.DataCell(ft.Text(str_costo_total, color="blue")),
-            "Precio Venta": ft.DataCell(ft.Text(str_precio_venta)),
-            "Venta Total": ft.DataCell(ft.Text(str_venta_total, color="green")),
-        }
+        cells_data = [
+            ft.DataCell(ft.Container(content=checkbox, width=25, alignment=ft.alignment.center)),
+            ft.DataCell(ft.Text(codigo, size=10)),
+            ft.DataCell(ft.Container(content=ft.Text(nombre, size=10, no_wrap=True, tooltip=nombre), width=250)),
+            ft.DataCell(ft.Text(categoria, size=10)),
+            ft.DataCell(ft.Text(ubicacion, size=10)),
+            ft.DataCell(ft.Container(content=ft.Text(str(stock_inicial), size=10), width=60, alignment=ft.alignment.center_right)),
+            ft.DataCell(ft.Container(content=ft.Text(str(stock_minimo), size=10), width=60, alignment=ft.alignment.center_right)),
+            ft.DataCell(ft.Container(content=ft.Text(str(entradas), color=color_entradas, weight="bold", size=10), width=60, alignment=ft.alignment.center_right)),
+            ft.DataCell(ft.Container(content=ft.Text(str(salidas), color=color_salidas, weight="bold", size=10), width=60, alignment=ft.alignment.center_right)),
+            ft.DataCell(ft.Container(content=ft.Text(str(stock_final), color=color_stock, weight="bold", size=10), width=60, alignment=ft.alignment.center_right)),
+            ft.DataCell(ft.Text(str_costo_unit, size=10)),
+            ft.DataCell(ft.Text(str_costo_total, color="blue", size=10)),
+            ft.DataCell(ft.Text(str_precio_venta, size=10)),
+            ft.DataCell(ft.Text(str_venta_total, color="green", size=10)),
+        ]
             
-        return [cells_data[name] for name in self.columnas_def.keys() if self.columnas_visibles.get(name, True)]
+        return cells_data
 
     def abrir_edicion_desde_tarjeta(self, item, row_ref):
         # Simular que se marcó el checkbox de la tabla para mantener sincronía

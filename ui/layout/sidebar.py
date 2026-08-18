@@ -61,7 +61,7 @@ class Sidebar(ft.Container):
                 
                 ft.Container(expand=True), # Spacer
                 
-                self._create_menu_item("Configuración", ft.icons.SETTINGS, "settings"),
+
                 
                 # Footer Copyright
                 ft.Container(

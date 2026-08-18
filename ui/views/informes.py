@@ -10,6 +10,7 @@ class InformesView(ft.Container):
         super().__init__()
         self.expand = True
         self.db = SupabaseClient()
+        self.save_pdf_picker = ft.FilePicker(on_result=self._save_pdf_result)
         
         # --- PANEL IZQUIERDO: CONSTRUCTOR DE INFORMES ---
         self.drop_tipo_informe = ft.Dropdown(
@@ -113,6 +114,10 @@ class InformesView(ft.Container):
             panel_controles,
             scroll_lienzo
         ], expand=True, spacing=20, vertical_alignment=ft.CrossAxisAlignment.START)
+
+    def did_mount(self):
+        if self.save_pdf_picker not in self.page.overlay:
+            self.page.overlay.append(self.save_pdf_picker)
 
     def generar_informe(self, e):
         self.doc_cuerpo.controls.clear()
@@ -490,9 +495,143 @@ class InformesView(ft.Container):
         ])
 
     def exportar_pdf(self, e):
-        self.page.snack_bar = ft.SnackBar(ft.Text("Generando PDF... (Módulo de exportación pendiente)"), bgcolor="orange")
-        self.page.snack_bar.open = True
-        self.page.update()
+        if not hasattr(self, 'current_data') or not self.current_data:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Primero genera la previsualización del informe."), bgcolor="orange")
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+
+        nombre_sugerido = f"{self.drop_tipo_informe.value.replace(' ', '_')}_{datetime.date.today().strftime('%Y%m%d')}.pdf"
+        self.save_pdf_picker.save_file(
+            dialog_title="Guardar Informe PDF",
+            file_name=nombre_sugerido,
+            allowed_extensions=["pdf"]
+        )
+
+    def _save_pdf_result(self, e: ft.FilePickerResultEvent):
+        if not e.path:
+            return
+            
+        try:
+            from fpdf import FPDF
+            
+            class PDFReport(FPDF):
+                def header(instance):
+                    instance.set_font("Arial", 'B', 12)
+                    instance.cell(0, 6, "TIENDA Y ABARROTES LOS DESECHABLES DE DOÑA MARY SAS", ln=True, align='C')
+                    instance.set_font("Arial", 'B', 10)
+                    instance.cell(0, 5, "REPORTE OFICIAL DE INVENTARIOS Y OPERACIONES", ln=True, align='C')
+                    instance.set_font("Arial", '', 8)
+                    instance.cell(0, 4, f"Generado el: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')}", ln=True, align='C')
+                    instance.ln(4)
+                    instance.line(10, instance.get_y(), 200, instance.get_y())
+                    instance.ln(4)
+
+                def footer(instance):
+                    instance.set_y(-15)
+                    instance.set_font("Arial", 'I', 8)
+                    instance.cell(0, 10, f"Página {instance.page_no()}/{{nb}}", align='C')
+
+            pdf = PDFReport()
+            pdf.alias_nb_pages()
+            pdf.add_page()
+            pdf.set_auto_page_break(auto=True, margin=15)
+
+            # Título del Informe
+            pdf.set_font("Arial", 'B', 11)
+            pdf.cell(0, 6, str(self.doc_header_titulo.value).encode('latin-1', 'replace').decode('latin-1'), ln=True)
+            pdf.set_font("Arial", '', 9)
+            pdf.cell(0, 5, str(self.doc_header_periodo.value).encode('latin-1', 'replace').decode('latin-1'), ln=True)
+            pdf.ln(4)
+
+            es_resumido = self.opcion_detalle.value == "Resumido"
+            es_ajuste = self.drop_tipo_informe.value == "Historial de Ajustes"
+
+            if es_resumido:
+                # Tabla Resumida
+                pdf.set_font("Arial", 'B', 8)
+                pdf.cell(110, 6, "GRUPO / CATEGORIA", border=1)
+                pdf.cell(35, 6, "CANT. TOTAL", border=1, align='R')
+                pdf.cell(45, 6, "VALOR TOTAL", border=1, align='R')
+                pdf.ln()
+
+                pdf.set_font("Arial", '', 8)
+                for grupo, datos in sorted(self.current_data.items()):
+                    g_nombre = str(grupo).upper().encode('latin-1', 'replace').decode('latin-1')
+                    pdf.cell(110, 6, g_nombre, border="L,R,B")
+                    pdf.cell(35, 6, f"{datos.get('cant_total', 0):g}", border="L,R,B", align='R')
+                    pdf.cell(45, 6, f"${datos['subtotal']:,.2f}", border="L,R,B", align='R', ln=True)
+
+                pdf.ln(4)
+                pdf.set_font("Arial", 'B', 9)
+                pdf.cell(145, 7, "TOTAL GENERAL:", align='R')
+                pdf.cell(45, 7, f"${self.current_total:,.2f}", border=1, align='R', ln=True)
+
+            else:
+                # Tabla Completa
+                pdf.set_font("Arial", 'B', 8)
+                if es_ajuste:
+                    pdf.cell(20, 6, "FECHA", border=1)
+                    pdf.cell(30, 6, "MOTIVO", border=1)
+                    pdf.cell(50, 6, "OBSERVACION", border=1)
+                    pdf.cell(45, 6, "INSUMO", border=1)
+                    pdf.cell(20, 6, "CANT.", border=1, align='R')
+                    pdf.cell(25, 6, "COSTO TOT.", border=1, align='R')
+                else:
+                    pdf.cell(20, 6, "FECHA/COD", border=1)
+                    pdf.cell(30, 6, "DOC/FACT", border=1)
+                    pdf.cell(75, 6, "INSUMO / DESCRIPCION", border=1)
+                    pdf.cell(20, 6, "CANT.", border=1, align='R')
+                    pdf.cell(20, 6, "COSTO U.", border=1, align='R')
+                    pdf.cell(25, 6, "TOTAL", border=1, align='R')
+                pdf.ln()
+
+                for grupo, datos in sorted(self.current_data.items()):
+                    pdf.set_font("Arial", 'B', 8)
+                    pdf.cell(0, 6, f"  GRUPO: {str(grupo).upper().encode('latin-1', 'replace').decode('latin-1')}", border="L,R,B", ln=True)
+                    pdf.set_font("Arial", '', 7)
+
+                    for i in datos["items"]:
+                        insumo_txt = str(i.get('insumo') or i.get('nombre', '')).encode('latin-1', 'replace').decode('latin-1')[:35]
+                        
+                        if es_ajuste:
+                            motivo_txt = str(i.get('motivo', '')).encode('latin-1', 'replace').decode('latin-1')[:18]
+                            obs_txt = str(i.get('obs', '')).encode('latin-1', 'replace').decode('latin-1')[:30]
+                            pdf.cell(20, 5, str(i.get('fecha', '')), border="L")
+                            pdf.cell(30, 5, motivo_txt)
+                            pdf.cell(50, 5, obs_txt)
+                            pdf.cell(45, 5, insumo_txt)
+                            pdf.cell(20, 5, f"{i.get('cant', 0):g}", align='R')
+                            pdf.cell(25, 5, f"${i.get('total', 0):,.2f}", border="R", align='R', ln=True)
+                        else:
+                            c_code = str(i.get('codigo') or i.get('fecha', ''))
+                            c_doc = str(i.get('factura', ''))[:15]
+                            c_u = f"${i.get('costo_u', 0):,.2f}" if 'costo_u' in i else "-"
+                            pdf.cell(20, 5, c_code, border="L")
+                            pdf.cell(30, 5, c_doc)
+                            pdf.cell(75, 5, insumo_txt)
+                            pdf.cell(20, 5, f"{i.get('stock', i.get('cant', 0)):g}", align='R')
+                            pdf.cell(20, 5, c_u, align='R')
+                            pdf.cell(25, 5, f"${i.get('total', 0):,.2f}", border="R", align='R', ln=True)
+
+                    pdf.set_font("Arial", 'B', 8)
+                    pdf.cell(165, 5, f"Subtotal {grupo}:", border="L,B", align='R')
+                    pdf.cell(25, 5, f"${datos['subtotal']:,.2f}", border="R,B", align='R', ln=True)
+
+                pdf.ln(4)
+                pdf.set_font("Arial", 'B', 9)
+                pdf.cell(165, 7, "TOTAL GENERAL:", align='R')
+                pdf.cell(25, 7, f"${self.current_total:,.2f}", border=1, align='R', ln=True)
+
+            pdf.output(e.path)
+            self.page.snack_bar = ft.SnackBar(ft.Text("¡PDF exportado con éxito!"), bgcolor="green")
+            self.page.snack_bar.open = True
+            self.page.update()
+
+        except Exception as ex:
+            self.page.snack_bar = ft.SnackBar(ft.Text(f"Error al generar PDF: {ex}"), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.page.update()
 
     def exportar_excel(self, e):
         self.page.snack_bar = ft.SnackBar(ft.Text("Generando Excel... (Módulo de exportación pendiente)"), bgcolor="green")
