@@ -159,6 +159,32 @@ class DashboardView(ft.Container):
             self.kpi_secundarios
         ], spacing=10)
 
+        # SECCIÓN RESUMEN DE IMPUESTOS
+        self.val_iva_generado_mes = ft.Text("$ 0", size=22, weight="bold", color="blue700")
+        self.val_iva_generado_hoy = ft.Text("$ 0", size=22, weight="bold", color="blue700")
+        self.val_iva_pagado_mes = ft.Text("$ 0", size=22, weight="bold", color="teal700")
+        self.val_iva_pagado_hoy = ft.Text("$ 0", size=22, weight="bold", color="teal700")
+
+        header_impuestos_row = ft.Row([
+            ft.Text("Resumen de Impuestos", size=20, weight="bold", color=Config.COLOR_PRIMARY),
+        ], tight=True)
+
+        self.kpi_iva_generado_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("IVA Generado (Mes)", self.val_iva_generado_mes, ft.icons.RECEIPT_LONG), col={"xs": 12, "sm": 6}),
+            ft.Container(content=self._build_kpi_card("IVA Generado (Hoy)", self.val_iva_generado_hoy, ft.icons.POINT_OF_SALE), col={"xs": 12, "sm": 6}),
+        ], spacing=10, run_spacing=10)
+
+        self.kpi_iva_pagado_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("IVA Pagado (Mes)", self.val_iva_pagado_mes, ft.icons.SHOPPING_CART_CHECKOUT), col={"xs": 12, "sm": 6}),
+            ft.Container(content=self._build_kpi_card("IVA Pagado (Hoy)", self.val_iva_pagado_hoy, ft.icons.SHOPPING_BAG_OUTLINED), col={"xs": 12, "sm": 6}),
+        ], spacing=10, run_spacing=10)
+
+        self.seccion_impuestos = ft.Column([
+            header_impuestos_row,
+            self.kpi_iva_generado_row,
+            self.kpi_iva_pagado_row
+        ], spacing=10)
+
         self.seccion_ajustes = ft.Column([
             header_ajustes,
             self.panel_ajustes
@@ -294,6 +320,8 @@ class DashboardView(ft.Container):
             ft.Divider(height=10, color="transparent"),
             self.seccion_kpis,
             ft.Divider(height=10, color="transparent"),
+            self.seccion_impuestos, # <-- Ubicación antes del impacto de ajustes
+            ft.Divider(height=10, color="transparent"),
             self.seccion_ajustes,
             ft.Divider(height=10, color="transparent"),
             self.categorias_container,
@@ -379,6 +407,17 @@ class DashboardView(ft.Container):
         self.val_ventas_hoy.value = f"$ {ventas_hoy:,.0f}"
         self.val_compras.value = f"$ {compras:,.0f}"
         self.val_compras_hoy.value = f"$ {compras_hoy:,.0f}"
+
+        # Extraer montos de IVA de Ventas y Compras
+        iva_gen_mes = float(res_ven.get('iva_mes') or 0)
+        iva_gen_hoy = float(res_ven.get('iva_hoy') or 0)
+        iva_pag_mes = float(res_com.get('iva_mes') or 0)
+        iva_pag_hoy = float(res_com.get('iva_hoy') or 0)
+
+        self.val_iva_generado_mes.value = f"$ {iva_gen_mes:,.0f}"
+        self.val_iva_generado_hoy.value = f"$ {iva_gen_hoy:,.0f}"
+        self.val_iva_pagado_mes.value = f"$ {iva_pag_mes:,.0f}"
+        self.val_iva_pagado_hoy.value = f"$ {iva_pag_hoy:,.0f}"
         
         rentabilidad = 0
         if ingresos > 0:

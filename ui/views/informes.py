@@ -21,6 +21,7 @@ class InformesView(ft.Container):
                 ft.dropdown.Option("Informe de Compras"),
                 ft.dropdown.Option("Informe de Ventas"),
                 ft.dropdown.Option("Historial de Ajustes"),
+                ft.dropdown.Option("Informe de Impuestos"),
                 ft.dropdown.Option("Resumen de KPIs")
             ],
             value="Valorización de Inventario",
@@ -201,11 +202,188 @@ class InformesView(ft.Container):
             self._generar_ventas(fecha_inicio, fecha_fin, detalle)
         elif tipo_informe == "Historial de Ajustes":
             self._generar_ajustes(fecha_inicio, fecha_fin, detalle)
+        elif tipo_informe == "Informe de Impuestos":
+            self._generar_impuestos(fecha_inicio, fecha_fin, detalle)
         elif tipo_informe == "Resumen de KPIs":
             self._generar_kpis(fecha_inicio, fecha_fin)
 
         if self.page:
             self.page.update()
+
+    def _generar_impuestos(self, fecha_inicio, fecha_fin, detalle):
+        raw_compras, _ = self.db.get_compras(page=1, page_size=100000)
+        raw_ventas, _ = self.db.get_ventas(page=1, page_size=100000)
+
+        # Filtrar Compras por Rango de Fechas
+        compras_filtradas = []
+        tot_compras_base = 0.0
+        tot_compras_iva = 0.0
+        tot_compras_total = 0.0
+
+        for c in raw_compras:
+            f = str(c.get("fecha") or "")[:10]
+            if fecha_inicio <= f <= fecha_fin:
+                tot = float(c.get("costo_total") or 0)
+                iva = float(c.get("iva") or c.get("valor_iva") or 0)
+                base = tot - iva
+                cant = float(c.get("cantidad") or 0)
+                cat_i = c.get("catalogo_insumos") or {}
+                
+                compras_filtradas.append({
+                    "fecha": f,
+                    "doc": c.get("numero_factura") or c.get("numero_entrada") or "S/D",
+                    "insumo": cat_i.get("nombre", "Desconocido"),
+                    "cant": cant,
+                    "base": base,
+                    "iva": iva,
+                    "total": tot
+                })
+                tot_compras_base += base
+                tot_compras_iva += iva
+                tot_compras_total += tot
+
+        # Filtrar Ventas por Rango de Fechas
+        ventas_filtradas = []
+        tot_ventas_base = 0.0
+        tot_ventas_iva = 0.0
+        tot_ventas_total = 0.0
+
+        for v in raw_ventas:
+            f = str(v.get("fecha") or "")[:10]
+            if fecha_inicio <= f <= fecha_fin:
+                tot = float(v.get("total") or 0)
+                iva = float(v.get("iva") or 0)
+                base = float(v.get("subtotal") or (tot - iva))
+                cant = float(v.get("cantidad") or 0)
+                cat_i = v.get("catalogo_insumos") or {}
+
+                ventas_filtradas.append({
+                    "fecha": f,
+                    "doc": v.get("factura_no") or "S/D",
+                    "insumo": v.get("descripcion") or cat_i.get("nombre") or "Desconocido",
+                    "cant": cant,
+                    "base": base,
+                    "iva": iva,
+                    "total": tot
+                })
+                tot_ventas_base += base
+                tot_ventas_iva += iva
+                tot_ventas_total += tot
+
+        balance_iva = tot_ventas_iva - tot_compras_iva
+
+        # Guardar estructura para PDF/Excel
+        self.current_data = {
+            "compras": compras_filtradas,
+            "ventas": ventas_filtradas,
+            "tot_compras_base": tot_compras_base,
+            "tot_compras_iva": tot_compras_iva,
+            "tot_compras_total": tot_compras_total,
+            "tot_ventas_base": tot_ventas_base,
+            "tot_ventas_iva": tot_ventas_iva,
+            "tot_ventas_total": tot_ventas_total,
+            "balance_iva": balance_iva
+        }
+        self.current_total = balance_iva
+        self.current_periodo = self.doc_header_periodo.value
+
+        def _crear_resumen_impuestos_row(label, val_base, val_iva, val_total, is_header=False, color_txt="black"):
+            weight = "bold" if is_header else "normal"
+            size = 12 if is_header else 11
+            return ft.Row([
+                ft.Text(label, weight=weight, size=size, expand=True, color=color_txt),
+                ft.Text(f"${val_base:,.2f}" if isinstance(val_base, (int, float)) else val_base, weight=weight, size=size, width=110, text_align=ft.TextAlign.RIGHT, color=color_txt),
+                ft.Text(f"${val_iva:,.2f}" if isinstance(val_iva, (int, float)) else val_iva, weight=weight, size=size, width=110, text_align=ft.TextAlign.RIGHT, color=color_txt),
+                ft.Text(f"${val_total:,.2f}" if isinstance(val_total, (int, float)) else val_total, weight=weight, size=size, width=120, text_align=ft.TextAlign.RIGHT, color=color_txt),
+            ])
+
+        if detalle == "Resumido":
+            self.doc_cuerpo.controls.append(_crear_resumen_impuestos_row("CONCEPTO / CONSOLIDADO", "VALOR BASE", "IVA ACUMULADO", "VALOR TOTAL", is_header=True))
+            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
+            
+            self.doc_cuerpo.controls.append(_crear_resumen_impuestos_row("VENTAS (IVA GENERADO)", tot_ventas_base, tot_ventas_iva, tot_ventas_total, color_txt="blue700"))
+            self.doc_cuerpo.controls.append(_crear_resumen_impuestos_row("COMPRAS (IVA PAGADO / DESCONTABLE)", tot_compras_base, tot_compras_iva, tot_compras_total, color_txt="teal700"))
+            self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
+
+            color_bal = "red" if balance_iva > 0 else "green"
+            lbl_bal = "BALANCE NETO DE IVA (POR PAGAR)" if balance_iva > 0 else "BALANCE NETO DE IVA (A FAVOR)"
+            self.doc_cuerpo.controls.append(
+                ft.Row([
+                    ft.Text(f"{lbl_bal}:", weight="bold", size=13, expand=True, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"${balance_iva:,.2f}", weight="bold", size=14, width=150, text_align=ft.TextAlign.RIGHT, color=color_bal),
+                ])
+            )
+        else:
+            # VISTA COMPLETA DETALLADA
+            # 1. SECCIÓN COMPRAS
+            self.doc_cuerpo.controls.append(ft.Container(content=ft.Text("COMPRAS (IVA PAGADO EN ENTRADAS)", weight="bold", size=13, color="teal700"), padding=ft.padding.only(top=10, bottom=5)))
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text("FECHA", weight="bold", size=10, width=65),
+                ft.Text("DOC.", weight="bold", size=10, width=80),
+                ft.Text("INSUMO", weight="bold", size=10, expand=True),
+                ft.Text("BASE", weight="bold", size=10, width=80, text_align=ft.TextAlign.RIGHT),
+                ft.Text("IVA", weight="bold", size=10, width=70, text_align=ft.TextAlign.RIGHT),
+                ft.Text("TOTAL", weight="bold", size=10, width=85, text_align=ft.TextAlign.RIGHT),
+            ]))
+            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
+
+            for c in compras_filtradas:
+                self.doc_cuerpo.controls.append(ft.Row([
+                    ft.Text(c['fecha'], size=10, width=65),
+                    ft.Text(c['doc'], size=10, width=80, no_wrap=True),
+                    ft.Text(c['insumo'], size=10, expand=True, no_wrap=True),
+                    ft.Text(f"${c['base']:,.2f}", size=10, width=80, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"${c['iva']:,.2f}", size=10, width=70, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"${c['total']:,.2f}", size=10, width=85, text_align=ft.TextAlign.RIGHT),
+                ]))
+
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text("TOTAL COMPRAS:", weight="bold", size=11, expand=True, text_align=ft.TextAlign.RIGHT),
+                ft.Text(f"${tot_compras_base:,.2f}", weight="bold", size=11, width=80, text_align=ft.TextAlign.RIGHT),
+                ft.Text(f"${tot_compras_iva:,.2f}", weight="bold", size=11, width=70, text_align=ft.TextAlign.RIGHT, color="teal700"),
+                ft.Text(f"${tot_compras_total:,.2f}", weight="bold", size=11, width=85, text_align=ft.TextAlign.RIGHT),
+            ]))
+            self.doc_cuerpo.controls.append(ft.Divider(height=15, color="transparent"))
+
+            # 2. SECCIÓN VENTAS
+            self.doc_cuerpo.controls.append(ft.Container(content=ft.Text("VENTAS (IVA GENERADO EN SALIDAS)", weight="bold", size=13, color="blue700"), padding=ft.padding.only(top=10, bottom=5)))
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text("FECHA", weight="bold", size=10, width=65),
+                ft.Text("DOC.", weight="bold", size=10, width=80),
+                ft.Text("INSUMO", weight="bold", size=10, expand=True),
+                ft.Text("BASE", weight="bold", size=10, width=80, text_align=ft.TextAlign.RIGHT),
+                ft.Text("IVA", weight="bold", size=10, width=70, text_align=ft.TextAlign.RIGHT),
+                ft.Text("TOTAL", weight="bold", size=10, width=85, text_align=ft.TextAlign.RIGHT),
+            ]))
+            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
+
+            for v in ventas_filtradas:
+                self.doc_cuerpo.controls.append(ft.Row([
+                    ft.Text(v['fecha'], size=10, width=65),
+                    ft.Text(v['doc'], size=10, width=80, no_wrap=True),
+                    ft.Text(v['insumo'], size=10, expand=True, no_wrap=True),
+                    ft.Text(f"${v['base']:,.2f}", size=10, width=80, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"${v['iva']:,.2f}", size=10, width=70, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"${v['total']:,.2f}", size=10, width=85, text_align=ft.TextAlign.RIGHT),
+                ]))
+
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text("TOTAL VENTAS:", weight="bold", size=11, expand=True, text_align=ft.TextAlign.RIGHT),
+                ft.Text(f"${tot_ventas_base:,.2f}", weight="bold", size=11, width=80, text_align=ft.TextAlign.RIGHT),
+                ft.Text(f"${tot_ventas_iva:,.2f}", weight="bold", size=11, width=70, text_align=ft.TextAlign.RIGHT, color="blue700"),
+                ft.Text(f"${tot_ventas_total:,.2f}", weight="bold", size=11, width=85, text_align=ft.TextAlign.RIGHT),
+            ]))
+            self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
+
+            color_bal = "red" if balance_iva > 0 else "green"
+            lbl_bal = "BALANCE NETO DE IVA (POR PAGAR)" if balance_iva > 0 else "BALANCE NETO DE IVA (A FAVOR)"
+            self.doc_cuerpo.controls.append(
+                ft.Row([
+                    ft.Text(f"{lbl_bal}:", weight="bold", size=13, expand=True, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"${balance_iva:,.2f}", weight="bold", size=13, width=120, text_align=ft.TextAlign.RIGHT, color=color_bal),
+                ])
+            )
+            self.doc_cuerpo.controls.append(ft.Divider(height=4, color="black"))
 
     def _generar_valorizacion(self, detalle, fecha_corte=None):
         # Obtener datos calculados desde la base de datos

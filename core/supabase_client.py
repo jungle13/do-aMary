@@ -161,55 +161,50 @@ class SupabaseClient:
             print(f"Excepción en update_insumo: {e}")
             return False
 
-    def get_compras(self, page=1, page_size=20, search="", fecha_corte=None, factura_filtro=None, proveedor_filtro=None):
-        url = f"{self.url}/registro_compras?select=*,catalogo_insumos(nombre,categoria)"
-        
-        filtros = []
-        
-        # 1. Búsqueda por texto general
-        if search:
-            search_enc = urllib.parse.quote(search.strip())
-            filtros.append(f"or=(codigo_insumo.ilike.*{search_enc}*,proveedor.ilike.*{search_enc}*,numero_factura.ilike.*{search_enc}*)")
-        
-        # 2. Fecha de corte
-        if fecha_corte:
-            filtros.append(f"fecha=eq.{fecha_corte}")
-
-        # 3. Filtro cruzado por Factura / Entrada
-        if factura_filtro:
-            factura_enc = urllib.parse.quote(str(factura_filtro).strip())
-            filtros.append(f"or=(numero_entrada.eq.{factura_enc},numero_factura.eq.{factura_enc})")
-
-        # 4. Filtro cruzado por Proveedor (Con ilike y quote para tolerar espacios y mayúsculas/minúsculas)
-        if proveedor_filtro:
-            prov_enc = urllib.parse.quote(str(proveedor_filtro).strip())
-            filtros.append(f"proveedor.ilike.*{prov_enc}*")
-            
-        if filtros:
-            url += "&" + "&".join(filtros)
-            
-        offset = (page - 1) * page_size
-        url += f"&order=fecha.desc,numero_entrada.desc&offset={offset}&limit={page_size}"
-        
-        headers = self.headers.copy()
-        headers["Prefer"] = "count=exact"
-        
+    def get_compras(self, page=1, page_size=15, search="", fecha_corte=None, factura_filtro=None, proveedor_filtro=None):
         try:
-            response = self.session.get(url, headers=headers, timeout=10)
-            if response.status_code in (200, 206):
-                data = response.json()
-                content_range = response.headers.get("Content-Range", "")
-                total_count = 0
-                if "/" in content_range:
-                    total_count = int(content_range.split("/")[1])
-                return data, total_count
-            else:
-                print(f"Error HTTP {response.status_code} en get_compras: {response.text}")
-                return [], 0
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_compras: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en get_compras: {e}")
+            offset = (page - 1) * page_size
+            # Incluir 'iva' explícitamente en el select
+            select_query = "id_compra,fecha,numero_entrada,numero_factura,proveedor,codigo_insumo,cantidad,costo_unitario,iva,valor_iva,costo_total,estado_registro,catalogo_insumos(nombre)"
+            
+            url = f"{self.url}/registro_compras?select={select_query}&estado_registro=eq.VÁLIDO&order=fecha.desc"
+            
+            if factura_filtro:
+                url += f"&or=(numero_entrada.eq.{factura_filtro},numero_factura.eq.{factura_filtro})"
+            if proveedor_filtro:
+                url += f"&proveedor=eq.{proveedor_filtro}"
+                
+            res = self.session.get(url, headers=self.headers, timeout=10)
+            
+            if res.status_code == 200:
+                data = res.json()
+                
+                # Filtrado por fecha_corte y búsqueda
+                filtered = []
+                for item in data:
+                    f = str(item.get("fecha") or "")[:10]
+                    if fecha_corte and f > fecha_corte:
+                        continue
+                        
+                    nom = str(item.get("catalogo_insumos", {}).get("nombre", "") if item.get("catalogo_insumos") else "").lower()
+                    cod = str(item.get("codigo_insumo") or "").lower()
+                    prov = str(item.get("proveedor") or "").lower()
+                    fact = str(item.get("numero_factura") or "").lower()
+                    
+                    if search:
+                        s = search.lower()
+                        if s not in nom and s not in cod and s not in prov and s not in fact:
+                            continue
+                            
+                    filtered.append(item)
+                    
+                total_records = len(filtered)
+                page_data = filtered[offset:offset + page_size]
+                return page_data, total_records
+                
+            return [], 0
+        except Exception as ex:
+            print(f"Error en get_compras: {ex}")
             return [], 0
 
     def get_historial_compras_dia(self, fecha_dia: str, agrupar_por: str = "FACTURA") -> list:
@@ -275,40 +270,29 @@ class SupabaseClient:
         return items_resultado
 
 
-    def insert_compras(self, compras_list: list):
-        """
-        Inserta una lista de registros de compras de forma masiva (bulk insert).
-        """
-        url = f"{self.url}/registro_compras"
-        
-        payload = []
-        for c in compras_list:
-            compra = {
-                "fecha": c.get("fecha"),
-                "numero_entrada": str(c.get("numero_entrada", "")),
-                "numero_factura": str(c.get("numero_factura", "")),
-                "proveedor": str(c.get("proveedor", "")),
-                "codigo_insumo": str(c.get("codigo_insumo", "")),
-                "cantidad": float(c.get("cantidad", 0) or 0),
-                "costo_unitario": float(c.get("costo_unitario", 0) or 0),
-                "valor_iva": float(c.get("iva", 0) or 0),
-                "costo_total": float(c.get("costo_total", 0) or 0),
-                "estado_registro": "VÁLIDO"
-            }
-            payload.append(compra)
-            
+    def insert_compras(self, compras_list):
+        if not compras_list: return True
         try:
-            # PostgREST permite inserción masiva enviando una lista de diccionarios JSON
-            response = self.session.post(url, json=payload, headers=self.headers, timeout=10)
-            if response.status_code in (200, 201, 204):
-                return True
-            else:
-                print(f"Error al insertar compras: {response.text}")
-                return False
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en insert_compras: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en insert_compras: {e}")
+            url = f"{self.url}/registro_compras"
+            payload = []
+            for item in compras_list:
+                payload.append({
+                    "numero_entrada": item.get("numero_entrada"),
+                    "fecha": item.get("fecha"),
+                    "numero_factura": item.get("numero_factura"),
+                    "proveedor": item.get("proveedor"),
+                    "codigo_insumo": item.get("codigo_insumo"),
+                    "cantidad": float(item.get("cantidad") or 0),
+                    "costo_unitario": float(item.get("costo_unitario") or 0),
+                    "iva": float(item.get("iva") or item.get("valor_iva") or 0),
+                    "valor_iva": float(item.get("iva") or item.get("valor_iva") or 0),
+                    "costo_total": float(item.get("costo_total") or 0),
+                    "estado_registro": "VÁLIDO"
+                })
+            res = self.session.post(url, json=payload, headers=self.headers, timeout=10)
+            return res.status_code in (200, 201)
+        except Exception as ex:
+            print(f"Error en insert_compras: {ex}")
             return False
 
     def get_entradas_existentes(self, lista_eas: list) -> set:
@@ -335,28 +319,16 @@ class SupabaseClient:
             print(f"Excepción en get_entradas_existentes: {e}")
             return set()
 
-    def eliminar_compras_por_entradas(self, lista_eas: list) -> bool:
-        """
-        Elimina las compras que coincidan con los numero_entrada dados para permitir sobreescritura.
-        """
-        if not lista_eas:
-            return True
-            
-        url = f"{self.url}/registro_compras"
-        eas_str = ",".join(lista_eas)
-        url += f"?numero_entrada=in.({eas_str})"
-        
+    def eliminar_compras_por_entradas(self, lista_entradas):
+        """Elimina registros de compras en Supabase por número de entrada o factura."""
+        if not lista_entradas: return True
         try:
-            response = self.session.delete(url, headers=self.headers, timeout=10)
-            if response.status_code in (200, 204):
-                return True
-            else:
-                print(f"Error al eliminar compras por entradas: {response.text}")
-                return False
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en eliminar_compras_por_entradas: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en eliminar_compras_por_entradas: {e}")
+            for ref in lista_entradas:
+                url = f"{self.url}/registro_compras?or=(numero_entrada.eq.{ref},numero_factura.eq.{ref})"
+                self.session.delete(url, headers=self.headers, timeout=10)
+            return True
+        except Exception as ex:
+            print(f"Error eliminando compras: {ex}")
             return False
             
     def get_nombres_insumos(self, lista_codigos: list) -> dict:
@@ -534,6 +506,18 @@ class SupabaseClient:
             print(f"Error al eliminar ventas por origen: {e}")
             return False
 
+    def eliminar_ventas_por_facturas(self, lista_facturas):
+        """Elimina registros de ventas en Supabase por número de factura."""
+        if not lista_facturas: return True
+        try:
+            for fact in lista_facturas:
+                url = f"{self.url}/registro_ventas?factura_no=eq.{fact}"
+                self.session.delete(url, headers=self.headers, timeout=10)
+            return True
+        except Exception as ex:
+            print(f"Error eliminando ventas: {ex}")
+            return False
+
     def insert_ventas(self, ventas_list: list):
         """Inserta una lista de registros de ventas de forma masiva (bulk insert)."""
         url = f"{self.url}/registro_ventas"
@@ -698,54 +682,109 @@ class SupabaseClient:
             return []
         
 
-    def get_compras_summary(self, fecha_corte=None) -> dict:
-        url = f"{self.url}/registro_compras?select=costo_total,cantidad,fecha&estado_registro=eq.VÁLIDO"
-        if fecha_corte:
-            url += f"&fecha=lte.{fecha_corte}T23:59:59"
-            
+    def get_compras_summary(self, fecha_corte=None):
+        """
+        Obtiene el resumen financiero acumulado de compras (total e IVA)
+        para el mes en curso y para el día actual.
+        """
         try:
+            import datetime
+            hoy = datetime.date.today().strftime("%Y-%m-%d")
+            mes_actual = hoy[:7]
+            
+            url = f"{self.url}/registro_compras?select=fecha,cantidad,costo_total,iva,valor_iva,estado_registro&estado_registro=eq.VÁLIDO"
             res = self.session.get(url, headers=self.headers, timeout=10)
+            
             if res.status_code == 200:
                 data = res.json()
-                total_acumulado = sum([float(r.get("costo_total") or 0) for r in data])
-                cant_acumulada = sum([float(r.get("cantidad") or 0) for r in data])
+                total_mes = 0.0
+                total_hoy = 0.0
+                cant_tot = 0.0
+                iva_mes = 0.0
+                iva_hoy = 0.0
                 
-                hoy_str = datetime.date.today().strftime("%Y-%m-%d")
-                total_hoy = sum([float(r.get("costo_total") or 0) for r in data if r.get("fecha", "")[:10] == hoy_str])
-                
+                for c in data:
+                    f = str(c.get("fecha") or "")[:10]
+                    if fecha_corte and f > fecha_corte:
+                        continue
+                        
+                    monto = float(c.get("costo_total") or 0)
+                    cant = float(c.get("cantidad") or 0)
+                    
+                    # Extracción segura de IVA blindando valores None/NULL
+                    iva_val = float(c.get("iva") or c.get("valor_iva") or 0)
+                    
+                    if f.startswith(mes_actual):
+                        total_mes += monto
+                        iva_mes += iva_val
+                        
+                    if f == hoy:
+                        total_hoy += monto
+                        iva_hoy += iva_val
+                        
+                    cant_tot += cant
+                    
                 return {
-                    "total_mes": total_acumulado,
+                    "total_mes": total_mes,
                     "total_hoy": total_hoy,
-                    "cantidad_total": cant_acumulada
+                    "cantidad_total": cant_tot,
+                    "iva_mes": iva_mes,
+                    "iva_hoy": iva_hoy
                 }
-        except Exception as e:
-            print(f"Error en get_compras_summary: {e}")
-        return {"total_mes": 0, "total_hoy": 0, "cantidad_total": 0}
-    
-    def get_ventas_summary(self, fecha_corte=None) -> dict:
-        url = f"{self.url}/registro_ventas?select=total,iva,fecha&estado_registro=eq.VÁLIDO"
-        if fecha_corte:
-            url += f"&fecha=lte.{fecha_corte}T23:59:59"
-            
+            return {"total_mes": 0, "total_hoy": 0, "cantidad_total": 0, "iva_mes": 0, "iva_hoy": 0}
+        except Exception as ex:
+            print(f"Error en get_compras_summary: {ex}")
+            return {"total_mes": 0, "total_hoy": 0, "cantidad_total": 0, "iva_mes": 0, "iva_hoy": 0}
+
+    def get_ventas_summary(self, fecha_corte=None):
         try:
+            import datetime
+            hoy = datetime.date.today().strftime("%Y-%m-%d")
+            mes_actual = hoy[:7]
+            
+            url = f"{self.url}/registro_ventas?select=fecha,total,subtotal,iva,estado_registro&estado_registro=eq.VÁLIDO"
             res = self.session.get(url, headers=self.headers, timeout=10)
+            
             if res.status_code == 200:
                 data = res.json()
-                total_acumulado = sum([float(r.get("total") or 0) for r in data])
-                iva_acumulado = sum([float(r.get("iva") or 0) for r in data])
+                tot_hist = 0.0
+                tot_mes = 0.0
+                tot_hoy = 0.0
+                iva_hist = 0.0
+                iva_mes = 0.0
+                iva_hoy = 0.0
                 
-                hoy_str = datetime.date.today().strftime("%Y-%m-%d")
-                total_hoy = sum([float(r.get("total") or 0) for r in data if r.get("fecha", "")[:10] == hoy_str])
-                
+                for v in data:
+                    f = str(v.get("fecha") or "")[:10]
+                    if fecha_corte and f > fecha_corte:
+                        continue
+                        
+                    monto = float(v.get("total") or 0)
+                    iva_val = float(v.get("iva") or 0)
+                    
+                    tot_hist += monto
+                    iva_hist += iva_val
+                    
+                    if f.startswith(mes_actual):
+                        tot_mes += monto
+                        iva_mes += iva_val
+                        
+                    if f == hoy:
+                        tot_hoy += monto
+                        iva_hoy += iva_val
+                        
                 return {
-                    "total_mes": total_acumulado,
-                    "total_historico": total_acumulado,
-                    "total_hoy": total_hoy,
-                    "iva_historico": iva_acumulado
+                    "total_historico": tot_hist,
+                    "total_mes": tot_mes,
+                    "total_hoy": tot_hoy,
+                    "iva_historico": iva_hist,
+                    "iva_mes": iva_mes,
+                    "iva_hoy": iva_hoy
                 }
-        except Exception as e:
-            print(f"Error en get_ventas_summary: {e}")
-        return {"total_mes": 0, "total_historico": 0, "total_hoy": 0, "iva_historico": 0}
+            return {"total_historico": 0, "total_mes": 0, "total_hoy": 0, "iva_historico": 0, "iva_mes": 0, "iva_hoy": 0}
+        except Exception as ex:
+            print(f"Error en get_ventas_summary: {ex}")
+            return {"total_historico": 0, "total_mes": 0, "total_hoy": 0, "iva_historico": 0, "iva_mes": 0, "iva_hoy": 0}
 
     def get_catalogo_summary(self, fecha_corte=None) -> dict:
         """Invoca RPC para compras totales y ventas totales en pesos"""

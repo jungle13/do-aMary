@@ -12,6 +12,14 @@ import math
 from ui.components.autocomplete import CustomAutoComplete
 
 class ComprasView(ft.Container):
+    def safe_update(self):
+        """Actualiza la UI de forma segura solo si el control sigue montado en la página."""
+        try:
+            if self.page and self.uid:
+                self.page.update()
+        except Exception:
+            pass
+
     def __init__(self):
         super().__init__()
         self.is_fullscreen = False
@@ -132,9 +140,10 @@ class ComprasView(ft.Container):
                 ft.DataColumn(ft.Text("No. Factura", weight="bold")),
                 ft.DataColumn(ft.Text("Proveedor", weight="bold")),
                 ft.DataColumn(ft.Text("Código Item", weight="bold")),
-                ft.DataColumn(ft.Container(content=ft.Text("Nombre", weight="bold"), width=300)),
+                ft.DataColumn(ft.Container(content=ft.Text("Nombre", weight="bold"), width=280)),
                 ft.DataColumn(ft.Text("Cantidad", weight="bold"), numeric=True),
                 ft.DataColumn(ft.Text("Costo Unit.", weight="bold"), numeric=True),
+                ft.DataColumn(ft.Text("IVA", weight="bold"), numeric=True),
                 ft.DataColumn(ft.Text("Costo Total", weight="bold"), numeric=True),
             ],
             rows=[],
@@ -625,6 +634,151 @@ class ComprasView(ft.Container):
             
         if self.page:
             self.page.update()
+
+
+    def on_eliminar_carga(self, data, grupo_key, num_pag):
+        estado = data.get("estado")
+        id_carga = data["id"]
+        
+        if estado == "Guardado":
+            datos_ext = data.get("datos_extraidos", [])
+            filas_resumen = []
+            lista_eas = []
+            cant_tot = 0.0
+            costo_tot = 0.0
+
+            for inv in datos_ext:
+                ea = inv.get("numero_entrada") or inv.get("numero_factura") or ""
+                if ea and ea not in lista_eas:
+                    lista_eas.append(ea)
+                    
+                for p in inv.get("productos", []):
+                    cod = p.get("codigo_insumo", "")
+                    nom = getattr(self, 'nombres_insumos', {}).get(cod, f"Insumo [{cod}]")
+                    cant = float(p.get("cantidad") or 0)
+                    costo = float(p.get("costo_unitario") or 0)
+                    iva = float(p.get("iva") or 0)
+                    subtot = (cant * costo) + iva
+                    
+                    cant_tot += cant
+                    costo_tot += subtot
+                    
+                    filas_resumen.append(
+                        ft.Row([
+                            ft.Text(f"• [{cod}] {nom[:22]}", size=11, expand=True, weight="bold"),
+                            ft.Text(f"{cant:g} unds", size=11, color="grey"),
+                            ft.Text(f"${subtot:,.0f}", size=11, weight="bold", color="red700")
+                        ])
+                    )
+
+            if not filas_resumen:
+                filas_resumen.append(ft.Text("Sin detalle de insumos registrado.", size=11, color="grey"))
+
+            def confirmar_eliminar_guardado(e):
+                dlg.open = False
+                self.safe_update()
+                
+                # 1. Eliminar en Supabase
+                exito = self.db.eliminar_compras_por_entradas(lista_eas)
+                if exito:
+                    # 2. Remover localmente
+                    if grupo_key in self.cargas_data and num_pag in self.cargas_data[grupo_key]:
+                        del self.cargas_data[grupo_key][num_pag]
+                        if not self.cargas_data[grupo_key]:
+                            del self.cargas_data[grupo_key]
+                    self._save_cargas()
+                    
+                    self.page.snack_bar = ft.SnackBar(ft.Text("Carga e inventario revertidos exitosamente."), bgcolor="orange700")
+                    self.page.snack_bar.open = True
+                    self.load_data()
+                    self.load_summary()
+                    self._render_tabla_cargas()
+                else:
+                    self.page.snack_bar = ft.SnackBar(ft.Text("Error al eliminar registros en base de datos."), bgcolor="red")
+                    self.page.snack_bar.open = True
+                    self.safe_update()
+
+            def cerrar_dialogo_guardado(e):
+                dlg.open = False
+                self.safe_update()
+
+            dlg = ft.AlertDialog(
+                title=ft.Row([
+                    ft.Icon(ft.icons.WARNING_AMBER_ROUNDED, color="red700"),
+                    ft.Text("Eliminar Carga Guardada (Afecta BD)", size=16, weight="bold", color="red700")
+                ]),
+                content=ft.Container(
+                    content=ft.Column([
+                        ft.Container(
+                            content=ft.Text(
+                                "⚠️ ATENCIÓN: Esta carga ya fue guardada en el sistema. Al eliminarla se BORRARÁN DEFINITIVAMENTE los siguientes movimientos de compra de Supabase y se REVERTIRÁ EL STOCK DEL INVENTARIO:",
+                                size=11, color="red900", weight="bold"
+                            ),
+                            padding=10, bgcolor="#fde8e8", border_radius=6
+                        ),
+                        ft.Text("Insumos que se eliminarán:", size=12, weight="bold", color=Config.COLOR_PRIMARY),
+                        ft.Container(
+                            content=ft.Column(filas_resumen, scroll=ft.ScrollMode.AUTO),
+                            height=180,
+                            padding=8, bgcolor="#f8f9fa", border_radius=6, border=ft.border.all(1, "#e0e0e0")
+                        ),
+                        ft.Divider(height=5),
+                        ft.Row([
+                            ft.Text("Total Productos:", size=11, color="grey"),
+                            ft.Text(f"{cant_tot:g} unds", size=11, weight="bold"),
+                            ft.Container(expand=True),
+                            ft.Text("Costo Total a Revertir:", size=11, color="grey"),
+                            ft.Text(f"${costo_tot:,.0f}", size=12, weight="bold", color="red700")
+                        ])
+                    ], tight=True, spacing=10),
+                    width=450
+                ),
+                actions=[
+                    ft.TextButton("Cancelar", on_click=cerrar_dialogo_guardado),
+                    ft.ElevatedButton("Eliminar Definitivamente", bgcolor="red700", color="white", on_click=confirmar_eliminar_guardado)
+                ]
+            )
+            self.page.overlay.append(dlg)
+            dlg.open = True
+            self.safe_update()
+
+        else:
+            # Carga No Guardada
+            def confirmar_eliminar_simple(e):
+                dlg.open = False
+                self.safe_update()
+                
+                import os
+                arch_local = data.get("archivo")
+                if arch_local and os.path.exists(arch_local):
+                    try: os.remove(arch_local)
+                    except: pass
+                    
+                if grupo_key in self.cargas_data and num_pag in self.cargas_data[grupo_key]:
+                    del self.cargas_data[grupo_key][num_pag]
+                    if not self.cargas_data[grupo_key]:
+                        del self.cargas_data[grupo_key]
+                        
+                self._save_cargas()
+                self.page.snack_bar = ft.SnackBar(ft.Text("Página de carga eliminada de la lista."), bgcolor="green")
+                self.page.snack_bar.open = True
+                self._render_tabla_cargas()
+
+            def cerrar_dialogo_simple(e):
+                dlg.open = False
+                self.safe_update()
+
+            dlg = ft.AlertDialog(
+                title=ft.Text("Eliminar Carga de la Lista"),
+                content=ft.Text(f"¿Estás seguro de eliminar la Página No. {data['pagina']} ({data['fecha']})? Esta carga aún no ha afectado la base de datos."),
+                actions=[
+                    ft.TextButton("Cancelar", on_click=cerrar_dialogo_simple),
+                    ft.ElevatedButton("Eliminar", bgcolor="red700", color="white", on_click=confirmar_eliminar_simple)
+                ]
+            )
+            self.page.overlay.append(dlg)
+            dlg.open = True
+            self.safe_update()
 
     def on_accion_carga(self, e, data, txt_crono):
         btn = e.control
@@ -1286,7 +1440,10 @@ class ComprasView(ft.Container):
             costo_unit = float(item.get('costo_unitario', 0) or 0)
             costo_tot = float(item.get('costo_total', 0) or 0)
             
+            iva_val = float(item.get('iva') or item.get('valor_iva') or 0)
+            
             str_costo_unit = f"${costo_unit:,.2f}"
+            str_iva = f"${iva_val:,.2f}"
             str_costo_tot = f"${costo_tot:,.2f}"
             
             row = ft.DataRow(
@@ -1295,9 +1452,10 @@ class ComprasView(ft.Container):
                     ft.DataCell(ft.Text(str(item.get('numero_factura') or 'N/A'))),
                     ft.DataCell(ft.Text(str(item.get('proveedor') or 'N/A'))),
                     ft.DataCell(ft.Text(str(item.get('codigo_insumo', '')))),
-                    ft.DataCell(ft.Container(content=ft.Text(nombre_insumo), width=300)),
+                    ft.DataCell(ft.Container(content=ft.Text(nombre_insumo), width=280)),
                     ft.DataCell(ft.Text(str(cantidad), weight="bold")),
                     ft.DataCell(ft.Text(str_costo_unit)),
+                    ft.DataCell(ft.Text(str_iva)),
                     ft.DataCell(ft.Text(str_costo_tot, color="blue", weight="bold")),
                 ]
             )
