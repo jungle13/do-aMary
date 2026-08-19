@@ -63,16 +63,850 @@ ui/
     ventas.py
   app.py
 .gitignore
+append_crud.py
 cargas_compras_locales.json
 cargas_locales.json
 config.py
+fix_bugs.py
+fix_compras_final.py
+fix_ventas_final.py
 main.py
 openapi.json
 Sistema_Dona_Mary.spec
 supabase_schema.sql
+update_compras.py
+update_ventas.py
 ````
 
 # Files
+
+## File: append_crud.py
+````python
+with open("core/supabase_client.py", "a", encoding="utf-8") as f:
+    f.write('''
+
+    # --- CRUD COMPRAS INDIVIDUALES ---
+    def update_compra_individual(self, id_compra, datos):
+        """Actualiza un registro de compra individual por su UUID."""
+        try:
+            url = f"{self.url}/registro_compras?id_compra=eq.{id_compra}"
+            res = self.session.patch(url, json=datos, headers=self.headers, timeout=10)
+            return res.status_code in (200, 204)
+        except Exception as ex:
+            print(f"Error en update_compra_individual: {ex}")
+            return False
+
+    def eliminar_compra_individual(self, id_compra):
+        """Elimina un registro de compra individual de Supabase."""
+        try:
+            url = f"{self.url}/registro_compras?id_compra=eq.{id_compra}"
+            res = self.session.delete(url, headers=self.headers, timeout=10)
+            return res.status_code in (200, 204)
+        except Exception as ex:
+            print(f"Error en eliminar_compra_individual: {ex}")
+            return False
+
+    # --- CRUD VENTAS INDIVIDUALES ---
+    def insert_venta_individual(self, datos):
+        """Crea un registro de venta individual en Supabase."""
+        try:
+            url = f"{self.url}/registro_ventas"
+            res = self.session.post(url, json=[datos], headers=self.headers, timeout=10)
+            return res.status_code in (200, 201)
+        except Exception as ex:
+            print(f"Error en insert_venta_individual: {ex}")
+            return False
+
+    def update_venta_individual(self, id_venta, datos):
+        """Actualiza un registro de venta individual por su UUID."""
+        try:
+            url = f"{self.url}/registro_ventas?id_venta=eq.{id_venta}"
+            res = self.session.patch(url, json=datos, headers=self.headers, timeout=10)
+            return res.status_code in (200, 204)
+        except Exception as ex:
+            print(f"Error en update_venta_individual: {ex}")
+            return False
+
+    def eliminar_venta_individual(self, id_venta):
+        """Elimina un registro de venta individual de Supabase."""
+        try:
+            url = f"{self.url}/registro_ventas?id_venta=eq.{id_venta}"
+            res = self.session.delete(url, headers=self.headers, timeout=10)
+            return res.status_code in (200, 204)
+        except Exception as ex:
+            print(f"Error en eliminar_venta_individual: {ex}")
+            return False
+''')
+````
+
+## File: fix_bugs.py
+````python
+import re
+
+def fix_file(file_path):
+    with open(file_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # 1. Fix on_eliminar_carga signature and inject variables
+    old_sig = "def on_eliminar_carga(self, data, grupo_key, num_pag):"
+    new_sig = """def on_eliminar_carga(self, data):
+        grupo_key = data.get("fecha")
+        num_pag = str(data.get("pagina"))"""
+    content = content.replace(old_sig, new_sig)
+
+    # 2. Fix CustomAutoComplete instantiation
+    old_auto = """self.crud_codigo_insumo = CustomAutoComplete(
+            options=[],
+            width=350,
+            label="Insumo (Buscar por Código o Nombre)",
+            on_select=self._on_insumo_crud_select
+        )"""
+    new_auto = """self.crud_codigo_insumo = CustomAutoComplete(
+            hint_text="Buscar insumo (Código o Nombre)",
+            on_select=self._on_insumo_crud_select
+        )
+        self.crud_codigo_insumo.width = 350"""
+    content = content.replace(old_auto, new_auto)
+
+    # 3. Fix CustomAutoComplete options -> suggestions
+    old_opts = 'self.crud_codigo_insumo.options = [f"[{i[\'codigo_insumo\']}] {i[\'nombre\']}" for i in insumos]'
+    new_opts = 'self.crud_codigo_insumo.suggestions = [{"key": i[\'codigo_insumo\'], "value": f"[{i[\'codigo_insumo\']}] {i[\'nombre\']}"} for i in insumos]'
+    content = content.replace(old_opts, new_opts)
+    
+    # Also fix it if there are multiple occurrences (like in editar and crear modals)
+    
+    # 4. In ventas.py, the autocomplete might have a different label, let's just do regex if it doesn't match
+    if 'CustomAutoComplete(' in content and old_auto not in content:
+        # regex to fix it
+        content = re.sub(
+            r'self.crud_codigo_insumo\s*=\s*CustomAutoComplete\(\s*options=\[.*?on_select=self\._on_insumo_crud_select\s*\)',
+            new_auto,
+            content,
+            flags=re.DOTALL
+        )
+
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(content)
+        
+fix_file("ui/views/compras.py")
+fix_file("ui/views/ventas.py")
+print("Bugs fixed")
+````
+
+## File: fix_compras_final.py
+````python
+import re
+
+with open("ui/views/compras.py", "r", encoding="utf-8") as f:
+    content = f.read()
+
+# 1. Add "Acciones" column to FIRST table only
+# We can do this by finding the first instance of 'columns=[' and replacing within it
+match = re.search(r'columns=\[\s*(.*?)\]', content, re.DOTALL)
+if match:
+    cols_content = match.group(1)
+    if 'ft.DataColumn(ft.Text("Acciones", weight="bold"))' not in cols_content:
+        new_cols_content = cols_content.replace('ft.DataColumn(ft.Text("Costo Total", weight="bold"), numeric=True),', 'ft.DataColumn(ft.Text("Costo Total", weight="bold"), numeric=True),\n                ft.DataColumn(ft.Text("Acciones", weight="bold")),')
+        # Adjust width
+        new_cols_content = new_cols_content.replace('width=280', 'width=230')
+        
+        content = content.replace(cols_content, new_cols_content, 1)
+
+# 2. Add btn_crear_manual to init
+if 'self.btn_crear_manual =' not in content:
+    add_btn_code = """
+        self.btn_crear_manual = ft.ElevatedButton(
+            text="Registrar Manual",
+            icon=ft.icons.ADD_BOX,
+            bgcolor=Config.COLOR_PRIMARY,
+            color="white",
+            height=40,
+            on_click=self.abrir_modal_crear_compra,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+"""
+    # Insert after btn_clear_date
+    content = content.replace('self.btn_clear_date = ft.IconButton(', add_btn_code + '\n        self.btn_clear_date = ft.IconButton(')
+
+# 3. Add btn_crear_manual to row_filtros_compras
+if 'self.btn_crear_manual' not in content.split('row_filtros_compras =')[1][:100]:
+    content = content.replace("""        row_filtros_compras = ft.Row([
+            self.search_autocomplete,
+            self.btn_date,
+            self.btn_clear_date
+        ])""", """        row_filtros_compras = ft.Row([
+            self.search_autocomplete,
+            self.btn_date,
+            self.btn_clear_date,
+            ft.Container(expand=True),
+            self.btn_crear_manual
+        ])""")
+
+# 4. Restore the delete logic in _render_tabla_cargas
+if 'btn_eliminar = ft.IconButton(' not in content:
+    # Find _render_tabla_cargas row creation
+    old_acciones_row = """            btn_accion = ft.ElevatedButton(
+                text=texto_btn,
+                icon=icon_btn,
+                bgcolor=color_btn,
+                color="white",
+                height=30,
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5)),
+                on_click=lambda e, d=data, txt=txt_crono: self.on_accion_carga(e, d, txt)
+            )
+            
+            acciones_row = ft.Row([btn_accion, txt_crono], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)"""
+            
+    new_acciones_row = """            btn_accion = ft.ElevatedButton(
+                text=texto_btn,
+                icon=icon_btn,
+                bgcolor=color_btn,
+                color="white",
+                height=30,
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5)),
+                on_click=lambda e, d=data, txt=txt_crono: self.on_accion_carga(e, d, txt)
+            )
+            
+            btn_eliminar = ft.IconButton(
+                icon=ft.icons.DELETE_OUTLINED,
+                icon_color="red",
+                tooltip="Eliminar Carga",
+                on_click=lambda e, d=data: self.on_eliminar_carga(d)
+            )
+            
+            acciones_row = ft.Row([btn_accion, txt_crono, btn_eliminar], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER)"""
+            
+    content = content.replace(old_acciones_row, new_acciones_row)
+
+with open("ui/views/compras.py", "w", encoding="utf-8") as f:
+    f.write(content)
+print("Compras fixed")
+````
+
+## File: fix_ventas_final.py
+````python
+import re
+
+with open("ui/views/ventas.py", "r", encoding="utf-8") as f:
+    content = f.read()
+
+# 1. Add "Acciones" column to FIRST table only
+match = re.search(r'columns=\[\s*(.*?)\]', content, re.DOTALL)
+if match:
+    cols_content = match.group(1)
+    if 'ft.DataColumn(ft.Text("Acciones", weight="bold"))' not in cols_content:
+        new_cols_content = cols_content.replace('ft.DataColumn(ft.Text("Total", weight="bold"), numeric=True),', 'ft.DataColumn(ft.Text("Total", weight="bold"), numeric=True),\n                ft.DataColumn(ft.Text("Acciones", weight="bold")),')
+        # Adjust width
+        new_cols_content = new_cols_content.replace('width=300', 'width=250')
+        
+        content = content.replace(cols_content, new_cols_content, 1)
+
+# 2. Add btn_crear_manual to init
+if 'self.btn_crear_manual =' not in content:
+    add_btn_code = """
+        self.btn_crear_manual = ft.ElevatedButton(
+            text="Registrar Manual",
+            icon=ft.icons.ADD_BOX,
+            bgcolor=Config.COLOR_PRIMARY,
+            color="white",
+            height=40,
+            on_click=self.abrir_modal_crear_venta,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+"""
+    # Insert after btn_clear_date
+    content = content.replace('self.btn_clear_date = ft.IconButton(', add_btn_code + '\n        self.btn_clear_date = ft.IconButton(')
+
+# 3. Add btn_crear_manual to row_filtros_ventas
+if 'self.btn_crear_manual' not in content.split('row_filtros_ventas =')[1][:100]:
+    content = content.replace("""        row_filtros_ventas = ft.Row([
+            self.search_autocomplete,
+            self.btn_date,
+            self.btn_clear_date
+        ])""", """        row_filtros_ventas = ft.Row([
+            self.search_autocomplete,
+            self.btn_date,
+            self.btn_clear_date,
+            ft.Container(expand=True),
+            self.btn_crear_manual
+        ])""")
+
+# 4. Restore the delete logic in _render_tabla_cargas
+if 'btn_eliminar = ft.IconButton(' not in content:
+    old_acciones_row = """            btn_accion = ft.ElevatedButton(
+                text=texto_btn,
+                icon=icon_btn,
+                bgcolor=color_btn,
+                color="white",
+                height=30,
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5)),
+                on_click=lambda e, d=data, txt=txt_crono: self.on_accion_carga(e, d, txt)
+            )
+            
+            acciones_row = ft.Row([btn_accion, txt_crono], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)"""
+            
+    new_acciones_row = """            btn_accion = ft.ElevatedButton(
+                text=texto_btn,
+                icon=icon_btn,
+                bgcolor=color_btn,
+                color="white",
+                height=30,
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5)),
+                on_click=lambda e, d=data, txt=txt_crono: self.on_accion_carga(e, d, txt)
+            )
+            
+            btn_eliminar = ft.IconButton(
+                icon=ft.icons.DELETE_OUTLINED,
+                icon_color="red",
+                tooltip="Eliminar Carga",
+                on_click=lambda e, d=data: self.on_eliminar_carga(d)
+            )
+            
+            acciones_row = ft.Row([btn_accion, txt_crono, btn_eliminar], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER)"""
+            
+    content = content.replace(old_acciones_row, new_acciones_row)
+
+with open("ui/views/ventas.py", "w", encoding="utf-8") as f:
+    f.write(content)
+print("Ventas fixed")
+````
+
+## File: update_compras.py
+````python
+import re
+
+file_path = "ui/views/compras.py"
+with open(file_path, "r", encoding="utf-8") as f:
+    content = f.read()
+
+# 1. Add "Acciones" column to data_table
+if 'ft.DataColumn(ft.Text("Acciones", weight="bold"))' not in content:
+    old_cols = """                ft.DataColumn(ft.Text("IVA", weight="bold"), numeric=True),
+                ft.DataColumn(ft.Text("Costo Total", weight="bold"), numeric=True),
+            ],"""
+    new_cols = """                ft.DataColumn(ft.Text("IVA", weight="bold"), numeric=True),
+                ft.DataColumn(ft.Text("Costo Total", weight="bold"), numeric=True),
+                ft.DataColumn(ft.Text("Acciones", weight="bold")),
+            ],"""
+    content = content.replace(old_cols, new_cols)
+    
+    # Adjust width to fit the actions column
+    content = content.replace('ft.DataColumn(ft.Container(content=ft.Text("Nombre", weight="bold"), width=280)),', 'ft.DataColumn(ft.Container(content=ft.Text("Nombre", weight="bold"), width=230)),')
+
+# 2. Add Edit/Delete buttons in _fetch_data_worker
+old_row = """                    ft.DataCell(ft.Text(str_costo_unit)),
+                    ft.DataCell(ft.Text(str_iva)),
+                    ft.DataCell(ft.Text(str_costo_tot, color="blue", weight="bold")),
+                ]
+            )
+            self.data_table.rows.append(row)"""
+new_row = """                    ft.DataCell(ft.Text(str_costo_unit)),
+                    ft.DataCell(ft.Text(str_iva)),
+                    ft.DataCell(ft.Text(str_costo_tot, color="blue", weight="bold")),
+                    ft.DataCell(
+                        ft.Row([
+                            ft.IconButton(icon=ft.icons.EDIT_OUTLINED, icon_color="blue", tooltip="Editar", on_click=lambda e, i=item: self.abrir_modal_editar_compra(i)),
+                            ft.IconButton(icon=ft.icons.DELETE_OUTLINED, icon_color="red", tooltip="Eliminar", on_click=lambda e, i=item: self.confirmar_eliminar_compra(i))
+                        ], spacing=0)
+                    ),
+                ]
+            )
+            self.data_table.rows.append(row)"""
+content = content.replace(old_row, new_row)
+
+# 3. Add CRUD methods
+if "def abrir_modal_editar_compra(self, item):" not in content:
+    crud_methods = """
+    # --- INICIO CRUD MANUAL COMPRAS ---
+    def _construir_modal_crud(self):
+        self.crud_codigo_insumo = CustomAutoComplete(
+            options=[],
+            width=350,
+            label="Insumo (Buscar por Código o Nombre)",
+            on_select=self._on_insumo_crud_select
+        )
+        self.crud_fecha = ft.TextField(label="Fecha (YYYY-MM-DD)", width=150)
+        self.crud_ea = ft.TextField(label="N° Entrada (EA)", width=150)
+        self.crud_factura = ft.TextField(label="N° Factura", width=150)
+        self.crud_proveedor = ft.TextField(label="Proveedor", width=250)
+        self.crud_cantidad = ft.TextField(label="Cantidad", width=120, on_change=self._calc_tot_crud)
+        self.crud_costo_unit = ft.TextField(label="Costo Unit.", width=120, prefix_text="$", on_change=self._calc_tot_crud)
+        self.crud_iva = ft.TextField(label="IVA", width=120, prefix_text="$", on_change=self._calc_tot_crud)
+        self.crud_total_lbl = ft.Text("$ 0.00", size=20, weight="bold", color="blue700")
+        self.crud_item_id = None
+        
+        self.dlg_crud = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Registrar Compra"),
+            content=ft.Container(
+                width=600,
+                content=ft.Column([
+                    self.crud_codigo_insumo,
+                    ft.Row([self.crud_fecha, self.crud_ea, self.crud_factura]),
+                    self.crud_proveedor,
+                    ft.Row([self.crud_cantidad, self.crud_costo_unit, self.crud_iva]),
+                    ft.Divider(height=10),
+                    ft.Row([ft.Text("Costo Total:", size=16, weight="bold"), self.crud_total_lbl])
+                ], tight=True, spacing=15)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: self._cerrar_crud()),
+                ft.ElevatedButton("Guardar", bgcolor="blue700", color="white", on_click=self.guardar_compra_formulario)
+            ]
+        )
+
+    def _on_insumo_crud_select(self, e):
+        pass
+
+    def _calc_tot_crud(self, e=None):
+        try:
+            cant = float(self.crud_cantidad.value or 0)
+            cost = float(self.crud_costo_unit.value or 0)
+            iva = float(self.crud_iva.value or 0)
+            tot = (cant * cost) + iva
+            self.crud_total_lbl.value = f"$ {tot:,.2f}"
+            self.safe_update()
+        except ValueError:
+            self.crud_total_lbl.value = "$ 0.00"
+            self.safe_update()
+
+    def _cerrar_crud(self):
+        self.dlg_crud.open = False
+        self.safe_update()
+
+    def abrir_modal_crear_compra(self, e=None):
+        if not hasattr(self, 'dlg_crud'):
+            self._construir_modal_crud()
+            
+        insumos, _ = self.db.get_insumos(page=1, page_size=99999)
+        self.crud_codigo_insumo.options = [f"[{i['codigo_insumo']}] {i['nombre']}" for i in insumos]
+        
+        self.crud_item_id = None
+        self.dlg_crud.title.value = "Registrar Nueva Compra"
+        self.crud_codigo_insumo.value = ""
+        self.crud_fecha.value = datetime.date.today().strftime("%Y-%m-%d")
+        self.crud_ea.value = ""
+        self.crud_factura.value = ""
+        self.crud_proveedor.value = ""
+        self.crud_cantidad.value = ""
+        self.crud_costo_unit.value = ""
+        self.crud_iva.value = "0"
+        self._calc_tot_crud()
+        
+        self.page.overlay.append(self.dlg_crud)
+        self.dlg_crud.open = True
+        self.safe_update()
+
+    def abrir_modal_editar_compra(self, item):
+        if not hasattr(self, 'dlg_crud'):
+            self._construir_modal_crud()
+            
+        insumos, _ = self.db.get_insumos(page=1, page_size=99999)
+        self.crud_codigo_insumo.options = [f"[{i['codigo_insumo']}] {i['nombre']}" for i in insumos]
+        
+        self.crud_item_id = item.get("id_compra")
+        self.dlg_crud.title.value = "Editar Compra"
+        
+        cod = item.get("codigo_insumo", "")
+        nom = item.get("catalogo_insumos", {}).get("nombre", "")
+        self.crud_codigo_insumo.value = f"[{cod}] {nom}" if cod else ""
+        self.crud_fecha.value = str(item.get("fecha") or "")[:10]
+        self.crud_ea.value = str(item.get("numero_entrada") or "")
+        self.crud_factura.value = str(item.get("numero_factura") or "")
+        self.crud_proveedor.value = str(item.get("proveedor") or "")
+        self.crud_cantidad.value = str(item.get("cantidad") or 0)
+        self.crud_costo_unit.value = str(item.get("costo_unitario") or 0)
+        self.crud_iva.value = str(item.get("iva") or item.get("valor_iva") or 0)
+        self._calc_tot_crud()
+        
+        self.page.overlay.append(self.dlg_crud)
+        self.dlg_crud.open = True
+        self.safe_update()
+
+    def guardar_compra_formulario(self, e):
+        cod_raw = self.crud_codigo_insumo.value
+        if not cod_raw or "[" not in cod_raw or "]" not in cod_raw:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Selecciona un insumo válido del listado."), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.safe_update()
+            return
+            
+        codigo_insumo = cod_raw.split("[")[1].split("]")[0]
+        
+        try:
+            cant = float(self.crud_cantidad.value or 0)
+            costo = float(self.crud_costo_unit.value or 0)
+            iva = float(self.crud_iva.value or 0)
+            tot = (cant * costo) + iva
+        except ValueError:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Revisa los valores numéricos ingresados."), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.safe_update()
+            return
+            
+        datos = {
+            "fecha": self.crud_fecha.value,
+            "numero_entrada": self.crud_ea.value,
+            "numero_factura": self.crud_factura.value,
+            "proveedor": self.crud_proveedor.value,
+            "codigo_insumo": codigo_insumo,
+            "cantidad": cant,
+            "costo_unitario": costo,
+            "iva": iva,
+            "valor_iva": iva,
+            "costo_total": tot
+        }
+        
+        if self.crud_item_id:
+            # Edit
+            ok = self.db.update_compra_individual(self.crud_item_id, datos)
+            msg = "Compra actualizada exitosamente."
+        else:
+            # Create
+            datos["estado_registro"] = "VÁLIDO"
+            ok = self.db.insert_compras([datos])
+            msg = "Compra registrada exitosamente."
+            
+        if ok:
+            self._cerrar_crud()
+            self.page.snack_bar = ft.SnackBar(ft.Text(msg), bgcolor="green")
+            self.page.snack_bar.open = True
+            self.load_data()
+            self.load_summary()
+        else:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Error al guardar la compra en la BD."), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.safe_update()
+
+    def confirmar_eliminar_compra(self, item):
+        id_compra = item.get("id_compra")
+        cant = float(item.get("cantidad") or 0)
+        insumo = item.get("catalogo_insumos", {}).get("nombre", "Desconocido")
+        ea = item.get("numero_entrada") or item.get("numero_factura") or "S/D"
+        tot = float(item.get("costo_total") or 0)
+        
+        def do_eliminar(e):
+            dlg.open = False
+            self.safe_update()
+            if self.db.eliminar_compra_individual(id_compra):
+                self.page.snack_bar = ft.SnackBar(ft.Text("Compra eliminada y stock revertido."), bgcolor="green")
+                self.page.snack_bar.open = True
+                self.load_data()
+                self.load_summary()
+            else:
+                self.page.snack_bar = ft.SnackBar(ft.Text("Error al eliminar la compra en la BD."), bgcolor="red")
+                self.page.snack_bar.open = True
+                self.safe_update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.WARNING_AMBER_ROUNDED, color="red700"),
+                ft.Text("Eliminar Registro de Compra", color="red700")
+            ]),
+            content=ft.Container(
+                width=400,
+                content=ft.Column([
+                    ft.Text(f"Insumo: {insumo}", weight="bold"),
+                    ft.Text(f"N° Documento: {ea}"),
+                    ft.Text(f"Cantidad: {cant:g} unds"),
+                    ft.Text(f"Costo Total: ${tot:,.2f}", color="blue700", weight="bold"),
+                    ft.Divider(),
+                    ft.Text(
+                        f"⚠️ ADVERTENCIA: Al eliminar este registro de compra, se restarán {cant:g} unidades del inventario disponible y se ajustará el histórico financiero.",
+                        color="red900", weight="bold"
+                    )
+                ], tight=True)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: (setattr(dlg, 'open', False), self.safe_update())),
+                ft.ElevatedButton("Eliminar Definitivamente", bgcolor="red700", color="white", on_click=do_eliminar)
+            ]
+        )
+        self.page.overlay.append(dlg)
+        dlg.open = True
+        self.safe_update()
+    # --- FIN CRUD MANUAL COMPRAS ---
+"""
+    content = content + crud_methods
+
+with open(file_path, "w", encoding="utf-8") as f:
+    f.write(content)
+print("Compras updated")
+````
+
+## File: update_ventas.py
+````python
+import re
+
+file_path = "ui/views/ventas.py"
+with open(file_path, "r", encoding="utf-8") as f:
+    content = f.read()
+
+# 1. Add "Acciones" column to data_table
+if 'ft.DataColumn(ft.Text("Acciones", weight="bold"))' not in content:
+    old_cols = """                ft.DataColumn(ft.Text("IVA", weight="bold")),
+                ft.DataColumn(ft.Text("Total", weight="bold"), numeric=True),
+            ],"""
+    new_cols = """                ft.DataColumn(ft.Text("IVA", weight="bold")),
+                ft.DataColumn(ft.Text("Total", weight="bold"), numeric=True),
+                ft.DataColumn(ft.Text("Acciones", weight="bold")),
+            ],"""
+    content = content.replace(old_cols, new_cols)
+    
+    # Adjust width to fit the actions column
+    content = content.replace('ft.DataColumn(ft.Container(content=ft.Text("Nombre / Descripción", weight="bold"), width=300)),', 'ft.DataColumn(ft.Container(content=ft.Text("Nombre / Descripción", weight="bold"), width=250)),')
+
+# 2. Add Edit/Delete buttons in _fetch_data_worker
+old_row = """                    ft.DataCell(ft.Text(str_iva, color="grey")),
+                    ft.DataCell(ft.Text(str_total, color="green", weight="bold")),
+                ]
+            )
+            self.data_table.rows.append(row)"""
+new_row = """                    ft.DataCell(ft.Text(str_iva, color="grey")),
+                    ft.DataCell(ft.Text(str_total, color="green", weight="bold")),
+                    ft.DataCell(
+                        ft.Row([
+                            ft.IconButton(icon=ft.icons.EDIT_OUTLINED, icon_color="blue", tooltip="Editar", on_click=lambda e, i=item: self.abrir_modal_editar_venta(i)),
+                            ft.IconButton(icon=ft.icons.DELETE_OUTLINED, icon_color="red", tooltip="Eliminar", on_click=lambda e, i=item: self.confirmar_eliminar_venta(i))
+                        ], spacing=0)
+                    ),
+                ]
+            )
+            self.data_table.rows.append(row)"""
+content = content.replace(old_row, new_row)
+
+# 3. Add CRUD methods
+if "def abrir_modal_editar_venta(self, item):" not in content:
+    crud_methods = """
+    # --- INICIO CRUD MANUAL VENTAS ---
+    def _construir_modal_crud(self):
+        self.crud_codigo_insumo = CustomAutoComplete(
+            options=[],
+            width=350,
+            label="Insumo (Buscar por Código o Nombre)",
+            on_select=self._on_insumo_crud_select
+        )
+        self.crud_fecha = ft.TextField(label="Fecha (YYYY-MM-DD)", width=150)
+        self.crud_factura = ft.TextField(label="N° Factura / Remisión", width=180)
+        self.crud_tipo_doc = ft.Dropdown(label="Tipo Doc.", options=[ft.dropdown.Option("Remisión"), ft.dropdown.Option("Factura POS")], width=150)
+        
+        self.crud_cantidad = ft.TextField(label="Cantidad", width=120, on_change=self._calc_tot_crud)
+        self.crud_precio_unit = ft.TextField(label="Precio Unit.", width=120, prefix_text="$", on_change=self._calc_tot_crud)
+        self.crud_descuento = ft.TextField(label="Descuento", width=120, prefix_text="$", on_change=self._calc_tot_crud)
+        self.crud_iva = ft.TextField(label="IVA", width=120, prefix_text="$", on_change=self._calc_tot_crud)
+        
+        self.crud_total_lbl = ft.Text("$ 0.00", size=20, weight="bold", color="green700")
+        self.crud_item_id = None
+        
+        self.dlg_crud = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Registrar Venta"),
+            content=ft.Container(
+                width=600,
+                content=ft.Column([
+                    self.crud_codigo_insumo,
+                    ft.Row([self.crud_fecha, self.crud_factura, self.crud_tipo_doc]),
+                    ft.Row([self.crud_cantidad, self.crud_precio_unit]),
+                    ft.Row([self.crud_descuento, self.crud_iva]),
+                    ft.Divider(height=10),
+                    ft.Row([ft.Text("Total Venta:", size=16, weight="bold"), self.crud_total_lbl])
+                ], tight=True, spacing=15)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: self._cerrar_crud()),
+                ft.ElevatedButton("Guardar", bgcolor="green700", color="white", on_click=self.guardar_venta_formulario)
+            ]
+        )
+
+    def _on_insumo_crud_select(self, e):
+        pass
+
+    def _calc_tot_crud(self, e=None):
+        try:
+            cant = float(self.crud_cantidad.value or 0)
+            precio = float(self.crud_precio_unit.value or 0)
+            desc = float(self.crud_descuento.value or 0)
+            iva = float(self.crud_iva.value or 0)
+            tot = (cant * precio) + iva - desc
+            self.crud_total_lbl.value = f"$ {tot:,.2f}"
+            self.safe_update()
+        except ValueError:
+            self.crud_total_lbl.value = "$ 0.00"
+            self.safe_update()
+
+    def _cerrar_crud(self):
+        self.dlg_crud.open = False
+        self.safe_update()
+
+    def abrir_modal_crear_venta(self, e=None):
+        if not hasattr(self, 'dlg_crud'):
+            self._construir_modal_crud()
+            
+        insumos, _ = self.db.get_insumos(page=1, page_size=99999)
+        self.crud_codigo_insumo.options = [f"[{i['codigo_insumo']}] {i['nombre']}" for i in insumos]
+        
+        self.crud_item_id = None
+        self.dlg_crud.title.value = "Registrar Nueva Venta"
+        self.crud_codigo_insumo.value = ""
+        self.crud_fecha.value = datetime.date.today().strftime("%Y-%m-%d")
+        self.crud_factura.value = ""
+        self.crud_tipo_doc.value = "Remisión"
+        self.crud_cantidad.value = ""
+        self.crud_precio_unit.value = ""
+        self.crud_descuento.value = "0"
+        self.crud_iva.value = "0"
+        self._calc_tot_crud()
+        
+        self.page.overlay.append(self.dlg_crud)
+        self.dlg_crud.open = True
+        self.safe_update()
+
+    def abrir_modal_editar_venta(self, item):
+        if not hasattr(self, 'dlg_crud'):
+            self._construir_modal_crud()
+            
+        insumos, _ = self.db.get_insumos(page=1, page_size=99999)
+        self.crud_codigo_insumo.options = [f"[{i['codigo_insumo']}] {i['nombre']}" for i in insumos]
+        
+        self.crud_item_id = item.get("id_venta")
+        self.dlg_crud.title.value = "Editar Venta"
+        
+        cod = item.get("codigo_insumo", "")
+        nom_bd = item.get("catalogo_insumos", {}).get("nombre", "")
+        nom_desc = item.get("descripcion", "")
+        nom_final = nom_bd if nom_bd else nom_desc
+        
+        self.crud_codigo_insumo.value = f"[{cod}] {nom_final}" if cod else ""
+        self.crud_fecha.value = str(item.get("fecha") or "")[:10]
+        self.crud_factura.value = str(item.get("factura_no") or "")
+        self.crud_tipo_doc.value = str(item.get("tipo_documento") or "Remisión")
+        
+        cant = float(item.get("cantidad") or 0)
+        self.crud_cantidad.value = str(int(cant)) if cant.is_integer() else str(cant)
+        
+        self.crud_precio_unit.value = str(item.get("subtotal") or 0)
+        self.crud_descuento.value = str(item.get("descuento") or 0)
+        self.crud_iva.value = str(item.get("iva") or 0)
+        self._calc_tot_crud()
+        
+        self.page.overlay.append(self.dlg_crud)
+        self.dlg_crud.open = True
+        self.safe_update()
+
+    def guardar_venta_formulario(self, e):
+        cod_raw = self.crud_codigo_insumo.value
+        if not cod_raw or "[" not in cod_raw or "]" not in cod_raw:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Selecciona un insumo válido del listado."), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.safe_update()
+            return
+            
+        codigo_insumo = cod_raw.split("[")[1].split("]")[0]
+        
+        try:
+            cant = float(self.crud_cantidad.value or 0)
+            precio = float(self.crud_precio_unit.value or 0)
+            desc = float(self.crud_descuento.value or 0)
+            iva = float(self.crud_iva.value or 0)
+            tot = (cant * precio) + iva - desc
+        except ValueError:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Revisa los valores numéricos ingresados."), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.safe_update()
+            return
+            
+        datos = {
+            "fecha": self.crud_fecha.value,
+            "factura_no": self.crud_factura.value,
+            "tipo_documento": self.crud_tipo_doc.value,
+            "codigo_insumo": codigo_insumo,
+            "cantidad": cant,
+            "subtotal": precio,
+            "descuento": desc,
+            "iva": iva,
+            "total": tot
+        }
+        
+        if self.crud_item_id:
+            # Edit
+            ok = self.db.update_venta_individual(self.crud_item_id, datos)
+            msg = "Venta actualizada exitosamente."
+        else:
+            # Create
+            datos["estado_registro"] = "VÁLIDO"
+            ok = self.db.insert_venta_individual(datos)
+            msg = "Venta registrada exitosamente."
+            
+        if ok:
+            self._cerrar_crud()
+            self.page.snack_bar = ft.SnackBar(ft.Text(msg), bgcolor="green")
+            self.page.snack_bar.open = True
+            self.load_data()
+            self.load_summary()
+        else:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Error al guardar la venta en la BD."), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.safe_update()
+
+    def confirmar_eliminar_venta(self, item):
+        id_venta = item.get("id_venta")
+        cant = float(item.get("cantidad") or 0)
+        
+        cat_info = item.get("catalogo_insumos", {})
+        nom_bd = cat_info.get("nombre") if isinstance(cat_info, dict) else None
+        insumo = nom_bd or item.get("descripcion", "Desconocido")
+        
+        fact = item.get("factura_no") or "S/D"
+        tot = float(item.get("total") or 0)
+        
+        def do_eliminar(e):
+            dlg.open = False
+            self.safe_update()
+            if self.db.eliminar_venta_individual(id_venta):
+                self.page.snack_bar = ft.SnackBar(ft.Text("Venta eliminada y stock reincorporado."), bgcolor="green")
+                self.page.snack_bar.open = True
+                self.load_data()
+                self.load_summary()
+            else:
+                self.page.snack_bar = ft.SnackBar(ft.Text("Error al eliminar la venta en la BD."), bgcolor="red")
+                self.page.snack_bar.open = True
+                self.safe_update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.WARNING_AMBER_ROUNDED, color="red700"),
+                ft.Text("Eliminar Registro de Venta", color="red700")
+            ]),
+            content=ft.Container(
+                width=400,
+                content=ft.Column([
+                    ft.Text(f"Insumo: {insumo}", weight="bold"),
+                    ft.Text(f"N° Factura: {fact}"),
+                    ft.Text(f"Cantidad: {cant:g} unds"),
+                    ft.Text(f"Total Venta: ${tot:,.2f}", color="green700", weight="bold"),
+                    ft.Divider(),
+                    ft.Text(
+                        f"⚠️ ADVERTENCIA: Al eliminar este registro de venta, se devolverán {cant:g} unidades al inventario disponible (reincorporación de stock) y se restará del histórico de ingresos.",
+                        color="red900", weight="bold"
+                    )
+                ], tight=True)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: (setattr(dlg, 'open', False), self.safe_update())),
+                ft.ElevatedButton("Eliminar Definitivamente", bgcolor="red700", color="white", on_click=do_eliminar)
+            ]
+        )
+        self.page.overlay.append(dlg)
+        dlg.open = True
+        self.safe_update()
+    # --- FIN CRUD MANUAL VENTAS ---
+"""
+    content = content + crud_methods
+
+with open(file_path, "w", encoding="utf-8") as f:
+    f.write(content)
+print("Ventas updated")
+````
 
 ## File: core/excel_manager.py
 ````python
@@ -2351,601 +3185,6 @@ class AppLayout(ft.Row):
             threading.Thread(target=load_data_bg, daemon=True).start()
 ````
 
-## File: cargas_compras_locales.json
-````json
-{
-    "2026-08-17": {
-        "2": {
-            "id": 2,
-            "fecha": "2026-08-17",
-            "pagina": 2,
-            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
-            "archivo": "pdfs_locales\\compra_2026-08-17_pag_2.pdf",
-            "estado": "Guardado",
-            "datos_extraidos": [
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9279",
-                    "numero_factura": "260803",
-                    "productos": [
-                        {
-                            "cantidad": 10.0,
-                            "codigo_insumo": "1415",
-                            "costo_unitario": 6955.0,
-                            "iva": 13214.0
-                        },
-                        {
-                            "cantidad": 10.0,
-                            "codigo_insumo": "0156",
-                            "costo_unitario": 3803.0,
-                            "iva": 7225.0
-                        },
-                        {
-                            "cantidad": 10.0,
-                            "codigo_insumo": "0157",
-                            "costo_unitario": 4565.0,
-                            "iva": 8674.0
-                        }
-                    ],
-                    "proveedor": "Clientes Varios"
-                },
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9280",
-                    "numero_factura": "22618",
-                    "productos": [
-                        {
-                            "cantidad": 40.0,
-                            "codigo_insumo": "1850",
-                            "costo_unitario": 5462.0,
-                            "iva": 41513.0
-                        },
-                        {
-                            "cantidad": 24.0,
-                            "codigo_insumo": "4223",
-                            "costo_unitario": 588.0,
-                            "iva": 2682.0
-                        },
-                        {
-                            "cantidad": 36.0,
-                            "codigo_insumo": "1843",
-                            "costo_unitario": 2773.0,
-                            "iva": 18968.0
-                        },
-                        {
-                            "cantidad": 150.0,
-                            "codigo_insumo": "0663",
-                            "costo_unitario": 4958.0,
-                            "iva": 141303.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "1115",
-                            "costo_unitario": 5798.0,
-                            "iva": 13220.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "4206",
-                            "costo_unitario": 5420.0,
-                            "iva": 12358.0
-                        },
-                        {
-                            "cantidad": 100.0,
-                            "codigo_insumo": "1517",
-                            "costo_unitario": 13866.0,
-                            "iva": 263445.0
-                        }
-                    ],
-                    "proveedor": "MEGA DISTRIBUCIONES AMERICA SAS"
-                },
-                {
-                    "fecha": "2026-08-04",
-                    "numero_entrada": "EA-9281",
-                    "numero_factura": "41142",
-                    "productos": [
-                        {
-                            "cantidad": 400.0,
-                            "codigo_insumo": "4815",
-                            "costo_unitario": 485.0,
-                            "iva": 36860.0
-                        }
-                    ],
-                    "proveedor": "Clientes Varios"
-                },
-                {
-                    "fecha": "2026-08-04",
-                    "numero_entrada": "EA-9282",
-                    "numero_factura": "90042",
-                    "productos": [
-                        {
-                            "cantidad": 300.0,
-                            "codigo_insumo": "2256",
-                            "costo_unitario": 787.0,
-                            "iva": 44882.0
-                        }
-                    ],
-                    "proveedor": "DISDECOL SAS"
-                },
-                {
-                    "fecha": "2026-08-04",
-                    "numero_entrada": "EA-9283",
-                    "numero_factura": "25260",
-                    "productos": [
-                        {
-                            "cantidad": 3.0,
-                            "codigo_insumo": "1230",
-                            "costo_unitario": 27731.0,
-                            "iva": 15807.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "0462",
-                            "costo_unitario": 15408.0,
-                            "iva": 35130.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "0457",
-                            "costo_unitario": 6060.0,
-                            "iva": 13817.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "0458",
-                            "costo_unitario": 7579.0,
-                            "iva": 17280.0
-                        },
-                        {
-                            "cantidad": 12.0,
-                            "codigo_insumo": "0459",
-                            "costo_unitario": 11026.0,
-                            "iva": 25139.0
-                        }
-                    ],
-                    "proveedor": "FOAMTECK SAS"
-                },
-                {
-                    "fecha": "2026-08-05",
-                    "numero_entrada": "EA-9284",
-                    "numero_factura": "68829",
-                    "productos": [
-                        {
-                            "cantidad": 90.0,
-                            "codigo_insumo": "0024",
-                            "costo_unitario": 6133.0,
-                            "iva": 104870.0
-                        }
-                    ],
-                    "proveedor": "ARIAS Y CIA SAS"
-                },
-                {
-                    "fecha": "2026-08-05",
-                    "numero_entrada": "EA-9285",
-                    "numero_factura": "90196",
-                    "productos": [
-                        {
-                            "cantidad": 25.0,
-                            "codigo_insumo": "0817",
-                            "costo_unitario": 2857.0,
-                            "iva": 13571.0
-                        },
-                        {
-                            "cantidad": 20.0,
-                            "codigo_insumo": "2258",
-                            "costo_unitario": 3315.0,
-                            "iva": 12597.0
-                        }
-                    ],
-                    "proveedor": "DISDECOL SAS"
-                },
-                {
-                    "fecha": "2026-08-05",
-                    "numero_entrada": "EA-9286",
-                    "numero_factura": "15400",
-                    "productos": [],
-                    "proveedor": "BONNIPLAST SAS"
-                }
-            ]
-        }
-    },
-    "2026-08-18": {
-        "1": {
-            "id": 3,
-            "fecha": "2026-08-18",
-            "pagina": 1,
-            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
-            "archivo": "pdfs_locales\\compra_2026-08-18_pag_1.pdf",
-            "estado": "Guardado",
-            "datos_extraidos": [
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9273",
-                    "numero_factura": "",
-                    "productos": [
-                        {
-                            "cantidad": 200,
-                            "codigo_insumo": "0578",
-                            "costo_unitario": 328,
-                            "iva": 12464
-                        }
-                    ],
-                    "proveedor": "AJOVER SAS"
-                },
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9274",
-                    "numero_factura": "0174",
-                    "productos": [
-                        {
-                            "cantidad": 16.5,
-                            "codigo_insumo": "1347",
-                            "costo_unitario": 13100,
-                            "iva": 41069
-                        }
-                    ],
-                    "proveedor": "Clientes Varios"
-                },
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9275",
-                    "numero_factura": "040826",
-                    "productos": [
-                        {
-                            "cantidad": 145,
-                            "codigo_insumo": "1893",
-                            "costo_unitario": 1933,
-                            "iva": 53248
-                        }
-                    ],
-                    "proveedor": "Clientes Varios"
-                },
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9276",
-                    "numero_factura": "19284",
-                    "productos": [
-                        {
-                            "cantidad": 10,
-                            "codigo_insumo": "0471",
-                            "costo_unitario": 7353,
-                            "iva": 13971
-                        },
-                        {
-                            "cantidad": 50,
-                            "codigo_insumo": "4182",
-                            "costo_unitario": 2815,
-                            "iva": 26744
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_insumo": "9104",
-                            "costo_unitario": 5252,
-                            "iva": 9979
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_insumo": "9104",
-                            "costo_unitario": 5252,
-                            "iva": 9979
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_insumo": "9104",
-                            "costo_unitario": 5252,
-                            "iva": 9979
-                        }
-                    ],
-                    "proveedor": "DISTRIBUCIONES PUNTO CHEVERE SAS"
-                },
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9277",
-                    "numero_factura": "639921",
-                    "productos": [
-                        {
-                            "cantidad": 4000,
-                            "codigo_insumo": "0581",
-                            "costo_unitario": 296,
-                            "iva": 224960
-                        },
-                        {
-                            "cantidad": 10000,
-                            "codigo_insumo": "0572",
-                            "costo_unitario": 180,
-                            "iva": 341617
-                        },
-                        {
-                            "cantidad": 4000,
-                            "codigo_insumo": "0573",
-                            "costo_unitario": 296,
-                            "iva": 224960
-                        },
-                        {
-                            "cantidad": 60,
-                            "codigo_insumo": "1514",
-                            "costo_unitario": 3643,
-                            "iva": 41531
-                        },
-                        {
-                            "cantidad": 60,
-                            "codigo_insumo": "1164",
-                            "costo_unitario": 6056,
-                            "iva": 0
-                        },
-                        {
-                            "cantidad": 180,
-                            "codigo_insumo": "0855",
-                            "costo_unitario": 1555,
-                            "iva": 53168
-                        },
-                        {
-                            "cantidad": 36,
-                            "codigo_insumo": "2206",
-                            "costo_unitario": 3536,
-                            "iva": 24186
-                        },
-                        {
-                            "cantidad": 370,
-                            "codigo_insumo": "0847",
-                            "costo_unitario": 2269,
-                            "iva": 159504
-                        },
-                        {
-                            "cantidad": 148,
-                            "codigo_insumo": "0848",
-                            "costo_unitario": 2563,
-                            "iva": 72072
-                        },
-                        {
-                            "cantidad": 80,
-                            "codigo_insumo": "0688",
-                            "costo_unitario": 2643,
-                            "iva": 40168
-                        }
-                    ],
-                    "proveedor": "REPRESENTACIONES LASTRA SAS"
-                },
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9278",
-                    "numero_factura": "639914",
-                    "productos": [
-                        {
-                            "cantidad": 600,
-                            "codigo_insumo": "2152",
-                            "costo_unitario": 1311,
-                            "iva": 149503
-                        },
-                        {
-                            "cantidad": 180,
-                            "codigo_insumo": "0855",
-                            "costo_unitario": 1487,
-                            "iva": 50869
-                        },
-                        {
-                            "cantidad": 185,
-                            "codigo_insumo": "0847",
-                            "costo_unitario": 2227,
-                            "iva": 78275
-                        }
-                    ],
-                    "proveedor": "REPRESENTACIONES LASTRA SAS"
-                }
-            ]
-        },
-        "2": {
-            "id": 4,
-            "fecha": "2026-08-18",
-            "pagina": 2,
-            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
-            "archivo": "pdfs_locales\\compra_2026-08-18_pag_2.pdf",
-            "estado": "Guardado",
-            "datos_extraidos": [
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9279",
-                    "numero_factura": "260803",
-                    "productos": [
-                        {
-                            "cantidad": 10,
-                            "codigo_insumo": "1415",
-                            "costo_unitario": 6955,
-                            "iva": 13214
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_insumo": "0156",
-                            "costo_unitario": 3803,
-                            "iva": 7225
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_insumo": "0157",
-                            "costo_unitario": 4565,
-                            "iva": 8674
-                        }
-                    ],
-                    "proveedor": "Clientes Varios"
-                },
-                {
-                    "fecha": "2026-08-03",
-                    "numero_entrada": "EA-9280",
-                    "numero_factura": "22618",
-                    "productos": [
-                        {
-                            "cantidad": 40,
-                            "codigo_insumo": "1850",
-                            "costo_unitario": 5462,
-                            "iva": 41513
-                        },
-                        {
-                            "cantidad": 24,
-                            "codigo_insumo": "4223",
-                            "costo_unitario": 588,
-                            "iva": 2682
-                        },
-                        {
-                            "cantidad": 36,
-                            "codigo_insumo": "1843",
-                            "costo_unitario": 2773,
-                            "iva": 18968
-                        },
-                        {
-                            "cantidad": 150,
-                            "codigo_insumo": "0663",
-                            "costo_unitario": 4958,
-                            "iva": 141303
-                        },
-                        {
-                            "cantidad": 12,
-                            "codigo_insumo": "1115",
-                            "costo_unitario": 5798,
-                            "iva": 13220
-                        },
-                        {
-                            "cantidad": 12,
-                            "codigo_insumo": "4206",
-                            "costo_unitario": 5420,
-                            "iva": 12358
-                        },
-                        {
-                            "cantidad": 100,
-                            "codigo_insumo": "1517",
-                            "costo_unitario": 13866,
-                            "iva": 263445
-                        }
-                    ],
-                    "proveedor": "MEGA DISTRIBUCIONES AMERICA SAS"
-                },
-                {
-                    "fecha": "2026-08-04",
-                    "numero_entrada": "EA-9281",
-                    "numero_factura": "41142",
-                    "productos": [
-                        {
-                            "cantidad": 400,
-                            "codigo_insumo": "4815",
-                            "costo_unitario": 485,
-                            "iva": 36860
-                        }
-                    ],
-                    "proveedor": "Clientes Varios"
-                },
-                {
-                    "fecha": "2026-08-04",
-                    "numero_entrada": "EA-9282",
-                    "numero_factura": "90042",
-                    "productos": [
-                        {
-                            "cantidad": 300,
-                            "codigo_insumo": "2256",
-                            "costo_unitario": 787,
-                            "iva": 44882
-                        }
-                    ],
-                    "proveedor": "DISDECOL SAS"
-                },
-                {
-                    "fecha": "2026-08-04",
-                    "numero_entrada": "EA-9283",
-                    "numero_factura": "25260",
-                    "productos": [
-                        {
-                            "cantidad": 3,
-                            "codigo_insumo": "1230",
-                            "costo_unitario": 27731,
-                            "iva": 15807
-                        },
-                        {
-                            "cantidad": 12,
-                            "codigo_insumo": "0462",
-                            "costo_unitario": 15408,
-                            "iva": 35130
-                        },
-                        {
-                            "cantidad": 12,
-                            "codigo_insumo": "0457",
-                            "costo_unitario": 6060,
-                            "iva": 13817
-                        },
-                        {
-                            "cantidad": 12,
-                            "codigo_insumo": "0458",
-                            "costo_unitario": 7579,
-                            "iva": 17280
-                        },
-                        {
-                            "cantidad": 12,
-                            "codigo_insumo": "0459",
-                            "costo_unitario": 11026,
-                            "iva": 25139
-                        }
-                    ],
-                    "proveedor": "FOAMTECK SAS"
-                },
-                {
-                    "fecha": "2026-08-05",
-                    "numero_entrada": "EA-9284",
-                    "numero_factura": "68829",
-                    "productos": [
-                        {
-                            "cantidad": 90,
-                            "codigo_insumo": "0024",
-                            "costo_unitario": 6133,
-                            "iva": 104870
-                        }
-                    ],
-                    "proveedor": "ARIAS Y CIA SAS"
-                },
-                {
-                    "fecha": "2026-08-05",
-                    "numero_entrada": "EA-9285",
-                    "numero_factura": "90196",
-                    "productos": [
-                        {
-                            "cantidad": 25,
-                            "codigo_insumo": "0817",
-                            "costo_unitario": 2857,
-                            "iva": 13571
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_insumo": "2258",
-                            "costo_unitario": 3315,
-                            "iva": 12597
-                        }
-                    ],
-                    "proveedor": "DISDECOL SAS"
-                },
-                {
-                    "fecha": "2026-08-05",
-                    "numero_entrada": "EA-9286",
-                    "numero_factura": "15400",
-                    "productos": [],
-                    "proveedor": "BONNIPLAST SAS"
-                }
-            ]
-        },
-        "3": {
-            "id": 5,
-            "fecha": "2026-08-18",
-            "pagina": 3,
-            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
-            "archivo": "pdfs_locales\\compra_2026-08-18_pag_3.pdf",
-            "estado": "Procesado con éxito",
-            "datos_extraidos": [
-                {
-                    "numero_entrada": "EA-9286",
-                    "numero_factura": "15400",
-                    "proveedor": "BONNIPLAST SAS"
-                }
-            ]
-        }
-    }
-}
-````
-
 ## File: ui/layout/sidebar.py
 ````python
 import flet as ft
@@ -3733,1925 +3972,6 @@ class AjustesInventarioView(ft.Container):
 
         if self.page:
             self.page.update()
-````
-
-## File: ui/views/dashboard.py
-````python
-import flet as ft
-import threading
-from config import Config
-from core.supabase_client import SupabaseClient
-import datetime
-
-class DashboardView(ft.Container):
-    def __init__(self):
-        super().__init__()
-        self.expand = True
-        self.db = SupabaseClient()
-        
-        self.lbl_periodo_dash = ft.Text("Periodo: ...", size=13, weight="bold", color=Config.COLOR_PRIMARY)
-        self.lbl_estado_dash = ft.Text("Estado: ...", size=13, weight="bold")
-        self.lbl_fecha_hora = ft.Text("...", size=12, color="grey")
-
-        self.fecha_filtro_dash = None
-        self.date_picker_dash = ft.DatePicker(on_change=self.on_fecha_dash_change)
-
-        self.btn_fecha_dash = ft.OutlinedButton(
-            text=f"Fecha: {datetime.date.today().strftime('%d/%m/%Y')}",
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=lambda e: self.date_picker_dash.pick_date(),
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=38
-        )
-        self.btn_clear_fecha_dash = ft.IconButton(
-            icon=ft.icons.CLEAR, icon_color="red", tooltip="Restablecer a Hoy",
-            visible=False, on_click=self.limpiar_filtro_fecha_dash
-        )
-
-        badge_info = ft.Container(
-            content=ft.Row([
-                ft.Column([
-                    ft.Row([self.lbl_periodo_dash, ft.Text("|", color="grey", size=13), self.lbl_estado_dash], spacing=5),
-                    ft.Row([ft.Icon(ft.icons.ACCESS_TIME, size=14, color="grey"), self.lbl_fecha_hora], spacing=5)
-                ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=2),
-                ft.Container(width=10),
-                self.btn_fecha_dash,
-                self.btn_clear_fecha_dash
-            ], alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=ft.padding.symmetric(horizontal=15, vertical=10),
-            bgcolor="white",
-            border_radius=8,
-            border=ft.border.all(1, "#e0e0e0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-        )
-
-        header_row = ft.Row([
-            ft.Column([
-                ft.Text("Dashboard General", size=28, weight="bold", color=Config.COLOR_PRIMARY),
-                ft.Text("Resumen ejecutivo del sistema", size=14, color="grey"),
-            ], spacing=2),
-            badge_info
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-        
-        # Tarjetas de KPIs (Valores Iniciales) - SECCIÓN COSTOS
-        self.val_inventario = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_compras = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_rotacion = ft.Text("N/D", size=14, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_compras_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        
-        # SECCIÓN VENTAS
-        self.val_ingresos = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_ventas_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
-        self.val_proyeccion_ventas = ft.Text("$ 0", size=14, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_proyeccion_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
-        
-        self.kpi_costos_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("Costo Inv. Actual", self.val_inventario, ft.icons.INVENTORY_2), col={"xs": 12, "sm": 6, "md": 4}),
-            ft.Container(content=self._build_kpi_card("Total Compras (Mes)", self.val_compras, ft.icons.SHOPPING_BAG), col={"xs": 12, "sm": 6, "md": 4}),
-            ft.Container(content=self._build_kpi_card("Compras (Hoy)", self.val_compras_hoy, ft.icons.MONEY_OFF), col={"xs": 12, "sm": 6, "md": 4}),
-        ], spacing=10, run_spacing=10)
-
-        self.kpi_ventas_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("Total Ventas (Mes)", self.val_ingresos, ft.icons.TRENDING_UP), col={"xs": 12, "sm": 6, "md": 6}),
-            ft.Container(content=self._build_kpi_card("Ventas (Hoy)", self.val_ventas_hoy, ft.icons.ATTACH_MONEY), col={"xs": 12, "sm": 6, "md": 6}),
-        ], spacing=10, run_spacing=10)
-        
-        # Paso 3: Crear la Barra de Métricas Secundarias
-        self.val_meta_diaria = ft.Text("$ 0 / día", size=13, weight="bold", color="teal700")
-
-        self.kpi_secundarios = ft.Container(
-            content=ft.Row([
-                ft.Text("Objetivo Comercial:", weight="bold", color=Config.COLOR_PRIMARY, size=12),
-                ft.Text("Proy. Ventas Stock:", size=12, color="grey"), self.val_proyeccion_ventas,
-                ft.Text(" | Proy. Rentabilidad:", size=12, color="grey"), self.val_proyeccion_rentabilidad,
-                ft.Container(width=1, height=20, bgcolor="#d0d0d0", margin=ft.padding.symmetric(horizontal=8)),
-                ft.Icon(ft.icons.FLAG, size=16, color="teal700"),
-                ft.Text("Meta Venta Diaria:", weight="bold", size=12, color="grey"), self.val_meta_diaria,
-                ft.Container(expand=True),
-                ft.Text("Rotación Global:", size=12, color="grey"), self.val_rotacion,
-            ], spacing=5, alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=ft.padding.symmetric(horizontal=15, vertical=10),
-            bgcolor="#f0f4f8", border_radius=8, border=ft.border.all(1, "#d0d7de")
-        )
-
-        # SECCIÓN AJUSTES
-        self.col_ajustes_salida = ft.Column(spacing=5)
-        self.col_ajustes_entrada = ft.Column(spacing=5)
-        
-        self.lbl_neto_ajustes_header = ft.Text("NETO: $0", weight="bold", size=16)
-        header_ajustes = ft.Row([
-            ft.Text("Impacto de Ajustes de Inventario (Mes Actual)", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-            self.lbl_neto_ajustes_header
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-
-        self.panel_ajustes = ft.Row([
-            # Panel Salida
-            ft.Container(
-                content=ft.Column([
-                    ft.Text("Ajustes de Salida (-)", size=16, weight="bold", color="red"),
-                    ft.Divider(height=1),
-                    self.col_ajustes_salida
-                ]),
-                bgcolor="white",
-                padding=15,
-                border_radius=8,
-                expand=True,
-                border=ft.border.all(1, "#f0f0f0"),
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-            ),
-            # Panel Entrada
-            ft.Container(
-                content=ft.Column([
-                    ft.Text("Ajustes de Entrada (+)", size=16, weight="bold", color="green"),
-                    ft.Divider(height=1),
-                    self.col_ajustes_entrada
-                ]),
-                bgcolor="white",
-                padding=15,
-                border_radius=8,
-                expand=True,
-                border=ft.border.all(1, "#f0f0f0"),
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-            )
-        ], spacing=15)
-
-        # Botón para copiar resumen al portapapeles
-        self.btn_copiar_resumen = ft.IconButton(
-            icon=ft.icons.COPY_ROUNDED,
-            icon_size=18,
-            icon_color=Config.COLOR_PRIMARY,
-            tooltip="Copiar Resumen Financiero al Portapapeles",
-            on_click=self.copiar_resumen_kpis
-        )
-        
-        header_kpis_row = ft.Row([
-            ft.Text("Resumen Financiero y Operativo", size=20, weight="bold", color=Config.COLOR_PRIMARY),
-            self.btn_copiar_resumen
-        ], tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-
-        # Ensamblaje del Layout
-        self.seccion_kpis = ft.Column([
-            header_kpis_row,
-            self.kpi_costos_row,
-            self.kpi_ventas_row,
-            self.kpi_secundarios
-        ], spacing=10)
-
-        # SECCIÓN RESUMEN DE IMPUESTOS
-        self.val_iva_generado_mes = ft.Text("$ 0", size=22, weight="bold", color="blue700")
-        self.val_iva_generado_hoy = ft.Text("$ 0", size=22, weight="bold", color="blue700")
-        self.val_iva_pagado_mes = ft.Text("$ 0", size=22, weight="bold", color="teal700")
-        self.val_iva_pagado_hoy = ft.Text("$ 0", size=22, weight="bold", color="teal700")
-
-        header_impuestos_row = ft.Row([
-            ft.Text("Resumen de Impuestos", size=20, weight="bold", color=Config.COLOR_PRIMARY),
-        ], tight=True)
-
-        self.kpi_iva_generado_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("IVA Generado (Mes)", self.val_iva_generado_mes, ft.icons.RECEIPT_LONG), col={"xs": 12, "sm": 6}),
-            ft.Container(content=self._build_kpi_card("IVA Generado (Hoy)", self.val_iva_generado_hoy, ft.icons.POINT_OF_SALE), col={"xs": 12, "sm": 6}),
-        ], spacing=10, run_spacing=10)
-
-        self.kpi_iva_pagado_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("IVA Pagado (Mes)", self.val_iva_pagado_mes, ft.icons.SHOPPING_CART_CHECKOUT), col={"xs": 12, "sm": 6}),
-            ft.Container(content=self._build_kpi_card("IVA Pagado (Hoy)", self.val_iva_pagado_hoy, ft.icons.SHOPPING_BAG_OUTLINED), col={"xs": 12, "sm": 6}),
-        ], spacing=10, run_spacing=10)
-
-        self.seccion_impuestos = ft.Column([
-            header_impuestos_row,
-            self.kpi_iva_generado_row,
-            self.kpi_iva_pagado_row
-        ], spacing=10)
-
-        self.seccion_ajustes = ft.Column([
-            header_ajustes,
-            self.panel_ajustes
-        ], spacing=10)
-
-        # Gráficos y Tablas
-        # Series de datos (Grosor y puntas redondeadas)
-        self.chart_ventas = ft.LineChartData(
-            data_points=[], 
-            color=ft.colors.BLUE_400,
-            stroke_width=4, 
-            curved=False,
-            stroke_cap_round=True,
-            below_line_bgcolor=ft.colors.with_opacity(0.1, ft.colors.BLUE_400)
-        )
-        self.chart_compras = ft.LineChartData(
-            data_points=[], 
-            color="#2ecca0", 
-            stroke_width=4, 
-            curved=False,
-            stroke_cap_round=True,
-            below_line_bgcolor=ft.colors.with_opacity(0.1, "#2ecca0")
-        )
-        
-        # Contenedor de Categorías (Grilla Responsiva)
-        self.categorias_row = ft.ResponsiveRow(columns=12, spacing=15, run_spacing=15)
-        self.categorias_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Rendimiento Detallado por Categoría", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                self.categorias_row
-            ]),
-            margin=ft.padding.only(top=10, bottom=10)
-        )
-
-        # Gráfico habilitando los ejes visuales
-        self.line_chart = ft.LineChart(
-            data_series=[self.chart_ventas, self.chart_compras],
-            border=ft.border.all(1, "#f0f0f0"),
-            min_y=0,
-            min_x=0,
-            expand=True,
-            tooltip_bgcolor="white",
-            left_axis=ft.ChartAxis(labels_size=50), 
-            bottom_axis=ft.ChartAxis(labels_size=40), 
-        )
-        
-        # Leyenda adaptada a fondo claro
-        leyenda = ft.Row([
-            ft.Row([ft.Container(width=12, height=12, bgcolor=ft.colors.BLUE_400, border_radius=6), ft.Text("Ingresos", size=12, weight="bold", color="black87")]),
-            ft.Row([ft.Container(width=12, height=12, bgcolor="#2ecca0", border_radius=6), ft.Text("Costos", size=12, weight="bold", color="black87")]),
-        ], spacing=30, alignment=ft.MainAxisAlignment.CENTER)
-        
-        self.chart_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Tendencia Diaria: Ingresos vs Costo de Ventas", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                leyenda,
-                ft.Container(content=self.line_chart, height=320, margin=ft.padding.only(top=10))
-            ]),
-            bgcolor="white",
-            padding=20,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-        )
-        
-        # Tables
-        self.dt_ventas = ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Código", size=12)),
-                ft.DataColumn(ft.Text("Producto", size=12)),
-                ft.DataColumn(ft.Text("Unidades", size=12), numeric=True),
-                ft.DataColumn(ft.Text("Ingreso Total", size=12), numeric=True)
-            ],
-            rows=[],
-            data_row_min_height=30,
-            data_row_max_height=30,
-            heading_row_height=40,
-            column_spacing=15,
-        )
-        
-        self.dt_costos = ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Código", size=12)),
-                ft.DataColumn(ft.Text("Producto", size=12)),
-                ft.DataColumn(ft.Text("Valor Inv.", size=12), numeric=True),
-                ft.DataColumn(ft.Text("Rotación", size=12))
-            ],
-            rows=[],
-            data_row_min_height=30,
-            data_row_max_height=30,
-            heading_row_height=40,
-            column_spacing=15,
-        )
-        
-        table_ventas_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Top 10 Productos con Mayor Ingreso", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                self.dt_ventas
-            ], scroll=ft.ScrollMode.AUTO),
-            bgcolor="white",
-            padding=15,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
-            col={"xs": 12, "md": 6}
-        )
-        
-        table_costos_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Top 10 Productos con Mayor Costo", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                self.dt_costos
-            ], scroll=ft.ScrollMode.AUTO),
-            bgcolor="white",
-            padding=15,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
-            col={"xs": 12, "md": 6}
-        )
-        
-        self.tables_row = ft.ResponsiveRow([
-            table_ventas_container,
-            table_costos_container
-        ], spacing=15, run_spacing=15)
-        
-        # Indicador de carga superior
-        self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
-
-        # 2. Main content Column
-        self.content = ft.Column([
-            self.progress_bar, 
-            header_row,
-            ft.Divider(height=10, color="transparent"),
-            self.seccion_kpis,
-            ft.Divider(height=10, color="transparent"),
-            self.seccion_impuestos, # <-- Ubicación antes del impacto de ajustes
-            ft.Divider(height=10, color="transparent"),
-            self.seccion_ajustes,
-            ft.Divider(height=10, color="transparent"),
-            self.categorias_container,
-            ft.Divider(height=10, color="transparent"),
-            self.chart_container,
-            ft.Divider(height=10, color="transparent"),
-            self.tables_row,
-            ft.Container(height=30) # Bottom padding
-        ], scroll=ft.ScrollMode.AUTO, expand=True)
-
-    def did_mount(self):
-        if not hasattr(self, "overlay_added"):
-            self.page.overlay.append(self.date_picker_dash)
-            self.overlay_added = True
-        self.load_data()
-
-    def safe_update(self):
-        """Actualiza la UI solo si el control sigue montado en la página."""
-        try:
-            if self.page and self.uid:
-                self.page.update()
-        except Exception:
-            pass
-
-    def load_data(self):
-        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
-        self.progress_bar.visible = True
-        self.safe_update()
-            
-        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
-
-    def on_fecha_dash_change(self, e):
-        if self.date_picker_dash.value:
-            self.fecha_filtro_dash = self.date_picker_dash.value.strftime("%Y-%m-%d")
-            self.btn_fecha_dash.text = f"Fecha: {self.date_picker_dash.value.strftime('%d/%m/%Y')}"
-            self.btn_clear_fecha_dash.visible = True
-            self.load_data()
-
-    def limpiar_filtro_fecha_dash(self, e):
-        self.fecha_filtro_dash = None
-        self.date_picker_dash.value = None
-        self.btn_fecha_dash.text = f"Fecha: {datetime.date.today().strftime('%d/%m/%Y')}"
-        self.btn_clear_fecha_dash.visible = False
-        self.load_data()
-
-    def _fetch_data_worker(self):
-        """Ejecuta todas las llamadas HTTP síncronas sin congelar la ventana."""
-        # Cargar contexto temporal
-        mes_actual = datetime.date.today().strftime("%Y-%m")
-        datos_cierre = self.db.obtener_estado_cierre(mes_actual)
-        estado_periodo = datos_cierre.get('periodo', {}).get('estado', 'ABIERTO') if datos_cierre and datos_cierre.get('periodo') else 'ABIERTO'
-
-        meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-        partes = mes_actual.split('-')
-        nombre_mes = f"{meses[int(partes[1]) - 1]} {partes[0]}"
-
-        self.lbl_periodo_dash.value = f"Periodo: {nombre_mes}"
-        self.lbl_estado_dash.value = f"Estado: {estado_periodo}"
-
-        colores_estado = {'ABIERTO': 'green', 'PRELIMINAR': 'orange', 'EN_AUDITORIA': 'blue', 'CERRADO': 'red'}
-        self.lbl_estado_dash.color = colores_estado.get(estado_periodo, 'black')
-
-        ahora = datetime.datetime.now()
-        self.lbl_fecha_hora.value = ahora.strftime("%d/%m/%Y - %I:%M %p")
-
-        # 1. Load KPIs
-        kpis_cat = self.db.get_rendimiento_categorias_periodo(fecha_inicio=None, fecha_fin=self.fecha_filtro_dash)
-        val_inv_real = sum([c["inventario_costo"] for c in kpis_cat])
-        val_inv = val_inv_real
-        self.val_inventario.value = f"$ {val_inv:,.0f}"
-        
-        res_cat = self.db.get_catalogo_summary(fecha_corte=self.fecha_filtro_dash)
-        res_ven = self.db.get_ventas_summary(fecha_corte=self.fecha_filtro_dash)
-        res_com = self.db.get_compras_summary(fecha_corte=self.fecha_filtro_dash)
-        
-        ingresos = float(res_ven.get('total_mes') or 0)
-        compras = float(res_com.get('total_mes') or 0)
-        
-        ventas_hoy = float(res_ven.get('total_hoy') or 0)
-        compras_hoy = float(res_com.get('total_hoy') or 0)
-        
-        self.val_ingresos.value = f"$ {ingresos:,.0f}"
-        self.val_ventas_hoy.value = f"$ {ventas_hoy:,.0f}"
-        self.val_compras.value = f"$ {compras:,.0f}"
-        self.val_compras_hoy.value = f"$ {compras_hoy:,.0f}"
-
-        # Extraer montos de IVA de Ventas y Compras
-        iva_gen_mes = float(res_ven.get('iva_mes') or 0)
-        iva_gen_hoy = float(res_ven.get('iva_hoy') or 0)
-        iva_pag_mes = float(res_com.get('iva_mes') or 0)
-        iva_pag_hoy = float(res_com.get('iva_hoy') or 0)
-
-        self.val_iva_generado_mes.value = f"$ {iva_gen_mes:,.0f}"
-        self.val_iva_generado_hoy.value = f"$ {iva_gen_hoy:,.0f}"
-        self.val_iva_pagado_mes.value = f"$ {iva_pag_mes:,.0f}"
-        self.val_iva_pagado_hoy.value = f"$ {iva_pag_hoy:,.0f}"
-        
-        rentabilidad = 0
-        if ingresos > 0:
-            rentabilidad = ((ingresos - compras) / ingresos) * 100
-            
-        self.val_rentabilidad.value = f"{rentabilidad:.1f}%"
-        self.val_rentabilidad.color = "#2ecca0" if rentabilidad >= 0 else "#f26c61"
-        
-        # Basic rotacion (Ventas / Inventario)
-        if val_inv > 0:
-            rotacion_global = ingresos / val_inv
-            self.val_rotacion.value = f"{rotacion_global:.2f}x"
-        else:
-            self.val_rotacion.value = "N/D"
-
-        # Nuevos KPIs y Ajustes
-        proyeccion_ventas = self.db.get_proyeccion_ventas(fecha_corte=self.fecha_filtro_dash)
-        self.val_proyeccion_ventas.value = f"$ {proyeccion_ventas:,.0f}"
-        
-        proy_rent = 0
-        if proyeccion_ventas > 0:
-            proy_rent = ((proyeccion_ventas - val_inv) / proyeccion_ventas) * 100
-        
-        self.val_proyeccion_rentabilidad.value = f"{proy_rent:.1f}%"
-        self.val_proyeccion_rentabilidad.color = "#2ecca0" if proy_rent >= 0 else "#f26c61"
-
-        hoy_obj = datetime.datetime.strptime(self.fecha_filtro_dash, "%Y-%m-%d").date() if self.fecha_filtro_dash else datetime.date.today()
-        if hoy_obj.month == 12:
-            ultimo_dia_mes = datetime.date(hoy_obj.year, 12, 31).day
-        else:
-            ultimo_dia_mes = (datetime.date(hoy_obj.year, hoy_obj.month + 1, 1) - datetime.timedelta(days=1)).day
-        dias_restantes = max(1, ultimo_dia_mes - hoy_obj.day + 1)
-        restante_vender = max(0, proyeccion_ventas - ingresos)
-        meta_diaria = restante_vender / dias_restantes
-        self.val_meta_diaria.value = f"$ {meta_diaria:,.0f} / día"
-
-        mes_actual = hoy_obj.strftime("%Y-%m")
-        ajustes_bd = self.db.get_ajustes_mes(mes_actual, fecha_corte=self.fecha_filtro_dash)
-        
-        tipos_salida = {
-            "Daño / Merma": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Vencimiento": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Pérdida": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Consumo Familiar": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Consumo Cliente (Cortesía)": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Donación Saliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Otro (Salida)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
-        }
-
-        tipos_entrada = {
-            "Sobrante de Inventario": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Donación Entrante": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Devolución Cliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Otro (Entrada)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
-        }
-        
-        for fila in ajustes_bd:
-            tipo_bd = fila.get("tipo_ajuste", "")
-            motivo_bd = fila.get("motivo_observacion", "")
-            cant = float(fila.get("cantidad_total") or 0)
-            costo = float(fila.get("costo_total") or 0)
-            conteo = int(fila.get("conteo") or 0)
-            
-            asignado = False
-            if tipo_bd in ("AJUSTE_ENTRADA", "ENTRADA_POR_SOBRANTE"):
-                for key in tipos_entrada.keys():
-                    if key.lower() in motivo_bd.lower():
-                        tipos_entrada[key]["conteo"] += conteo
-                        tipos_entrada[key]["cantidad"] += cant
-                        tipos_entrada[key]["costo"] += costo
-                        asignado = True
-                        break
-                if not asignado:
-                    tipos_entrada["Otro (Entrada)"]["conteo"] += conteo
-                    tipos_entrada["Otro (Entrada)"]["cantidad"] += cant
-                    tipos_entrada["Otro (Entrada)"]["costo"] += costo
-            else:
-                for key in tipos_salida.keys():
-                    if key.lower() in motivo_bd.lower():
-                        tipos_salida[key]["conteo"] += conteo
-                        tipos_salida[key]["cantidad"] += cant
-                        tipos_salida[key]["costo"] += costo
-                        asignado = True
-                        break
-                if not asignado:
-                    # Fallback por tipo
-                    if tipo_bd == "BAJA_VENCIMIENTO": k = "Vencimiento"
-                    elif tipo_bd == "SALIDA_POR_FALTANTE": k = "Pérdida"
-                    else: k = "Otro (Salida)"
-                    tipos_salida[k]["conteo"] += conteo
-                    tipos_salida[k]["cantidad"] += cant
-                    tipos_salida[k]["costo"] += costo
-
-        total_costo_entradas = sum([d["costo"] for d in tipos_entrada.values()])
-        total_costo_salidas = sum([d["costo"] for d in tipos_salida.values()])
-        
-        total_cant_entradas = sum([d["cantidad"] for d in tipos_entrada.values()])
-        total_cant_salidas = sum([d["cantidad"] for d in tipos_salida.values()])
-        
-        neto = total_costo_entradas - total_costo_salidas
-        if neto > 0:
-            self.lbl_neto_ajustes_header.value = f"NETO (POSITIVO): +${neto:,.0f}"
-            self.lbl_neto_ajustes_header.color = "#2ecca0"
-        elif neto < 0:
-            self.lbl_neto_ajustes_header.value = f"NETO (NEGATIVO): -${abs(neto):,.0f}"
-            self.lbl_neto_ajustes_header.color = "#f26c61"
-        else:
-            self.lbl_neto_ajustes_header.value = f"NETO: $0"
-            self.lbl_neto_ajustes_header.color = "grey"
-
-        # Limpiar columnas
-        self.col_ajustes_entrada.controls.clear()
-        self.col_ajustes_salida.controls.clear()
-
-        # Render Entrada
-        for key, datos in tipos_entrada.items():
-            self.col_ajustes_entrada.controls.append(
-                ft.Row([
-                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
-                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
-                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#2ecca0")
-                ])
-            )
-            
-        # Rellenar con espacio invisible para igualar simetría
-        filas_faltantes = len(tipos_salida) - len(tipos_entrada)
-        for _ in range(max(0, filas_faltantes)):
-            self.col_ajustes_entrada.controls.append(
-                ft.Container(height=18, content=ft.Text("")) # Fila transparente de relleno
-            )
-            
-        self.col_ajustes_entrada.controls.append(ft.Divider(color="black12", height=10))
-        self.col_ajustes_entrada.controls.append(
-            ft.Row([
-                ft.Text("TOTAL ENTRADAS", size=12, weight="bold"),
-                ft.Text(f"{total_cant_entradas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
-                ft.Text(f"${total_costo_entradas:,.0f}", size=12, weight="bold", color="#2ecca0")
-            ])
-        )
-        
-        # Render Salida
-        for key, datos in tipos_salida.items():
-            self.col_ajustes_salida.controls.append(
-                ft.Row([
-                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
-                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
-                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#f26c61")
-                ])
-            )
-        self.col_ajustes_salida.controls.append(ft.Divider(color="black12", height=10))
-        self.col_ajustes_salida.controls.append(
-            ft.Row([
-                ft.Text("TOTAL SALIDAS", size=12, weight="bold"),
-                ft.Text(f"{total_cant_salidas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
-                ft.Text(f"${total_costo_salidas:,.0f}", size=12, weight="bold", color="#f26c61")
-            ])
-        )
-
-        # 2. Load Chart Data (Nativo Flet)
-        try:
-            tendencia = self.db.get_tendencia_diaria(fecha_corte=self.fecha_filtro_dash)
-            dias_ordenados = sorted(tendencia.keys())
-            max_val_y = 0
-            
-            pts_ventas = []
-            pts_compras = []
-            etiquetas_x = []
-            
-            for i, dia in enumerate(dias_ordenados):
-                v = float(tendencia[dia]["ventas"])
-                c = float(tendencia[dia]["compras"])
-                if v > max_val_y: max_val_y = v
-                if c > max_val_y: max_val_y = c
-                # Poner la fecha SOLO en el tooltip de arriba (compras) para que Flet no la duplique al apilar
-                tt_compras = f"{dia}\nCostos: ${c:,.0f}"
-                tt_ventas = f"Ingresos: ${v:,.0f}"
-                estilo_tt = ft.TextStyle(size=12, weight="bold", color="black87")
-                
-                pts_ventas.append(ft.LineChartDataPoint(i, v, tooltip=tt_ventas, tooltip_style=estilo_tt))
-                pts_compras.append(ft.LineChartDataPoint(i, c, tooltip=tt_compras, tooltip_style=estilo_tt))
-                
-                # Densidad en Eje X: Mostrar todos los días con la fecha completa rotada
-                etiquetas_x.append(
-                    ft.ChartAxisLabel(
-                        value=i, 
-                        label=ft.Container(
-                            content=ft.Text(dia, size=9, color="grey"),
-                            padding=ft.padding.only(top=10),
-                            rotate=-0.5
-                        )
-                    )
-                )
-                
-            if not pts_ventas:
-                pts_ventas = [ft.LineChartDataPoint(0, 0)]
-                pts_compras = [ft.LineChartDataPoint(0, 0)]
-                
-            self.chart_ventas.data_points = pts_ventas
-            self.chart_compras.data_points = pts_compras
-            
-            self.line_chart.max_x = len(dias_ordenados) - 1 if dias_ordenados else 0
-            max_y_calc = max_val_y * 1.15 if max_val_y > 0 else 1000
-            self.line_chart.max_y = max_y_calc
-            
-            def formato_moneda_corta(valor):
-                if valor >= 1000000: return f"${valor/1000000:.1f}M"
-                if valor >= 1000: return f"${valor/1000:.0f}k"
-                return f"${valor:.0f}"
-                
-            # Mayor densidad en Y: 8 divisiones en lugar de 5
-            intervalo_y = max_y_calc / 8 if max_y_calc > 0 else 100
-            etiquetas_y = [
-                ft.ChartAxisLabel(value=step * intervalo_y, label=ft.Text(formato_moneda_corta(step * intervalo_y), size=11, color="grey"))
-                for step in range(9)
-            ]
-            
-            self.line_chart.left_axis.labels = etiquetas_y
-            self.line_chart.left_axis.labels_interval = intervalo_y
-            self.line_chart.bottom_axis.labels = etiquetas_x
-            self.line_chart.bottom_axis.labels_interval = 1
-            
-            # Cuadrícula visible completa con efecto punteado
-            self.line_chart.horizontal_grid_lines = ft.ChartGridLines(
-                interval=intervalo_y,
-                color=ft.colors.with_opacity(0.05, "black"),
-                width=1,
-                dash_pattern=[4, 4]
-            )
-            self.line_chart.vertical_grid_lines = ft.ChartGridLines(
-                interval=2, # Línea vertical sincronizada con el eje X
-                color=ft.colors.with_opacity(0.05, "black"),
-                width=1,
-                dash_pattern=[4, 4]
-            )
-            
-        except Exception as e:
-            print(f"Error crítico construyendo Chart Flet: {e}")
-        
-        # 3. Load Tables Data (A prueba de fallos)
-        try:
-            top_ventas = self.db.get_top_ventas_mes(limit=10, fecha_corte=self.fecha_filtro_dash)
-            self.dt_ventas.rows.clear()
-            for item in top_ventas:
-                self.dt_ventas.rows.append(
-                    ft.DataRow(cells=[
-                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
-                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
-                        ft.DataCell(ft.Text(str(item.get('unidades_vendidas') or 0), size=11)),
-                        ft.DataCell(ft.Text(f"${float(item.get('ingreso_total') or 0):,.2f}", size=11))
-                    ])
-                )
-        except Exception as e:
-            print(f"Error crítico en tabla ventas: {e}")
-            
-        try:
-            top_costos = self.db.get_top_costo_inventario(limit=10, fecha_corte=self.fecha_filtro_dash)
-            self.dt_costos.rows.clear()
-            for item in top_costos:
-                self.dt_costos.rows.append(
-                    ft.DataRow(cells=[
-                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
-                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
-                        ft.DataCell(ft.Text(f"${float(item.get('valor_inventario') or 0):,.2f}", size=11)),
-                        ft.DataCell(ft.Text(str(item.get('rotacion') or ''), size=11))
-                    ])
-                )
-        except Exception as e:
-            print(f"Error crítico en tabla costos: {e}")
-            
-        try:
-            self.categorias_row.controls.clear()
-            for cat in kpis_cat:
-                self.categorias_row.controls.append(self._crear_card_categoria(cat))
-        except Exception as e:
-            print(f"Error cargando KPIs por categoría: {e}")
-            
-        # Apagar indicador de carga al finalizar todo el trabajo
-        self.progress_bar.visible = False
-        
-        self.safe_update()
-
-    def _build_kpi_card(self, title, value_control, icon, subtext_control=None):
-        column_controls = [
-            ft.Row([
-                ft.Text(title, size=12, color="grey", weight="w500", expand=True),
-                ft.Icon(ft.icons.HELP_OUTLINE, size=12, color="grey")
-            ], spacing=5),
-            value_control,
-        ]
-        if subtext_control:
-            column_controls.append(subtext_control)
-            
-        value_control.size = 20
-            
-        return ft.Container(
-            content=ft.Row([
-                ft.Container(
-                    content=ft.Icon(icon, color=Config.COLOR_SECONDARY, size=24),
-                    bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_SECONDARY),
-                    padding=10,
-                    border_radius=8
-                ),
-                ft.Column(column_controls, spacing=2, expand=True)
-            ], alignment=ft.MainAxisAlignment.START),
-            bgcolor="white",
-            padding=15,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-        )
-
-    def _crear_card_categoria(self, cat_data):
-        nombre = cat_data["categoria"]
-        inv_costo = cat_data["inventario_costo"]
-        ventas = cat_data["ventas_realizadas"]
-        proy_venta = cat_data["proyeccion_venta"]
-        cumplimiento = cat_data["cumplimiento_pct"]
-        rotacion = cat_data["rotacion"]
-        rendimiento = cat_data["rendimiento_pct"]
-    
-        # Color condicional para cumplimiento
-        color_cumplimiento = "green700" if cumplimiento >= 50 else ("orange700" if cumplimiento > 0 else "grey")
-        color_rendimiento = "green700" if rendimiento >= 0 else "red700"
-    
-        return ft.Container(
-            content=ft.Column([
-                # Cabecera Categoría
-                ft.Row([
-                    ft.Icon(ft.icons.CATEGORY_OUTLINED, size=16, color=Config.COLOR_PRIMARY),
-                    ft.Text(nombre.upper(), weight="bold", size=12, color=Config.COLOR_PRIMARY, expand=True)
-                ]),
-                ft.Divider(height=1, color="#eeeeee"),
-                
-                # Fila 1: Inventario Costo vs Ventas
-                ft.Row([
-                    ft.Text("Inventario (Costo):", size=11, color="grey", expand=True),
-                    ft.Text(f"${inv_costo:,.0f}", size=11, weight="bold")
-                ]),
-                ft.Row([
-                    ft.Text("Ventas Realizadas:", size=11, color="grey", expand=True),
-                    ft.Text(f"${ventas:,.0f}", size=11, weight="bold", color="green700")
-                ]),
-                
-                # Fila 2: Proyección Venta vs % Cumplimiento
-                ft.Row([
-                    ft.Text("Proyección Venta:", size=11, color="grey", expand=True),
-                    ft.Text(f"${proy_venta:,.0f}", size=11, weight="bold", color="blue700")
-                ]),
-                ft.Row([
-                    ft.Text("% Cumplimiento:", size=11, color="grey", expand=True),
-                    ft.Text(f"{cumplimiento:.1f}%", size=11, weight="bold", color=color_cumplimiento)
-                ]),
-                
-                ft.Divider(height=1, color="#f0f0f0"),
-                
-                # Fila 3: Rotación y Rendimiento Real
-                ft.Row([
-                    ft.Text("Rotación:", size=11, color="grey"),
-                    ft.Text(f"{rotacion:.2f}x", size=11, weight="bold"),
-                    ft.Container(expand=True),
-                    ft.Text("Rendimiento Real:", size=11, color="grey"),
-                    ft.Text(f"{rendimiento:.1f}%", size=11, weight="bold", color=color_rendimiento)
-                ])
-            ], spacing=4),
-            padding=12,
-            bgcolor="white",
-            border_radius=8,
-            border=ft.border.all(1, "#e0e0e0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.03, "black")),
-            col={"sm": 12, "md": 6, "lg": 4}
-        )
-
-    def copiar_resumen_kpis(self, e):
-        """
-        Construye un texto formateado con todos los indicadores actuales
-        del resumen financiero y lo guarda en el portapapeles del sistema.
-        """
-        periodo = self.lbl_periodo_dash.value.replace("Periodo: ", "").strip()
-        fecha_hora = self.lbl_fecha_hora.value
-        
-        texto_copia = (
-            f"📊 RESUMEN FINANCIERO Y OPERATIVO ({periodo.upper()})\n"
-            f"📅 Generado el: {fecha_hora}\n"
-            f"-----------------------------------------\n"
-            f"💰 COSTOS E INVENTARIO:\n"
-            f"  • Costo Inv. Actual: {self.val_inventario.value}\n"
-            f"  • Total Compras (Mes): {self.val_compras.value}\n"
-            f"  • Compras (Hoy): {self.val_compras_hoy.value}\n\n"
-            f"📈 VENTAS E INGRESOS:\n"
-            f"  • Total Ventas (Mes): {self.val_ingresos.value}\n"
-            f"  • Ventas (Hoy): {self.val_ventas_hoy.value}\n"
-            f"  • Margen Rentabilidad: {self.val_rentabilidad.value}\n\n"
-            f"🎯 OBJETIVOS Y PROYECCIONES:\n"
-            f"  • Proy. Ventas Stock: {self.val_proyeccion_ventas.value}\n"
-            f"  • Proy. Rentabilidad: {self.val_proyeccion_rentabilidad.value}\n"
-            f"  • Meta Venta Diaria: {self.val_meta_diaria.value}\n"
-            f"  • Rotación Global: {self.val_rotacion.value}\n"
-            f"-----------------------------------------"
-        )
-
-        if self.page:
-            self.page.set_clipboard(texto_copia)
-            self.page.snack_bar = ft.SnackBar(
-                content=ft.Row([
-                    ft.Icon(ft.icons.CHECK_CIRCLE, color="white", size=18),
-                    ft.Text("Resumen financiero copiado al portapapeles exitosamente", color="white")
-                ]),
-                bgcolor="green700"
-            )
-            self.page.snack_bar.open = True
-            self.safe_update()
-````
-
-## File: ui/views/informes.py
-````python
-import flet as ft
-from config import Config
-from core.supabase_client import SupabaseClient
-import datetime
-from calendar import monthrange
-import threading
-
-class InformesView(ft.Container):
-    def __init__(self):
-        super().__init__()
-        self.expand = True
-        self.db = SupabaseClient()
-        self.save_pdf_picker = ft.FilePicker(on_result=self._save_pdf_result)
-        self.save_excel_picker = ft.FilePicker(on_result=self._save_excel_result)
-        
-        # --- PANEL IZQUIERDO: CONSTRUCTOR DE INFORMES ---
-        self.drop_tipo_informe = ft.Dropdown(
-            label="Tipo de Informe",
-            options=[
-                ft.dropdown.Option("Valorización de Inventario"),
-                ft.dropdown.Option("Informe de Compras"),
-                ft.dropdown.Option("Informe de Ventas"),
-                ft.dropdown.Option("Historial de Ajustes"),
-                ft.dropdown.Option("Informe de Impuestos"),
-                ft.dropdown.Option("Resumen de KPIs")
-            ],
-            value="Valorización de Inventario",
-            dense=True, border_radius=8,
-            height=38, text_size=12,
-            content_padding=ft.padding.symmetric(horizontal=10, vertical=8)
-        )
-        
-        self.drop_filtro_fecha = ft.Dropdown(
-            label="Periodo",
-            options=[
-                ft.dropdown.Option("Día de Hoy"),
-                ft.dropdown.Option("Mes Actual"),
-                ft.dropdown.Option("Histórico Completo")
-            ],
-            value="Histórico Completo",
-            dense=True, border_radius=8,
-            height=38, text_size=12,
-            content_padding=ft.padding.symmetric(horizontal=10, vertical=8)
-        )
-        
-        self.opcion_detalle = ft.RadioGroup(
-            content=ft.Row([
-                ft.Radio(value="Completo", label="Completo"),
-                ft.Radio(value="Resumido", label="Resumido")
-            ]),
-            value="Completo"
-        )
-        
-        self.btn_generar = ft.ElevatedButton(
-            "Generar Previsualización", 
-            icon=ft.icons.PLAY_ARROW, 
-            bgcolor=Config.COLOR_PRIMARY, 
-            color="white",
-            on_click=self.generar_informe,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-        )
-        
-        self.btn_pdf = ft.OutlinedButton(
-            "Exportar a PDF", 
-            icon=ft.icons.PICTURE_AS_PDF, 
-            icon_color="red", 
-            on_click=self.exportar_pdf,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-        )
-        
-        self.btn_excel = ft.OutlinedButton(
-            "Exportar a Excel", 
-            icon=ft.icons.TABLE_VIEW, 
-            icon_color="green", 
-            on_click=self.exportar_excel,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-        )
-        
-        # Tarjeta informativa corta para la exportación a Excel
-        info_excel_box = ft.Container(
-            content=ft.Row([
-                ft.Icon(ft.icons.INFO_OUTLINED, size=15, color="blue700"),
-                ft.Text(
-                    "Excel genera el consolidado general completo (Inventario, Compras, Ventas y Ajustes) acumulado a la fecha, sin aplicar los filtros seleccionados.",
-                    size=10,
-                    color="blue900",
-                    expand=True
-                )
-            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
-            padding=8,
-            bgcolor="#e3f2fd",
-            border_radius=6,
-            border=ft.border.all(1, "#bbdefb")
-        )
-        
-        panel_controles = ft.Container(
-            content=ft.Column([
-                ft.Text("Parámetros del Informe", weight="bold", color=Config.COLOR_PRIMARY),
-                ft.Divider(height=1, color="#eeeeee"),
-                self.drop_tipo_informe,
-                self.drop_filtro_fecha,
-                ft.Text("Nivel de Detalle", size=12, color="grey"),
-                self.opcion_detalle,
-                ft.Container(height=10),
-                self.btn_generar,
-                ft.Divider(height=15, color="transparent"),
-                ft.Text("Exportación", weight="bold", color=Config.COLOR_PRIMARY),
-                ft.Divider(height=1, color="#eeeeee"),
-                self.btn_pdf,
-                ft.Divider(height=8, color="#f0f0f0"), # Separador suave entre PDF y Excel
-                info_excel_box,
-                self.btn_excel
-            ], spacing=12),
-            bgcolor="white", padding=20, border_radius=8, width=300,
-            border=ft.border.all(1, "#e0e0e0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))
-        )
-        
-        # --- PANEL DERECHO: LIENZO DEL DOCUMENTO (A4) ---
-        self.doc_header_empresa = ft.Text("TIENDA Y ABARROTES LOS DESECHABLES DE DOÑA MARY SAS", weight="bold", size=16, text_align=ft.TextAlign.CENTER)
-        self.doc_header_titulo = ft.Text("INFORME DE VALORIZACIÓN DE INVENTARIO", weight="bold", size=14, text_align=ft.TextAlign.CENTER)
-        self.doc_header_periodo = ft.Text("Periodo: Histórico Completo", size=11, color="grey", text_align=ft.TextAlign.CENTER)
-        self.doc_header_fecha = ft.Text(f"Fecha de Generación: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", size=11, color="grey", text_align=ft.TextAlign.CENTER)
-        
-        self.doc_cuerpo = ft.Column(spacing=5)
-        
-        self.lienzo_documento = ft.Container(
-            content=ft.Column([
-                ft.Container(
-                    content=ft.Column([
-                        self.doc_header_empresa,
-                        self.doc_header_titulo,
-                        self.doc_header_periodo,
-                        self.doc_header_fecha
-                    ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    alignment=ft.alignment.center,
-                    padding=ft.padding.only(bottom=20)
-                ),
-                ft.Divider(height=2, color="black"),
-                self.doc_cuerpo
-            ]),
-            bgcolor="white",
-            padding=40,
-            border_radius=5,
-            shadow=ft.BoxShadow(spread_radius=2, blur_radius=10, color=ft.colors.with_opacity(0.1, "black"))
-        )
-        
-        scroll_lienzo = ft.Column([self.lienzo_documento], scroll=ft.ScrollMode.ALWAYS, expand=True)
-        
-        # --- ENSAMBLAJE FINAL ---
-        self.content = ft.Row([
-            panel_controles,
-            scroll_lienzo
-        ], expand=True, spacing=20, vertical_alignment=ft.CrossAxisAlignment.START)
-
-    def did_mount(self):
-        if self.page:
-            if self.save_pdf_picker not in self.page.overlay:
-                self.page.overlay.append(self.save_pdf_picker)
-            if self.save_excel_picker not in self.page.overlay:
-                self.page.overlay.append(self.save_excel_picker)
-            self.page.update()
-
-    def generar_informe(self, e):
-        self.doc_cuerpo.controls.clear()
-        self.doc_cuerpo.controls.append(ft.Container(content=ft.ProgressRing(), alignment=ft.alignment.center, padding=50))
-        if self.page: self.page.update()
-        threading.Thread(target=self._worker_generar_informe, daemon=True).start()
-
-    def _worker_generar_informe(self):
-        tipo_informe = self.drop_tipo_informe.value
-        detalle = self.opcion_detalle.value
-        periodo_filtro = self.drop_filtro_fecha.value
-
-        # 1. Cálculo del Rango de Fechas
-        hoy = datetime.date.today()
-        if periodo_filtro == "Día de Hoy":
-            fecha_inicio = hoy.strftime("%Y-%m-%d")
-            fecha_fin = hoy.strftime("%Y-%m-%d")
-        elif periodo_filtro == "Mes Actual":
-            fecha_inicio = hoy.replace(day=1).strftime("%Y-%m-%d")
-            ultimo_dia = monthrange(hoy.year, hoy.month)[1]
-            fecha_fin = hoy.replace(day=ultimo_dia).strftime("%Y-%m-%d")
-        else:
-            # Histórico Completo
-            fecha_inicio = "2000-01-01"
-            fecha_fin = "2100-12-31"
-
-        # 2. Actualizar Cabecera del Documento
-        self.doc_header_titulo.value = f"INFORME DE {tipo_informe.upper()}"
-        self.doc_header_periodo.value = f"Periodo: {fecha_inicio} al {fecha_fin} | Tipo: {detalle}"
-        self.doc_header_fecha.value = f"Fecha de Generación: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')}"
-
-        self.doc_cuerpo.controls.clear()
-
-        # 3. Enrutador según el tipo de informe
-        if tipo_informe == "Valorización de Inventario":
-            self._generar_valorizacion(detalle, fecha_corte=fecha_fin if periodo_filtro != "Histórico Completo" else None)
-        elif tipo_informe == "Informe de Compras":
-            self._generar_compras(fecha_inicio, fecha_fin, detalle)
-        elif tipo_informe == "Informe de Ventas":
-            self._generar_ventas(fecha_inicio, fecha_fin, detalle)
-        elif tipo_informe == "Historial de Ajustes":
-            self._generar_ajustes(fecha_inicio, fecha_fin, detalle)
-        elif tipo_informe == "Informe de Impuestos":
-            self._generar_impuestos(fecha_inicio, fecha_fin, detalle)
-        elif tipo_informe == "Resumen de KPIs":
-            self._generar_kpis(fecha_inicio, fecha_fin)
-
-        if self.page:
-            self.page.update()
-
-    def _generar_impuestos(self, fecha_inicio, fecha_fin, detalle):
-        raw_compras, _ = self.db.get_compras(page=1, page_size=100000)
-        raw_ventas, _ = self.db.get_ventas(page=1, page_size=100000)
-
-        # Filtrar Compras por Rango de Fechas
-        compras_filtradas = []
-        tot_compras_base = 0.0
-        tot_compras_iva = 0.0
-        tot_compras_total = 0.0
-
-        for c in raw_compras:
-            f = str(c.get("fecha") or "")[:10]
-            if fecha_inicio <= f <= fecha_fin:
-                tot = float(c.get("costo_total") or 0)
-                iva = float(c.get("iva") or 0)
-                base = tot - iva
-                cant = float(c.get("cantidad") or 0)
-                cat_i = c.get("catalogo_insumos") or {}
-                
-                compras_filtradas.append({
-                    "fecha": f,
-                    "doc": c.get("numero_factura") or c.get("numero_entrada") or "S/D",
-                    "insumo": cat_i.get("nombre", "Desconocido"),
-                    "cant": cant,
-                    "base": base,
-                    "iva": iva,
-                    "total": tot
-                })
-                tot_compras_base += base
-                tot_compras_iva += iva
-                tot_compras_total += tot
-
-        # Filtrar Ventas por Rango de Fechas
-        ventas_filtradas = []
-        tot_ventas_base = 0.0
-        tot_ventas_iva = 0.0
-        tot_ventas_total = 0.0
-
-        for v in raw_ventas:
-            f = str(v.get("fecha") or "")[:10]
-            if fecha_inicio <= f <= fecha_fin:
-                tot = float(v.get("total") or 0)
-                iva = float(v.get("iva") or 0)
-                base = float(v.get("subtotal") or (tot - iva))
-                cant = float(v.get("cantidad") or 0)
-                cat_i = v.get("catalogo_insumos") or {}
-
-                ventas_filtradas.append({
-                    "fecha": f,
-                    "doc": v.get("factura_no") or "S/D",
-                    "insumo": v.get("descripcion") or cat_i.get("nombre") or "Desconocido",
-                    "cant": cant,
-                    "base": base,
-                    "iva": iva,
-                    "total": tot
-                })
-                tot_ventas_base += base
-                tot_ventas_iva += iva
-                tot_ventas_total += tot
-
-        balance_iva = tot_ventas_iva - tot_compras_iva
-
-        # Guardar estructura para PDF/Excel
-        self.current_data = {
-            "compras": compras_filtradas,
-            "ventas": ventas_filtradas,
-            "tot_compras_base": tot_compras_base,
-            "tot_compras_iva": tot_compras_iva,
-            "tot_compras_total": tot_compras_total,
-            "tot_ventas_base": tot_ventas_base,
-            "tot_ventas_iva": tot_ventas_iva,
-            "tot_ventas_total": tot_ventas_total,
-            "balance_iva": balance_iva
-        }
-        self.current_total = balance_iva
-        self.current_periodo = self.doc_header_periodo.value
-
-        def _crear_resumen_impuestos_row(label, val_base, val_iva, val_total, is_header=False, color_txt="black"):
-            weight = "bold" if is_header else "normal"
-            size = 12 if is_header else 11
-            return ft.Row([
-                ft.Text(label, weight=weight, size=size, expand=True, color=color_txt),
-                ft.Text(f"${val_base:,.2f}" if isinstance(val_base, (int, float)) else val_base, weight=weight, size=size, width=110, text_align=ft.TextAlign.RIGHT, color=color_txt),
-                ft.Text(f"${val_iva:,.2f}" if isinstance(val_iva, (int, float)) else val_iva, weight=weight, size=size, width=110, text_align=ft.TextAlign.RIGHT, color=color_txt),
-                ft.Text(f"${val_total:,.2f}" if isinstance(val_total, (int, float)) else val_total, weight=weight, size=size, width=120, text_align=ft.TextAlign.RIGHT, color=color_txt),
-            ])
-
-        if detalle == "Resumido":
-            self.doc_cuerpo.controls.append(_crear_resumen_impuestos_row("CONCEPTO / CONSOLIDADO", "VALOR BASE", "IVA ACUMULADO", "VALOR TOTAL", is_header=True))
-            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
-            
-            self.doc_cuerpo.controls.append(_crear_resumen_impuestos_row("VENTAS (IVA GENERADO)", tot_ventas_base, tot_ventas_iva, tot_ventas_total, color_txt="blue700"))
-            self.doc_cuerpo.controls.append(_crear_resumen_impuestos_row("COMPRAS (IVA PAGADO / DESCONTABLE)", tot_compras_base, tot_compras_iva, tot_compras_total, color_txt="teal700"))
-            self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
-
-            color_bal = "red" if balance_iva > 0 else "green"
-            lbl_bal = "BALANCE NETO DE IVA (POR PAGAR)" if balance_iva > 0 else "BALANCE NETO DE IVA (A FAVOR)"
-            self.doc_cuerpo.controls.append(
-                ft.Row([
-                    ft.Text(f"{lbl_bal}:", weight="bold", size=13, expand=True, text_align=ft.TextAlign.RIGHT),
-                    ft.Text(f"${balance_iva:,.2f}", weight="bold", size=14, width=150, text_align=ft.TextAlign.RIGHT, color=color_bal),
-                ])
-            )
-        else:
-            # VISTA COMPLETA DETALLADA
-            # 1. SECCIÓN COMPRAS
-            self.doc_cuerpo.controls.append(ft.Container(content=ft.Text("COMPRAS (IVA PAGADO EN ENTRADAS)", weight="bold", size=13, color="teal700"), padding=ft.padding.only(top=10, bottom=5)))
-            self.doc_cuerpo.controls.append(ft.Row([
-                ft.Text("FECHA", weight="bold", size=10, width=65),
-                ft.Text("DOC.", weight="bold", size=10, width=80),
-                ft.Text("INSUMO", weight="bold", size=10, expand=True),
-                ft.Text("BASE", weight="bold", size=10, width=80, text_align=ft.TextAlign.RIGHT),
-                ft.Text("IVA", weight="bold", size=10, width=70, text_align=ft.TextAlign.RIGHT),
-                ft.Text("TOTAL", weight="bold", size=10, width=85, text_align=ft.TextAlign.RIGHT),
-            ]))
-            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
-
-            for c in compras_filtradas:
-                self.doc_cuerpo.controls.append(ft.Row([
-                    ft.Text(c['fecha'], size=10, width=65),
-                    ft.Text(c['doc'], size=10, width=80, no_wrap=True),
-                    ft.Text(c['insumo'], size=10, expand=True, no_wrap=True),
-                    ft.Text(f"${c['base']:,.2f}", size=10, width=80, text_align=ft.TextAlign.RIGHT),
-                    ft.Text(f"${c['iva']:,.2f}", size=10, width=70, text_align=ft.TextAlign.RIGHT),
-                    ft.Text(f"${c['total']:,.2f}", size=10, width=85, text_align=ft.TextAlign.RIGHT),
-                ]))
-
-            self.doc_cuerpo.controls.append(ft.Row([
-                ft.Text("TOTAL COMPRAS:", weight="bold", size=11, expand=True, text_align=ft.TextAlign.RIGHT),
-                ft.Text(f"${tot_compras_base:,.2f}", weight="bold", size=11, width=80, text_align=ft.TextAlign.RIGHT),
-                ft.Text(f"${tot_compras_iva:,.2f}", weight="bold", size=11, width=70, text_align=ft.TextAlign.RIGHT, color="teal700"),
-                ft.Text(f"${tot_compras_total:,.2f}", weight="bold", size=11, width=85, text_align=ft.TextAlign.RIGHT),
-            ]))
-            self.doc_cuerpo.controls.append(ft.Divider(height=15, color="transparent"))
-
-            # 2. SECCIÓN VENTAS
-            self.doc_cuerpo.controls.append(ft.Container(content=ft.Text("VENTAS (IVA GENERADO EN SALIDAS)", weight="bold", size=13, color="blue700"), padding=ft.padding.only(top=10, bottom=5)))
-            self.doc_cuerpo.controls.append(ft.Row([
-                ft.Text("FECHA", weight="bold", size=10, width=65),
-                ft.Text("DOC.", weight="bold", size=10, width=80),
-                ft.Text("INSUMO", weight="bold", size=10, expand=True),
-                ft.Text("BASE", weight="bold", size=10, width=80, text_align=ft.TextAlign.RIGHT),
-                ft.Text("IVA", weight="bold", size=10, width=70, text_align=ft.TextAlign.RIGHT),
-                ft.Text("TOTAL", weight="bold", size=10, width=85, text_align=ft.TextAlign.RIGHT),
-            ]))
-            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
-
-            for v in ventas_filtradas:
-                self.doc_cuerpo.controls.append(ft.Row([
-                    ft.Text(v['fecha'], size=10, width=65),
-                    ft.Text(v['doc'], size=10, width=80, no_wrap=True),
-                    ft.Text(v['insumo'], size=10, expand=True, no_wrap=True),
-                    ft.Text(f"${v['base']:,.2f}", size=10, width=80, text_align=ft.TextAlign.RIGHT),
-                    ft.Text(f"${v['iva']:,.2f}", size=10, width=70, text_align=ft.TextAlign.RIGHT),
-                    ft.Text(f"${v['total']:,.2f}", size=10, width=85, text_align=ft.TextAlign.RIGHT),
-                ]))
-
-            self.doc_cuerpo.controls.append(ft.Row([
-                ft.Text("TOTAL VENTAS:", weight="bold", size=11, expand=True, text_align=ft.TextAlign.RIGHT),
-                ft.Text(f"${tot_ventas_base:,.2f}", weight="bold", size=11, width=80, text_align=ft.TextAlign.RIGHT),
-                ft.Text(f"${tot_ventas_iva:,.2f}", weight="bold", size=11, width=70, text_align=ft.TextAlign.RIGHT, color="blue700"),
-                ft.Text(f"${tot_ventas_total:,.2f}", weight="bold", size=11, width=85, text_align=ft.TextAlign.RIGHT),
-            ]))
-            self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
-
-            color_bal = "red" if balance_iva > 0 else "green"
-            lbl_bal = "BALANCE NETO DE IVA (POR PAGAR)" if balance_iva > 0 else "BALANCE NETO DE IVA (A FAVOR)"
-            self.doc_cuerpo.controls.append(
-                ft.Row([
-                    ft.Text(f"{lbl_bal}:", weight="bold", size=13, expand=True, text_align=ft.TextAlign.RIGHT),
-                    ft.Text(f"${balance_iva:,.2f}", weight="bold", size=13, width=120, text_align=ft.TextAlign.RIGHT, color=color_bal),
-                ])
-            )
-            self.doc_cuerpo.controls.append(ft.Divider(height=4, color="black"))
-
-    def _generar_valorizacion(self, detalle, fecha_corte=None):
-        # Obtener datos calculados desde la base de datos
-        data, _ = self.db.get_insumos(page=1, page_size=100000, fecha_corte=fecha_corte)
-
-        if not data:
-            self.doc_cuerpo.controls.append(
-                ft.Container(content=ft.Text("No hay datos para los filtros seleccionados.", size=14, color="grey"), padding=30, alignment=ft.alignment.center)
-            )
-            self.current_data = {}
-            self.current_total = 0
-            return
-
-        agrupacion = {}
-        gran_total_costo = 0.0
-        gran_total_cant = 0.0
-
-        for item in data:
-            cat = (item.get("categoria") or "SIN CATEGORIA").strip().upper()
-            stock_real = float(item.get("stock_actual") or item.get("stock_real") or 0)
-            costo_u = float(item.get("costo_unitario") or 0)
-            
-            # REGLA DE NEGOCIO: Un informe de valorización evalúa existencias reales.
-            # Saldos negativos (ventas sin compra ingresada) se evalúan en 0 para evitar cantidades negativas y '$-0.00'.
-            stock_val = max(0.0, stock_real)
-            costo_total = stock_val * costo_u
-
-            # Solo se valoran ítems con existencia disponible real
-            if stock_val > 0 and costo_total > 0:
-                if cat not in agrupacion:
-                    agrupacion[cat] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
-
-                agrupacion[cat]["items"].append({
-                    "codigo": item.get("codigo_insumo"),
-                    "nombre": item.get("nombre"),
-                    "stock": stock_val,
-                    "costo_u": costo_u,
-                    "total": costo_total
-                })
-                agrupacion[cat]["subtotal"] += costo_total
-                agrupacion[cat]["cant_total"] += stock_val
-                gran_total_costo += costo_total
-                gran_total_cant += stock_val
-
-        # Guardar en memoria para exportación PDF/Excel
-        self.current_data = agrupacion
-        self.current_total = gran_total_costo
-        self.current_periodo = self.doc_header_periodo.value
-
-        if detalle == "Resumido":
-            self._dibujar_resumido(agrupacion, "CATEGORÍA", gran_total_costo, gran_total_cant, "GRAN TOTAL VALORIZACIÓN")
-        else:
-            self.doc_cuerpo.controls.append(
-                ft.Row([
-                    ft.Text("CÓDIGO", weight="bold", size=11, width=60),
-                    ft.Text("INSUMO", weight="bold", size=11, expand=True),
-                    ft.Text("CANT.", weight="bold", size=11, width=60, text_align=ft.TextAlign.RIGHT),
-                    ft.Text("COSTO U.", weight="bold", size=11, width=80, text_align=ft.TextAlign.RIGHT),
-                    ft.Text("TOTAL", weight="bold", size=11, width=100, text_align=ft.TextAlign.RIGHT),
-                ])
-            )
-            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
-
-            for cat, datos_cat in sorted(agrupacion.items()):
-                self.doc_cuerpo.controls.append(
-                    ft.Container(content=ft.Text(f"GRUPO: {cat.upper()}", weight="bold", size=12, color=Config.COLOR_PRIMARY), padding=ft.padding.only(top=10, bottom=5))
-                )
-                for i in sorted(datos_cat["items"], key=lambda x: x["nombre"]):
-                    self.doc_cuerpo.controls.append(
-                        ft.Row([
-                            ft.Text(i['codigo'], size=11, width=60),
-                            ft.Text(i['nombre'], size=11, expand=True, no_wrap=True),
-                            ft.Text(f"{i['stock']:g}", size=11, width=60, text_align=ft.TextAlign.RIGHT),
-                            ft.Text(f"${i['costo_u']:,.2f}", size=11, width=80, text_align=ft.TextAlign.RIGHT),
-                            ft.Text(f"${i['total']:,.2f}", size=11, width=100, text_align=ft.TextAlign.RIGHT),
-                        ])
-                    )
-                self.doc_cuerpo.controls.append(
-                    ft.Row([
-                        ft.Text(f"Total {cat}:", weight="bold", size=11, expand=True, text_align=ft.TextAlign.RIGHT),
-                        ft.Text(f"${datos_cat['subtotal']:,.2f}", weight="bold", size=12, width=100, text_align=ft.TextAlign.RIGHT),
-                    ])
-                )
-                self.doc_cuerpo.controls.append(ft.Divider(height=1, color="#eeeeee"))
-
-            self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
-            self.doc_cuerpo.controls.append(
-                ft.Row([
-                    ft.Text("GRAN TOTAL VALORIZACIÓN:", weight="bold", size=14, expand=True, text_align=ft.TextAlign.RIGHT),
-                    ft.Text(f"${gran_total_costo:,.2f}", weight="bold", size=14, width=150, text_align=ft.TextAlign.RIGHT),
-                ])
-            )
-            self.doc_cuerpo.controls.append(ft.Divider(height=4, color="black"))
-
-    def _generar_compras(self, fecha_inicio, fecha_fin, detalle):
-        data, _ = self.db.get_compras(page=1, page_size=10000)
-        agrupacion = {}
-        gran_total = 0.0
-        gran_total_cant = 0.0
-
-        for item in data:
-            fecha = item.get("fecha", "")[:10]
-            if not (fecha_inicio <= fecha <= fecha_fin): continue
-
-            proveedor = item.get("proveedor", "Desconocido")
-            costo_total = float(item.get("costo_total") or 0)
-            cant = float(item.get("cantidad", 0))
-
-            if proveedor not in agrupacion:
-                agrupacion[proveedor] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
-
-            agrupacion[proveedor]["items"].append({
-                "fecha": fecha,
-                "factura": item.get("numero_factura", ""),
-                "insumo": item.get("catalogo_insumos", {}).get("nombre", ""),
-                "cant": cant,
-                "total": costo_total
-            })
-            agrupacion[proveedor]["subtotal"] += costo_total
-            agrupacion[proveedor]["cant_total"] += cant
-            gran_total += costo_total
-            gran_total_cant += cant
-
-        self.current_data = agrupacion
-        self.current_total = gran_total
-        self.current_periodo = self.doc_header_periodo.value
-
-        if detalle == "Resumido":
-            self._dibujar_resumido(agrupacion, "PROVEEDOR", gran_total, gran_total_cant)
-        else:
-            self._dibujar_tabla_financiera(agrupacion, "PROVEEDOR", gran_total, ["FECHA", "FACTURA", "INSUMO", "CANT.", "TOTAL"])
-
-    def _generar_ventas(self, fecha_inicio, fecha_fin, detalle):
-        data, _ = self.db.get_ventas(page=1, page_size=10000)
-        agrupacion = {}
-        gran_total = 0.0
-        gran_total_cant = 0.0
-
-        for item in data:
-            fecha = item.get("fecha", "")[:10]
-            if not (fecha_inicio <= fecha <= fecha_fin): continue
-
-            cat = item.get("catalogo_insumos", {}).get("categoria", "SIN CATEGORIA")
-            
-            if cat not in agrupacion:
-                agrupacion[cat] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
-
-            total = float(item.get("total") or 0)
-            cant = float(item.get("cantidad", 0))
-            agrupacion[cat]["items"].append({
-                "fecha": fecha,
-                "factura": item.get("factura_no", ""),
-                "insumo": item.get("descripcion") or item.get("catalogo_insumos", {}).get("nombre", ""),
-                "cant": cant,
-                "total": total
-            })
-            agrupacion[cat]["subtotal"] += total
-            agrupacion[cat]["cant_total"] += cant
-            gran_total += total
-            gran_total_cant += cant
-
-        self.current_data = agrupacion
-        self.current_total = gran_total
-        self.current_periodo = self.doc_header_periodo.value
-
-        if detalle == "Resumido":
-            self._dibujar_resumido(agrupacion, "CATEGORÍA", gran_total, gran_total_cant)
-        else:
-            self._dibujar_tabla_financiera(agrupacion, "CATEGORÍA", gran_total, ["FECHA", "FACTURA", "INSUMO", "CANT.", "INGRESOS"])
-
-    def _generar_ajustes(self, fecha_inicio, fecha_fin, detalle):
-        data = self.db.get_ajustes_inventario()
-        agrupacion = {}
-        gran_total_neto = 0.0
-        gran_total_cant = 0.0
-
-        for item in data:
-            if item.get("estado_registro") != "VÁLIDO": continue
-
-            fecha = item.get("fecha_ajuste", "")[:10]
-            if not (fecha_inicio <= fecha <= fecha_fin): continue
-
-            tipo = "ENTRADAS (+)" if item.get("tipo_ajuste") in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE') else "SALIDAS (-)"
-            if tipo not in agrupacion:
-                agrupacion[tipo] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
-
-            costo = float(item.get("costo_total_ajuste") or 0)
-            cant = float(item.get("cantidad", 0))
-
-            raw_motivo = item.get("motivo", "")
-            raw_obs = item.get("observacion", "") or item.get("observaciones", "")
-            if not raw_motivo and item.get("motivo_observacion"):
-                partes = item.get("motivo_observacion").split("]", 1)
-                raw_motivo = partes[0].replace("[", "").strip() if len(partes) > 1 else item.get("motivo_observacion")
-                raw_obs = partes[1].strip() if len(partes) > 1 else ""
-
-            agrupacion[tipo]["items"].append({
-                "fecha": fecha,
-                "motivo": raw_motivo,
-                "obs": raw_obs,
-                "insumo": item.get("catalogo_insumos", {}).get("nombre", ""),
-                "cant": cant,
-                "total": costo
-            })
-            agrupacion[tipo]["subtotal"] += costo
-            agrupacion[tipo]["cant_total"] += cant
-            gran_total_neto += costo if tipo == "ENTRADAS (+)" else -costo
-            gran_total_cant += cant if tipo == "ENTRADAS (+)" else -cant
-
-        self.current_data = agrupacion
-        self.current_total = gran_total_neto
-        self.current_periodo = self.doc_header_periodo.value
-
-        if detalle == "Resumido":
-            self._dibujar_resumido(agrupacion, "TIPO DE AJUSTE", gran_total_neto, gran_total_cant, "IMPACTO NETO")
-        else:
-            self._dibujar_tabla_financiera(agrupacion, "TIPO DE AJUSTE", gran_total_neto, ["FECHA", "MOTIVO", "OBSERVACIÓN", "INSUMO", "CANT.", "COSTO TOTAL"], label_gran_total="IMPACTO NETO", is_ajuste=True)
-
-    def _dibujar_resumido(self, agrupacion, label_grupo, gran_total_val, gran_total_cant=0, label_gran_total="GRAN TOTAL"):
-        self.doc_cuerpo.controls.append(ft.Row([
-            ft.Text(label_grupo, weight="bold", size=11, expand=True),
-            ft.Text("CANT. TOTAL", weight="bold", size=11, width=100, text_align=ft.TextAlign.RIGHT),
-            ft.Text("VALOR TOTAL", weight="bold", size=11, width=120, text_align=ft.TextAlign.RIGHT),
-        ]))
-        self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
-
-        for grupo, datos in sorted(agrupacion.items()):
-            self.doc_cuerpo.controls.append(ft.Row([
-                ft.Text(grupo.upper(), size=11, expand=True, weight="bold", color=Config.COLOR_PRIMARY),
-                ft.Text(f"{datos.get('cant_total', 0):g}", size=11, width=100, text_align=ft.TextAlign.RIGHT),
-                ft.Text(f"${datos['subtotal']:,.2f}", size=11, width=120, text_align=ft.TextAlign.RIGHT),
-            ]))
-            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="#eeeeee"))
-
-        self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
-        color_total = "red" if gran_total_val < 0 else "black"
-        self.doc_cuerpo.controls.append(ft.Row([
-            ft.Text(f"{label_gran_total}:", weight="bold", size=14, expand=True, text_align=ft.TextAlign.RIGHT),
-            ft.Text(f"{gran_total_cant:g}", weight="bold", size=14, width=100, text_align=ft.TextAlign.RIGHT),
-            ft.Text(f"${gran_total_val:,.2f}", weight="bold", size=14, width=120, text_align=ft.TextAlign.RIGHT, color=color_total),
-        ]))
-
-    def _dibujar_tabla_financiera(self, agrupacion, label_grupo, gran_total, headers, label_gran_total="GRAN TOTAL", is_ajuste=False):
-        if not agrupacion:
-            self.doc_cuerpo.controls.append(ft.Container(content=ft.Text("No hay datos para los filtros seleccionados.", size=14, color="grey"), padding=30, alignment=ft.alignment.center))
-            return
-
-        # Cabeceras
-        if is_ajuste:
-            self.doc_cuerpo.controls.append(ft.Row([
-                ft.Text(headers[0], weight="bold", size=11, width=65),
-                ft.Text(headers[1], weight="bold", size=11, width=90),
-                ft.Text(headers[2], weight="bold", size=11, expand=True),
-                ft.Text(headers[3], weight="bold", size=11, width=100),
-                ft.Text(headers[4], weight="bold", size=11, width=45, text_align=ft.TextAlign.RIGHT),
-                ft.Text(headers[5], weight="bold", size=11, width=70, text_align=ft.TextAlign.RIGHT),
-            ]))
-        else:
-            self.doc_cuerpo.controls.append(ft.Row([
-                ft.Text(headers[0], weight="bold", size=11, width=70),
-                ft.Text(headers[1], weight="bold", size=11, width=90),
-                ft.Text(headers[2], weight="bold", size=11, expand=True),
-                ft.Text(headers[3], weight="bold", size=11, width=60, text_align=ft.TextAlign.RIGHT),
-                ft.Text(headers[4], weight="bold", size=11, width=100, text_align=ft.TextAlign.RIGHT),
-            ]))
-        self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
-
-        for grupo, datos in sorted(agrupacion.items()):
-            self.doc_cuerpo.controls.append(ft.Container(content=ft.Text(f"{label_grupo}: {grupo.upper()}", weight="bold", size=12, color=Config.COLOR_PRIMARY), padding=ft.padding.only(top=10, bottom=5)))
-            for i in datos["items"]:
-                if is_ajuste:
-                    fila_ui = ft.Row([
-                        ft.Text(i['fecha'], size=11, width=65),
-                        ft.Text(i['motivo'], size=11, width=90, no_wrap=True, weight="bold"),
-                        ft.Text(i['obs'], size=11, expand=True), # Observación toma el espacio restante
-                        ft.Text(i['insumo'], size=11, width=100, no_wrap=True),
-                        ft.Text(f"{i['cant']:g}", size=11, width=45, text_align=ft.TextAlign.RIGHT),
-                        ft.Text(f"${i['total']:,.2f}", size=11, width=70, text_align=ft.TextAlign.RIGHT),
-                    ])
-                else:
-                    fila_ui = ft.Row([
-                        ft.Text(i['fecha'], size=11, width=70),
-                        ft.Text(i['factura'], size=11, width=90, no_wrap=True),
-                        ft.Text(i['insumo'], size=11, expand=True, no_wrap=True),
-                        ft.Text(f"{i['cant']:g}", size=11, width=60, text_align=ft.TextAlign.RIGHT),
-                        ft.Text(f"${i['total']:,.2f}", size=11, width=100, text_align=ft.TextAlign.RIGHT),
-                    ])
-                self.doc_cuerpo.controls.append(fila_ui)
-            self.doc_cuerpo.controls.append(ft.Row([
-                ft.Text(f"Total {grupo}:", weight="bold", size=11, expand=True, text_align=ft.TextAlign.RIGHT),
-                ft.Text(f"${datos['subtotal']:,.2f}", weight="bold", size=12, width=100, text_align=ft.TextAlign.RIGHT),
-            ]))
-            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="#eeeeee"))
-
-        self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
-        color_total = "red" if gran_total < 0 else "black"
-        self.doc_cuerpo.controls.append(ft.Row([
-            ft.Text(f"{label_gran_total}:", weight="bold", size=14, expand=True, text_align=ft.TextAlign.RIGHT),
-            ft.Text(f"${gran_total:,.2f}", weight="bold", size=14, width=150, text_align=ft.TextAlign.RIGHT, color=color_total),
-        ]))
-        self.doc_cuerpo.controls.append(ft.Divider(height=4, color="black"))
-
-    def _generar_kpis(self, fecha_inicio, fecha_fin):
-        # Como los KPIs son un resumen global dictado por los métodos SQL actuales (que operan por mes/hoy)
-        # Mostraremos la foto actual del sistema independientemente del filtro de fechas (con una advertencia visual)
-
-        res_cat = self.db.get_catalogo_summary()
-        res_ven = self.db.get_ventas_summary()
-        res_com = self.db.get_compras_summary()
-        kpis_inv = self.db.get_inventario_kpis()
-
-        val_inv = kpis_inv.get('valor_inventario', 0)
-        ingresos = float(res_ven.get('total_mes') or 0)
-        compras = float(res_com.get('total_mes') or 0)
-
-        rentabilidad = ((ingresos - compras) / ingresos) * 100 if ingresos > 0 else 0
-        rotacion = ingresos / val_inv if val_inv > 0 else 0
-
-        def _crear_kpi_fila(label, valor, color="black"):
-            return ft.Row([
-                ft.Text(label, size=13, expand=True),
-                ft.Text(valor, size=14, weight="bold", color=color, width=150, text_align=ft.TextAlign.RIGHT)
-            ])
-
-        self.doc_cuerpo.controls.extend([
-            ft.Container(content=ft.Text("NOTA: Este resumen muestra el estado actual del MES EN CURSO según las métricas del Dashboard, independientemente del filtro de fechas seleccionado.", size=10, color="orange", italic=True), padding=10, bgcolor="#fff3cd", border_radius=5),
-            ft.Divider(height=10, color="transparent"),
-            ft.Text("MÉTRICAS DE INVENTARIO Y COSTOS", weight="bold", size=14, color=Config.COLOR_PRIMARY),
-            ft.Divider(height=1, color="black"),
-            _crear_kpi_fila("Valorización Actual del Inventario", f"${val_inv:,.2f}"),
-            _crear_kpi_fila("Total Compras (Mes Actual)", f"${compras:,.2f}"),
-            ft.Divider(height=20, color="transparent"),
-            ft.Text("MÉTRICAS DE VENTAS E INGRESOS", weight="bold", size=14, color=Config.COLOR_PRIMARY),
-            ft.Divider(height=1, color="black"),
-            _crear_kpi_fila("Total Ventas (Mes Actual)", f"${ingresos:,.2f}", "green"),
-            _crear_kpi_fila("IVA Recaudado (Mes Actual)", f"${res_ven.get('iva_mes', 0):,.2f}"),
-            ft.Divider(height=20, color="transparent"),
-            ft.Text("RENDIMIENTO FINANCIERO (MES ACTUAL)", weight="bold", size=14, color=Config.COLOR_PRIMARY),
-            ft.Divider(height=1, color="black"),
-            _crear_kpi_fila("Margen de Rentabilidad Bruta", f"{rentabilidad:.1f}%", "green" if rentabilidad >= 0 else "red"),
-            _crear_kpi_fila("Índice de Rotación", f"{rotacion:.2f}x"),
-            ft.Divider(height=4, color="black")
-        ])
-
-    def exportar_pdf(self, e):
-        if not hasattr(self, 'current_data') or not self.current_data:
-            self.page.snack_bar = ft.SnackBar(ft.Text("Primero genera la previsualización del informe."), bgcolor="orange")
-            self.page.snack_bar.open = True
-            self.page.update()
-            return
-
-        # Garantizar registración en overlay antes de invocar el diálogo
-        if self.page:
-            if self.save_pdf_picker not in self.page.overlay:
-                self.page.overlay.append(self.save_pdf_picker)
-                self.page.update()
-
-        nombre_sugerido = f"{self.drop_tipo_informe.value.replace(' ', '_')}_{datetime.date.today().strftime('%Y%m%d')}.pdf"
-        self.save_pdf_picker.save_file(
-            dialog_title="Guardar Informe PDF",
-            file_name=nombre_sugerido,
-            allowed_extensions=["pdf"]
-        )
-
-    def _save_pdf_result(self, e: ft.FilePickerResultEvent):
-        if not e.path:
-            return
-            
-        try:
-            from fpdf import FPDF
-            
-            class PDFReport(FPDF):
-                def header(instance):
-                    instance.set_font("Arial", 'B', 12)
-                    instance.cell(0, 6, "TIENDA Y ABARROTES LOS DESECHABLES DE DOÑA MARY SAS", ln=True, align='C')
-                    instance.set_font("Arial", 'B', 10)
-                    instance.cell(0, 5, "REPORTE OFICIAL DE INVENTARIOS Y OPERACIONES", ln=True, align='C')
-                    instance.set_font("Arial", '', 8)
-                    instance.cell(0, 4, f"Generado el: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')}", ln=True, align='C')
-                    instance.ln(4)
-                    instance.line(10, instance.get_y(), 200, instance.get_y())
-                    instance.ln(4)
-
-                def footer(instance):
-                    instance.set_y(-15)
-                    instance.set_font("Arial", 'I', 8)
-                    instance.cell(0, 10, f"Página {instance.page_no()}/{{nb}}", align='C')
-
-            pdf = PDFReport()
-            pdf.alias_nb_pages()
-            pdf.add_page()
-            pdf.set_auto_page_break(auto=True, margin=15)
-
-            # Título del Informe
-            pdf.set_font("Arial", 'B', 11)
-            pdf.cell(0, 6, str(self.doc_header_titulo.value).encode('latin-1', 'replace').decode('latin-1'), ln=True)
-            pdf.set_font("Arial", '', 9)
-            pdf.cell(0, 5, str(self.doc_header_periodo.value).encode('latin-1', 'replace').decode('latin-1'), ln=True)
-            pdf.ln(4)
-
-            es_resumido = self.opcion_detalle.value == "Resumido"
-            es_ajuste = self.drop_tipo_informe.value == "Historial de Ajustes"
-
-            if es_resumido:
-                # Tabla Resumida
-                pdf.set_font("Arial", 'B', 8)
-                pdf.cell(110, 6, "GRUPO / CATEGORIA", border=1)
-                pdf.cell(35, 6, "CANT. TOTAL", border=1, align='R')
-                pdf.cell(45, 6, "VALOR TOTAL", border=1, align='R')
-                pdf.ln()
-
-                pdf.set_font("Arial", '', 8)
-                for grupo, datos in sorted(self.current_data.items()):
-                    g_nombre = str(grupo).upper().encode('latin-1', 'replace').decode('latin-1')
-                    pdf.cell(110, 6, g_nombre, border="L,R,B")
-                    pdf.cell(35, 6, f"{datos.get('cant_total', 0):g}", border="L,R,B", align='R')
-                    pdf.cell(45, 6, f"${datos['subtotal']:,.2f}", border="L,R,B", align='R', ln=True)
-
-                pdf.ln(4)
-                pdf.set_font("Arial", 'B', 9)
-                pdf.cell(145, 7, "TOTAL GENERAL:", align='R')
-                pdf.cell(45, 7, f"${self.current_total:,.2f}", border=1, align='R', ln=True)
-
-            else:
-                # Tabla Completa
-                pdf.set_font("Arial", 'B', 8)
-                if es_ajuste:
-                    pdf.cell(20, 6, "FECHA", border=1)
-                    pdf.cell(30, 6, "MOTIVO", border=1)
-                    pdf.cell(50, 6, "OBSERVACION", border=1)
-                    pdf.cell(45, 6, "INSUMO", border=1)
-                    pdf.cell(20, 6, "CANT.", border=1, align='R')
-                    pdf.cell(25, 6, "COSTO TOT.", border=1, align='R')
-                else:
-                    pdf.cell(20, 6, "FECHA/COD", border=1)
-                    pdf.cell(30, 6, "DOC/FACT", border=1)
-                    pdf.cell(75, 6, "INSUMO / DESCRIPCION", border=1)
-                    pdf.cell(20, 6, "CANT.", border=1, align='R')
-                    pdf.cell(20, 6, "COSTO U.", border=1, align='R')
-                    pdf.cell(25, 6, "TOTAL", border=1, align='R')
-                pdf.ln()
-
-                for grupo, datos in sorted(self.current_data.items()):
-                    pdf.set_font("Arial", 'B', 8)
-                    pdf.cell(0, 6, f"  GRUPO: {str(grupo).upper().encode('latin-1', 'replace').decode('latin-1')}", border="L,R,B", ln=True)
-                    pdf.set_font("Arial", '', 7)
-
-                    for i in datos["items"]:
-                        insumo_txt = str(i.get('insumo') or i.get('nombre', '')).encode('latin-1', 'replace').decode('latin-1')[:35]
-                        
-                        if es_ajuste:
-                            motivo_txt = str(i.get('motivo', '')).encode('latin-1', 'replace').decode('latin-1')[:18]
-                            obs_txt = str(i.get('obs', '')).encode('latin-1', 'replace').decode('latin-1')[:30]
-                            pdf.cell(20, 5, str(i.get('fecha', '')), border="L")
-                            pdf.cell(30, 5, motivo_txt)
-                            pdf.cell(50, 5, obs_txt)
-                            pdf.cell(45, 5, insumo_txt)
-                            pdf.cell(20, 5, f"{i.get('cant', 0):g}", align='R')
-                            pdf.cell(25, 5, f"${i.get('total', 0):,.2f}", border="R", align='R', ln=True)
-                        else:
-                            c_code = str(i.get('codigo') or i.get('fecha', ''))
-                            c_doc = str(i.get('factura', ''))[:15]
-                            c_u = f"${i.get('costo_u', 0):,.2f}" if 'costo_u' in i else "-"
-                            pdf.cell(20, 5, c_code, border="L")
-                            pdf.cell(30, 5, c_doc)
-                            pdf.cell(75, 5, insumo_txt)
-                            pdf.cell(20, 5, f"{i.get('stock', i.get('cant', 0)):g}", align='R')
-                            pdf.cell(20, 5, c_u, align='R')
-                            pdf.cell(25, 5, f"${i.get('total', 0):,.2f}", border="R", align='R', ln=True)
-
-                    pdf.set_font("Arial", 'B', 8)
-                    pdf.cell(165, 5, f"Subtotal {grupo}:", border="L,B", align='R')
-                    pdf.cell(25, 5, f"${datos['subtotal']:,.2f}", border="R,B", align='R', ln=True)
-
-                pdf.ln(4)
-                pdf.set_font("Arial", 'B', 9)
-                pdf.cell(165, 7, "TOTAL GENERAL:", align='R')
-                pdf.cell(25, 7, f"${self.current_total:,.2f}", border=1, align='R', ln=True)
-
-            pdf.output(e.path)
-            self.page.snack_bar = ft.SnackBar(ft.Text("¡PDF exportado con éxito!"), bgcolor="green")
-            self.page.snack_bar.open = True
-            self.page.update()
-
-        except Exception as ex:
-            self.page.snack_bar = ft.SnackBar(ft.Text(f"Error al generar PDF: {ex}"), bgcolor="red")
-            self.page.snack_bar.open = True
-            self.page.update()
-
-    def exportar_excel(self, e):
-        # Garantizar registración en overlay antes de invocar el diálogo
-        if self.page:
-            if self.save_excel_picker not in self.page.overlay:
-                self.page.overlay.append(self.save_excel_picker)
-                self.page.update()
-
-        nombre_sugerido = f"Inventario_Consolidado_Dona_Mary_{datetime.date.today().strftime('%Y%m%d')}.xlsx"
-        self.save_excel_picker.save_file(
-            dialog_title="Guardar Consolidado Excel",
-            file_name=nombre_sugerido,
-            allowed_extensions=["xlsx"]
-        )
-
-    def _save_excel_result(self, e: ft.FilePickerResultEvent):
-        if not e.path:
-            return
-            
-        self.page.snack_bar = ft.SnackBar(ft.Text("Generando consolidado Excel en segundo plano..."), bgcolor="blue")
-        self.page.snack_bar.open = True
-        self.page.update()
-        
-        threading.Thread(target=self._worker_generar_excel, args=(e.path,), daemon=True).start()
-
-    def _worker_generar_excel(self, file_path):
-        try:
-            import openpyxl
-            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-            from openpyxl.utils import get_column_letter
-
-            # 1. Obtener datos completos de la base de datos sin filtros
-            raw_inv, _ = self.db.get_insumos(page=1, page_size=999999)
-            raw_compras, _ = self.db.get_compras(page=1, page_size=999999)
-            raw_ventas, _ = self.db.get_ventas(page=1, page_size=999999)
-            raw_ajustes = self.db.get_ajustes_inventario() or []
-
-            wb = openpyxl.Workbook()
-            wb.remove(wb.active) # Eliminar hoja por defecto
-
-            # Estilos generales
-            fill_header = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
-            font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-            font_title = Font(name="Calibri", size=14, bold=True, color="1B365D")
-            font_sub = Font(name="Calibri", size=10, italic=True, color="555555")
-            border_thin = Border(
-                left=Side(style='thin', color='CCCCCC'), right=Side(style='thin', color='CCCCCC'),
-                top=Side(style='thin', color='CCCCCC'), bottom=Side(style='thin', color='CCCCCC')
-            )
-            num_fmt_curr = '"$"#,##0.00'
-            num_fmt_qty = '#,##0'
-
-            fecha_emision = datetime.datetime.now().strftime("%d/%m/%Y %I:%M %p")
-            nombre_empresa = "TIENDA Y ABARROTES LOS DESECHABLES DE DOÑA MARY SAS"
-
-            def agregar_encabezado(ws, titulo):
-                ws['A1'] = nombre_empresa
-                ws['A1'].font = font_title
-                ws['A2'] = f"CONSOLIDADO SISTEMA: {titulo.upper()}"
-                ws['A2'].font = Font(name="Calibri", size=12, bold=True)
-                ws['A3'] = f"Fecha de emisión: {fecha_emision} | Datos acumulados sin filtros"
-                ws['A3'].font = font_sub
-
-            # ----------------------------------------------------
-            # HOJA 1: COMPRAS
-            # ----------------------------------------------------
-            ws_c = wb.create_sheet(title="Compras")
-            agregar_encabezado(ws_c, "Detalle de Registro de Compras")
-            ws_c.append([])
-            ws_c.append(["Fecha", "Código Insumo", "Nombre Insumo", "Factura / Documento", "Cantidad", "Costo Total"])
-
-            for r_idx, c in enumerate(raw_compras, start=6):
-                cat_i = c.get("catalogo_insumos") or {}
-                ws_c.cell(row=r_idx, column=1, value=str(c.get("fecha", ""))[:10])
-                ws_c.cell(row=r_idx, column=2, value=str(c.get("codigo_insumo", "")))
-                ws_c.cell(row=r_idx, column=3, value=cat_i.get("nombre", "Desconocido"))
-                ws_c.cell(row=r_idx, column=4, value=str(c.get("numero_factura") or c.get("numero_entrada") or ""))
-                ws_c.cell(row=r_idx, column=5, value=float(c.get("cantidad") or 0))
-                ws_c.cell(row=r_idx, column=6, value=float(c.get("costo_total") or 0))
-
-            # ----------------------------------------------------
-            # HOJA 2: VENTAS
-            # ----------------------------------------------------
-            ws_v = wb.create_sheet(title="Ventas")
-            agregar_encabezado(ws_v, "Detalle de Registro de Ventas")
-            ws_v.append([])
-            ws_v.append(["Fecha", "Código Insumo", "Nombre Insumo", "Comprobante / Pedido", "Cantidad", "Ingreso Total"])
-
-            for r_idx, v in enumerate(raw_ventas, start=6):
-                cat_i = v.get("catalogo_insumos") or {}
-                ws_v.cell(row=r_idx, column=1, value=str(v.get("fecha", ""))[:10])
-                ws_v.cell(row=r_idx, column=2, value=str(v.get("codigo_insumo", "")))
-                ws_v.cell(row=r_idx, column=3, value=cat_i.get("nombre") or v.get("descripcion") or "Desconocido")
-                ws_v.cell(row=r_idx, column=4, value=str(v.get("factura_no", "")))
-                ws_v.cell(row=r_idx, column=5, value=float(v.get("cantidad") or 0))
-                ws_v.cell(row=r_idx, column=6, value=float(v.get("total") or 0))
-
-            # ----------------------------------------------------
-            # HOJA 3: AJUSTES
-            # ----------------------------------------------------
-            ws_a = wb.create_sheet(title="Ajustes")
-            agregar_encabezado(ws_a, "Detalle de Ajustes de Inventario")
-            ws_a.append([])
-            ws_a.append(["Fecha", "Código Insumo", "Nombre Insumo", "Tipo", "Cantidad", "Motivo"])
-
-            for r_idx, a in enumerate(raw_ajustes, start=6):
-                if a.get("estado_registro") != "VÁLIDO": continue
-                cat_i = a.get("catalogo_insumos") or {}
-                es_ent = a.get("tipo_ajuste") in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
-                
-                ws_a.cell(row=r_idx, column=1, value=str(a.get("fecha_ajuste", ""))[:10])
-                ws_a.cell(row=r_idx, column=2, value=str(a.get("codigo_insumo", "")))
-                ws_a.cell(row=r_idx, column=3, value=cat_i.get("nombre", "Desconocido"))
-                ws_a.cell(row=r_idx, column=4, value="Entrada" if es_ent else "Salida")
-                ws_a.cell(row=r_idx, column=5, value=float(a.get("cantidad") or 0))
-                ws_a.cell(row=r_idx, column=6, value=str(a.get("motivo_observacion", "")))
-
-            # ----------------------------------------------------
-            # HOJA 4: INVENTARIO (HOJA MAESTRA CON FÓRMULAS)
-            # ----------------------------------------------------
-            ws_inv = wb.create_sheet(title="Inventario")
-            agregar_encabezado(ws_inv, "Catálogo General de Inventario y Valorización Formulado")
-            ws_inv.append([])
-            
-            headers_inv = [
-                "Código", "Nombre", "Categoría", "Ubicación", "Stock Inicial",
-                "Entradas", "Costo Entradas", "Salidas", "Ingresos por Salidas",
-                "Stock Actual", "Costo del Stock Actual", "Proyección Ingresos Stock Actual",
-                "Precio de Venta del Sistema", "Costo Unitario del Sistema",
-                "Ajustes Entradas", "Ajustes Salidas", "Costo Ajustes Entradas", "Ingresos Ajustes Salidas"
-            ]
-            ws_inv.append(headers_inv)
-
-            for idx, i in enumerate(raw_inv, start=6):
-                code = str(i.get("codigo_insumo", ""))
-                
-                # Datos estáticos base
-                ws_inv.cell(row=idx, column=1, value=code) # A
-                ws_inv.cell(row=idx, column=2, value=str(i.get("nombre", ""))) # B
-                ws_inv.cell(row=idx, column=3, value=str(i.get("categoria", ""))) # C
-                ws_inv.cell(row=idx, column=4, value=str(i.get("ubicacion") or "N/A")) # D
-                ws_inv.cell(row=idx, column=5, value=float(i.get("stock_inicial") or 0)) # E
-
-                # Fórmulas SUMIF sobre Compras y Ventas
-                ws_inv.cell(row=idx, column=6, value=f'=SUMIF(Compras!B:B, A{idx}, Compras!E:E)') # F: Entradas
-                ws_inv.cell(row=idx, column=7, value=f'=SUMIF(Compras!B:B, A{idx}, Compras!F:F)') # G: Costo Entradas
-                ws_inv.cell(row=idx, column=8, value=f'=SUMIF(Ventas!B:B, A{idx}, Ventas!E:E)') # H: Salidas
-                ws_inv.cell(row=idx, column=9, value=f'=SUMIF(Ventas!B:B, A{idx}, Ventas!F:F)') # I: Ingresos Salidas
-
-                # Precios/Costos Unitarios Maestros
-                ws_inv.cell(row=idx, column=13, value=float(i.get("precio_venta") or 0)) # M: Precio Venta
-                ws_inv.cell(row=idx, column=14, value=float(i.get("costo_unitario") or 0)) # N: Costo Unitario
-
-                # Fórmulas SUMIFS sobre Ajustes
-                ws_inv.cell(row=idx, column=15, value=f'=SUMIFS(Ajustes!E:E, Ajustes!B:B, A{idx}, Ajustes!D:D, "Entrada")') # O: Ajustes Entradas
-                ws_inv.cell(row=idx, column=16, value=f'=SUMIFS(Ajustes!E:E, Ajustes!B:B, A{idx}, Ajustes!D:D, "Salida")') # P: Ajustes Salidas
-
-                # Fórmulas de Totales en Inventario
-                ws_inv.cell(row=idx, column=10, value=f'=E{idx}+F{idx}-H{idx}+O{idx}-P{idx}') # J: Stock Actual
-                ws_inv.cell(row=idx, column=11, value=f'=J{idx}*N{idx}') # K: Costo Stock Actual
-                ws_inv.cell(row=idx, column=12, value=f'=J{idx}*M{idx}') # L: Proyección Ingresos
-                ws_inv.cell(row=idx, column=17, value=f'=O{idx}*N{idx}') # Q: Costo Ajustes Entradas
-                ws_inv.cell(row=idx, column=18, value=f'=P{idx}*M{idx}') # R: Ingresos Ajustes Salidas
-
-            # ----------------------------------------------------
-            # APLICAR FORMATOS Y AUTOFIT A TODAS LAS HOJAS
-            # ----------------------------------------------------
-            for sheet in wb.worksheets:
-                for cell in sheet[5]:
-                    cell.fill = fill_header
-                    cell.font = font_header
-                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
-                for col in sheet.columns:
-                    max_len = 0
-                    col_letter = get_column_letter(col[0].column)
-                    for cell in col:
-                        if cell.row >= 5 and cell.value is not None:
-                            max_len = max(max_len, len(str(cell.value)))
-                            cell.border = border_thin
-
-                        # Formatear números en la hoja Inventario
-                        if sheet.title == "Inventario" and cell.row >= 6:
-                            if col_letter in ["G", "I", "K", "L", "M", "N", "Q", "R"]:
-                                cell.number_format = num_fmt_curr
-                            elif col_letter in ["E", "F", "H", "J", "O", "P"]:
-                                cell.number_format = num_fmt_qty
-                        elif sheet.title in ["Compras", "Ventas"] and cell.row >= 6:
-                            if col_letter == "F": cell.number_format = num_fmt_curr
-                            elif col_letter == "E": cell.number_format = num_fmt_qty
-
-                    sheet.column_dimensions[col_letter].width = max(max_len + 4, 12)
-
-            wb.save(file_path)
-
-            if self.page:
-                self.page.snack_bar = ft.SnackBar(ft.Text("¡Consolidado Excel generado y formulado con éxito!"), bgcolor="green")
-                self.page.snack_bar.open = True
-                self.page.update()
-
-        except Exception as ex:
-            print(f"Error generando Excel: {ex}")
-            if self.page:
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error al generar Excel: {ex}"), bgcolor="red")
-                self.page.snack_bar.open = True
-                self.page.update()
 ````
 
 ## File: ui/views/inventario.py
@@ -6897,6 +5217,214 @@ class InventarioView(ft.Container):
         threading.Thread(target=self._fetch_data_worker, daemon=True).start()
 ````
 
+## File: cargas_compras_locales.json
+````json
+{
+    "2026-08-18": {
+        "1": {
+            "id": 1,
+            "fecha": "2026-08-18",
+            "pagina": 1,
+            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
+            "archivo": "pdfs_locales\\compra_2026-08-18_pag_1.pdf",
+            "estado": "Guardado",
+            "datos_extraidos": [
+                {
+                    "fecha": "2026-08-03",
+                    "numero_entrada": "EA-9273",
+                    "numero_factura": "7957448",
+                    "productos": [
+                        {
+                            "cantidad": 200.0,
+                            "codigo_insumo": "0578",
+                            "costo_unitario": 328.0,
+                            "iva": 12464.0
+                        }
+                    ],
+                    "proveedor": "AJOVER SAS"
+                },
+                {
+                    "fecha": "2026-08-03",
+                    "numero_entrada": "EA-9274",
+                    "numero_factura": "0174",
+                    "productos": [
+                        {
+                            "cantidad": 16.5,
+                            "codigo_insumo": "1347",
+                            "costo_unitario": 13100.0,
+                            "iva": 41069.0
+                        }
+                    ],
+                    "proveedor": "Clientes Varios"
+                },
+                {
+                    "fecha": "2026-08-03",
+                    "numero_entrada": "EA-9275",
+                    "numero_factura": "040826",
+                    "productos": [
+                        {
+                            "cantidad": 145.0,
+                            "codigo_insumo": "1893",
+                            "costo_unitario": 1933.0,
+                            "iva": 53248.0
+                        }
+                    ],
+                    "proveedor": "Clientes Varios"
+                },
+                {
+                    "fecha": "2026-08-03",
+                    "numero_entrada": "EA-9276",
+                    "numero_factura": "19284",
+                    "productos": [
+                        {
+                            "cantidad": 10.0,
+                            "codigo_insumo": "0471",
+                            "costo_unitario": 7353.0,
+                            "iva": 13971.0
+                        },
+                        {
+                            "cantidad": 50.0,
+                            "codigo_insumo": "4182",
+                            "costo_unitario": 2815.0,
+                            "iva": 26744.0
+                        },
+                        {
+                            "cantidad": 10.0,
+                            "codigo_insumo": "9104",
+                            "costo_unitario": 5252.0,
+                            "iva": 9979.0
+                        },
+                        {
+                            "cantidad": 10.0,
+                            "codigo_insumo": "9104",
+                            "costo_unitario": 5252.0,
+                            "iva": 9979.0
+                        },
+                        {
+                            "cantidad": 10.0,
+                            "codigo_insumo": "9104",
+                            "costo_unitario": 5252.0,
+                            "iva": 9979.0
+                        }
+                    ],
+                    "proveedor": "DISTRIBUCIONES PUNTO CHEVERE SAS"
+                },
+                {
+                    "fecha": "2026-08-03",
+                    "numero_entrada": "EA-9277",
+                    "numero_factura": "639921",
+                    "productos": [
+                        {
+                            "cantidad": 4000.0,
+                            "codigo_insumo": "0581",
+                            "costo_unitario": 296.0,
+                            "iva": 224960.0
+                        },
+                        {
+                            "cantidad": 10000.0,
+                            "codigo_insumo": "0572",
+                            "costo_unitario": 180.0,
+                            "iva": 341617.0
+                        },
+                        {
+                            "cantidad": 4000.0,
+                            "codigo_insumo": "0573",
+                            "costo_unitario": 296.0,
+                            "iva": 224960.0
+                        },
+                        {
+                            "cantidad": 60.0,
+                            "codigo_insumo": "1514",
+                            "costo_unitario": 3643.0,
+                            "iva": 41531.0
+                        },
+                        {
+                            "cantidad": 60.0,
+                            "codigo_insumo": "1164",
+                            "costo_unitario": 6056.0,
+                            "iva": 0.0
+                        },
+                        {
+                            "cantidad": 180.0,
+                            "codigo_insumo": "0855",
+                            "costo_unitario": 1555.0,
+                            "iva": 53168.0
+                        },
+                        {
+                            "cantidad": 36.0,
+                            "codigo_insumo": "2206",
+                            "costo_unitario": 3536.0,
+                            "iva": 24186.0
+                        },
+                        {
+                            "cantidad": 370.0,
+                            "codigo_insumo": "0847",
+                            "costo_unitario": 2269.0,
+                            "iva": 159504.0
+                        },
+                        {
+                            "cantidad": 148.0,
+                            "codigo_insumo": "0848",
+                            "costo_unitario": 2563.0,
+                            "iva": 72072.0
+                        },
+                        {
+                            "cantidad": 80.0,
+                            "codigo_insumo": "0688",
+                            "costo_unitario": 2643.0,
+                            "iva": 40168.0
+                        }
+                    ],
+                    "proveedor": "REPRESENTACIONES LASTRA SAS"
+                },
+                {
+                    "fecha": "2026-08-03",
+                    "numero_entrada": "EA-9278",
+                    "numero_factura": "639914",
+                    "productos": [
+                        {
+                            "cantidad": 600.0,
+                            "codigo_insumo": "2152",
+                            "costo_unitario": 1311.0,
+                            "iva": 149503.0
+                        },
+                        {
+                            "cantidad": 180.0,
+                            "codigo_insumo": "0855",
+                            "costo_unitario": 1487.0,
+                            "iva": 50869.0
+                        },
+                        {
+                            "cantidad": 185.0,
+                            "codigo_insumo": "0847",
+                            "costo_unitario": 2227.0,
+                            "iva": 78275.0
+                        }
+                    ],
+                    "proveedor": "REPRESENTACIONES LASTRA SAS"
+                }
+            ]
+        },
+        "2": {
+            "id": 2,
+            "fecha": "2026-08-18",
+            "pagina": 2,
+            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
+            "archivo": "pdfs_locales\\compra_2026-08-18_pag_2.pdf",
+            "estado": "Nuevo"
+        },
+        "3": {
+            "id": 3,
+            "fecha": "2026-08-18",
+            "pagina": 3,
+            "archivo_original": "C:\\Users\\Home\\Downloads\\REPORTE ENTRADAS DE ALMACEN AGOSTO.pdf",
+            "archivo": "pdfs_locales\\compra_2026-08-18_pag_3.pdf",
+            "estado": "Nuevo"
+        }
+    }
+}
+````
+
 ## File: ui/views/cierre_inventario.py
 ````python
 import flet as ft
@@ -7976,6 +6504,1925 @@ class CierreInventarioView(ft.Container):
             if self.page: self.page.update()
 ````
 
+## File: ui/views/dashboard.py
+````python
+import flet as ft
+import threading
+from config import Config
+from core.supabase_client import SupabaseClient
+import datetime
+
+class DashboardView(ft.Container):
+    def __init__(self):
+        super().__init__()
+        self.expand = True
+        self.db = SupabaseClient()
+        
+        self.lbl_periodo_dash = ft.Text("Periodo: ...", size=13, weight="bold", color=Config.COLOR_PRIMARY)
+        self.lbl_estado_dash = ft.Text("Estado: ...", size=13, weight="bold")
+        self.lbl_fecha_hora = ft.Text("...", size=12, color="grey")
+
+        self.fecha_filtro_dash = None
+        self.date_picker_dash = ft.DatePicker(on_change=self.on_fecha_dash_change)
+
+        self.btn_fecha_dash = ft.OutlinedButton(
+            text=f"Fecha: {datetime.date.today().strftime('%d/%m/%Y')}",
+            icon=ft.icons.CALENDAR_MONTH,
+            on_click=lambda e: self.date_picker_dash.pick_date(),
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            height=38
+        )
+        self.btn_clear_fecha_dash = ft.IconButton(
+            icon=ft.icons.CLEAR, icon_color="red", tooltip="Restablecer a Hoy",
+            visible=False, on_click=self.limpiar_filtro_fecha_dash
+        )
+
+        badge_info = ft.Container(
+            content=ft.Row([
+                ft.Column([
+                    ft.Row([self.lbl_periodo_dash, ft.Text("|", color="grey", size=13), self.lbl_estado_dash], spacing=5),
+                    ft.Row([ft.Icon(ft.icons.ACCESS_TIME, size=14, color="grey"), self.lbl_fecha_hora], spacing=5)
+                ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=2),
+                ft.Container(width=10),
+                self.btn_fecha_dash,
+                self.btn_clear_fecha_dash
+            ], alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.padding.symmetric(horizontal=15, vertical=10),
+            bgcolor="white",
+            border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+        )
+
+        header_row = ft.Row([
+            ft.Column([
+                ft.Text("Dashboard General", size=28, weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Text("Resumen ejecutivo del sistema", size=14, color="grey"),
+            ], spacing=2),
+            badge_info
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        
+        # Tarjetas de KPIs (Valores Iniciales) - SECCIÓN COSTOS
+        self.val_inventario = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_compras = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_rotacion = ft.Text("N/D", size=14, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_compras_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        
+        # SECCIÓN VENTAS
+        self.val_ingresos = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_ventas_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
+        self.val_proyeccion_ventas = ft.Text("$ 0", size=14, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_proyeccion_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
+        
+        self.kpi_costos_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("Costo Inv. Actual", self.val_inventario, ft.icons.INVENTORY_2), col={"xs": 12, "sm": 6, "md": 4}),
+            ft.Container(content=self._build_kpi_card("Total Compras (Mes)", self.val_compras, ft.icons.SHOPPING_BAG), col={"xs": 12, "sm": 6, "md": 4}),
+            ft.Container(content=self._build_kpi_card("Compras (Hoy)", self.val_compras_hoy, ft.icons.MONEY_OFF), col={"xs": 12, "sm": 6, "md": 4}),
+        ], spacing=10, run_spacing=10)
+
+        self.kpi_ventas_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("Total Ventas (Mes)", self.val_ingresos, ft.icons.TRENDING_UP), col={"xs": 12, "sm": 6, "md": 6}),
+            ft.Container(content=self._build_kpi_card("Ventas (Hoy)", self.val_ventas_hoy, ft.icons.ATTACH_MONEY), col={"xs": 12, "sm": 6, "md": 6}),
+        ], spacing=10, run_spacing=10)
+        
+        # Paso 3: Crear la Barra de Métricas Secundarias
+        self.val_meta_diaria = ft.Text("$ 0 / día", size=13, weight="bold", color="teal700")
+
+        self.kpi_secundarios = ft.Container(
+            content=ft.Row([
+                ft.Text("Objetivo Comercial:", weight="bold", color=Config.COLOR_PRIMARY, size=12),
+                ft.Text("Proy. Ventas Stock:", size=12, color="grey"), self.val_proyeccion_ventas,
+                ft.Text(" | Proy. Rentabilidad:", size=12, color="grey"), self.val_proyeccion_rentabilidad,
+                ft.Container(width=1, height=20, bgcolor="#d0d0d0", margin=ft.padding.symmetric(horizontal=8)),
+                ft.Icon(ft.icons.FLAG, size=16, color="teal700"),
+                ft.Text("Meta Venta Diaria:", weight="bold", size=12, color="grey"), self.val_meta_diaria,
+                ft.Container(expand=True),
+                ft.Text("Rotación Global:", size=12, color="grey"), self.val_rotacion,
+            ], spacing=5, alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.padding.symmetric(horizontal=15, vertical=10),
+            bgcolor="#f0f4f8", border_radius=8, border=ft.border.all(1, "#d0d7de")
+        )
+
+        # SECCIÓN AJUSTES
+        self.col_ajustes_salida = ft.Column(spacing=5)
+        self.col_ajustes_entrada = ft.Column(spacing=5)
+        
+        self.lbl_neto_ajustes_header = ft.Text("NETO: $0", weight="bold", size=16)
+        header_ajustes = ft.Row([
+            ft.Text("Impacto de Ajustes de Inventario (Mes Actual)", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+            self.lbl_neto_ajustes_header
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+
+        self.panel_ajustes = ft.Row([
+            # Panel Salida
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Ajustes de Salida (-)", size=16, weight="bold", color="red"),
+                    ft.Divider(height=1),
+                    self.col_ajustes_salida
+                ]),
+                bgcolor="white",
+                padding=15,
+                border_radius=8,
+                expand=True,
+                border=ft.border.all(1, "#f0f0f0"),
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+            ),
+            # Panel Entrada
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Ajustes de Entrada (+)", size=16, weight="bold", color="green"),
+                    ft.Divider(height=1),
+                    self.col_ajustes_entrada
+                ]),
+                bgcolor="white",
+                padding=15,
+                border_radius=8,
+                expand=True,
+                border=ft.border.all(1, "#f0f0f0"),
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+            )
+        ], spacing=15)
+
+        # Botón para copiar resumen al portapapeles
+        self.btn_copiar_resumen = ft.IconButton(
+            icon=ft.icons.COPY_ROUNDED,
+            icon_size=18,
+            icon_color=Config.COLOR_PRIMARY,
+            tooltip="Copiar Resumen Financiero al Portapapeles",
+            on_click=self.copiar_resumen_kpis
+        )
+        
+        header_kpis_row = ft.Row([
+            ft.Text("Resumen Financiero y Operativo", size=20, weight="bold", color=Config.COLOR_PRIMARY),
+            self.btn_copiar_resumen
+        ], tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+        # Ensamblaje del Layout
+        self.seccion_kpis = ft.Column([
+            header_kpis_row,
+            self.kpi_costos_row,
+            self.kpi_ventas_row,
+            self.kpi_secundarios
+        ], spacing=10)
+
+        # SECCIÓN RESUMEN DE IMPUESTOS
+        self.val_iva_generado_mes = ft.Text("$ 0", size=22, weight="bold", color="blue700")
+        self.val_iva_generado_hoy = ft.Text("$ 0", size=22, weight="bold", color="blue700")
+        self.val_iva_pagado_mes = ft.Text("$ 0", size=22, weight="bold", color="teal700")
+        self.val_iva_pagado_hoy = ft.Text("$ 0", size=22, weight="bold", color="teal700")
+
+        header_impuestos_row = ft.Row([
+            ft.Text("Resumen de Impuestos", size=20, weight="bold", color=Config.COLOR_PRIMARY),
+        ], tight=True)
+
+        self.kpi_iva_generado_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("IVA Generado (Mes)", self.val_iva_generado_mes, ft.icons.RECEIPT_LONG), col={"xs": 12, "sm": 6}),
+            ft.Container(content=self._build_kpi_card("IVA Generado (Hoy)", self.val_iva_generado_hoy, ft.icons.POINT_OF_SALE), col={"xs": 12, "sm": 6}),
+        ], spacing=10, run_spacing=10)
+
+        self.kpi_iva_pagado_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("IVA Pagado (Mes)", self.val_iva_pagado_mes, ft.icons.SHOPPING_CART_CHECKOUT), col={"xs": 12, "sm": 6}),
+            ft.Container(content=self._build_kpi_card("IVA Pagado (Hoy)", self.val_iva_pagado_hoy, ft.icons.SHOPPING_BAG_OUTLINED), col={"xs": 12, "sm": 6}),
+        ], spacing=10, run_spacing=10)
+
+        self.seccion_impuestos = ft.Column([
+            header_impuestos_row,
+            self.kpi_iva_generado_row,
+            self.kpi_iva_pagado_row
+        ], spacing=10)
+
+        self.seccion_ajustes = ft.Column([
+            header_ajustes,
+            self.panel_ajustes
+        ], spacing=10)
+
+        # Gráficos y Tablas
+        # Series de datos (Grosor y puntas redondeadas)
+        self.chart_ventas = ft.LineChartData(
+            data_points=[], 
+            color=ft.colors.BLUE_400,
+            stroke_width=4, 
+            curved=False,
+            stroke_cap_round=True,
+            below_line_bgcolor=ft.colors.with_opacity(0.1, ft.colors.BLUE_400)
+        )
+        self.chart_compras = ft.LineChartData(
+            data_points=[], 
+            color="#2ecca0", 
+            stroke_width=4, 
+            curved=False,
+            stroke_cap_round=True,
+            below_line_bgcolor=ft.colors.with_opacity(0.1, "#2ecca0")
+        )
+        
+        # Contenedor de Categorías (Grilla Responsiva)
+        self.categorias_row = ft.ResponsiveRow(columns=12, spacing=15, run_spacing=15)
+        self.categorias_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Rendimiento Detallado por Categoría", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                self.categorias_row
+            ]),
+            margin=ft.padding.only(top=10, bottom=10)
+        )
+
+        # Gráfico habilitando los ejes visuales
+        self.line_chart = ft.LineChart(
+            data_series=[self.chart_ventas, self.chart_compras],
+            border=ft.border.all(1, "#f0f0f0"),
+            min_y=0,
+            min_x=0,
+            expand=True,
+            tooltip_bgcolor="white",
+            left_axis=ft.ChartAxis(labels_size=50), 
+            bottom_axis=ft.ChartAxis(labels_size=40), 
+        )
+        
+        # Leyenda adaptada a fondo claro
+        leyenda = ft.Row([
+            ft.Row([ft.Container(width=12, height=12, bgcolor=ft.colors.BLUE_400, border_radius=6), ft.Text("Ingresos", size=12, weight="bold", color="black87")]),
+            ft.Row([ft.Container(width=12, height=12, bgcolor="#2ecca0", border_radius=6), ft.Text("Costos", size=12, weight="bold", color="black87")]),
+        ], spacing=30, alignment=ft.MainAxisAlignment.CENTER)
+        
+        self.chart_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Tendencia Diaria: Ingresos vs Costo de Ventas", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                leyenda,
+                ft.Container(content=self.line_chart, height=320, margin=ft.padding.only(top=10))
+            ]),
+            bgcolor="white",
+            padding=20,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+        )
+        
+        # Tables
+        self.dt_ventas = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Código", size=12)),
+                ft.DataColumn(ft.Text("Producto", size=12)),
+                ft.DataColumn(ft.Text("Unidades", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Ingreso Total", size=12), numeric=True)
+            ],
+            rows=[],
+            data_row_min_height=30,
+            data_row_max_height=30,
+            heading_row_height=40,
+            column_spacing=15,
+        )
+        
+        self.dt_costos = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Código", size=12)),
+                ft.DataColumn(ft.Text("Producto", size=12)),
+                ft.DataColumn(ft.Text("Valor Inv.", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Rotación", size=12))
+            ],
+            rows=[],
+            data_row_min_height=30,
+            data_row_max_height=30,
+            heading_row_height=40,
+            column_spacing=15,
+        )
+        
+        table_ventas_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Top 10 Productos con Mayor Ingreso", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                self.dt_ventas
+            ], scroll=ft.ScrollMode.AUTO),
+            bgcolor="white",
+            padding=15,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
+            col={"xs": 12, "md": 6}
+        )
+        
+        table_costos_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Top 10 Productos con Mayor Costo", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                self.dt_costos
+            ], scroll=ft.ScrollMode.AUTO),
+            bgcolor="white",
+            padding=15,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
+            col={"xs": 12, "md": 6}
+        )
+        
+        self.tables_row = ft.ResponsiveRow([
+            table_ventas_container,
+            table_costos_container
+        ], spacing=15, run_spacing=15)
+        
+        # Indicador de carga superior
+        self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
+
+        # 2. Main content Column
+        self.content = ft.Column([
+            self.progress_bar, 
+            header_row,
+            ft.Divider(height=10, color="transparent"),
+            self.seccion_kpis,
+            ft.Divider(height=10, color="transparent"),
+            self.seccion_impuestos, # <-- Ubicación antes del impacto de ajustes
+            ft.Divider(height=10, color="transparent"),
+            self.seccion_ajustes,
+            ft.Divider(height=10, color="transparent"),
+            self.categorias_container,
+            ft.Divider(height=10, color="transparent"),
+            self.chart_container,
+            ft.Divider(height=10, color="transparent"),
+            self.tables_row,
+            ft.Container(height=30) # Bottom padding
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
+
+    def did_mount(self):
+        if not hasattr(self, "overlay_added"):
+            self.page.overlay.append(self.date_picker_dash)
+            self.overlay_added = True
+        self.load_data()
+
+    def safe_update(self):
+        """Actualiza la UI solo si el control sigue montado en la página."""
+        try:
+            if self.page and self.uid:
+                self.page.update()
+        except Exception:
+            pass
+
+    def load_data(self):
+        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
+        self.progress_bar.visible = True
+        self.safe_update()
+            
+        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
+
+    def on_fecha_dash_change(self, e):
+        if self.date_picker_dash.value:
+            self.fecha_filtro_dash = self.date_picker_dash.value.strftime("%Y-%m-%d")
+            self.btn_fecha_dash.text = f"Fecha: {self.date_picker_dash.value.strftime('%d/%m/%Y')}"
+            self.btn_clear_fecha_dash.visible = True
+            self.load_data()
+
+    def limpiar_filtro_fecha_dash(self, e):
+        self.fecha_filtro_dash = None
+        self.date_picker_dash.value = None
+        self.btn_fecha_dash.text = f"Fecha: {datetime.date.today().strftime('%d/%m/%Y')}"
+        self.btn_clear_fecha_dash.visible = False
+        self.load_data()
+
+    def _fetch_data_worker(self):
+        """Ejecuta todas las llamadas HTTP síncronas sin congelar la ventana."""
+        # Cargar contexto temporal
+        mes_actual = datetime.date.today().strftime("%Y-%m")
+        datos_cierre = self.db.obtener_estado_cierre(mes_actual)
+        estado_periodo = datos_cierre.get('periodo', {}).get('estado', 'ABIERTO') if datos_cierre and datos_cierre.get('periodo') else 'ABIERTO'
+
+        meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+        partes = mes_actual.split('-')
+        nombre_mes = f"{meses[int(partes[1]) - 1]} {partes[0]}"
+
+        self.lbl_periodo_dash.value = f"Periodo: {nombre_mes}"
+        self.lbl_estado_dash.value = f"Estado: {estado_periodo}"
+
+        colores_estado = {'ABIERTO': 'green', 'PRELIMINAR': 'orange', 'EN_AUDITORIA': 'blue', 'CERRADO': 'red'}
+        self.lbl_estado_dash.color = colores_estado.get(estado_periodo, 'black')
+
+        ahora = datetime.datetime.now()
+        self.lbl_fecha_hora.value = ahora.strftime("%d/%m/%Y - %I:%M %p")
+
+        # 1. Load KPIs
+        kpis_cat = self.db.get_rendimiento_categorias_periodo(fecha_inicio=None, fecha_fin=self.fecha_filtro_dash)
+        val_inv_real = sum([c["inventario_costo"] for c in kpis_cat])
+        val_inv = val_inv_real
+        self.val_inventario.value = f"$ {val_inv:,.0f}"
+        
+        res_cat = self.db.get_catalogo_summary(fecha_corte=self.fecha_filtro_dash)
+        res_ven = self.db.get_ventas_summary(fecha_corte=self.fecha_filtro_dash)
+        res_com = self.db.get_compras_summary(fecha_corte=self.fecha_filtro_dash)
+        
+        ingresos = float(res_ven.get('total_mes') or 0)
+        compras = float(res_com.get('total_mes') or 0)
+        
+        ventas_hoy = float(res_ven.get('total_hoy') or 0)
+        compras_hoy = float(res_com.get('total_hoy') or 0)
+        
+        self.val_ingresos.value = f"$ {ingresos:,.0f}"
+        self.val_ventas_hoy.value = f"$ {ventas_hoy:,.0f}"
+        self.val_compras.value = f"$ {compras:,.0f}"
+        self.val_compras_hoy.value = f"$ {compras_hoy:,.0f}"
+
+        # Extraer montos de IVA de Ventas y Compras
+        iva_gen_mes = float(res_ven.get('iva_mes') or 0)
+        iva_gen_hoy = float(res_ven.get('iva_hoy') or 0)
+        iva_pag_mes = float(res_com.get('iva_mes') or 0)
+        iva_pag_hoy = float(res_com.get('iva_hoy') or 0)
+
+        self.val_iva_generado_mes.value = f"$ {iva_gen_mes:,.0f}"
+        self.val_iva_generado_hoy.value = f"$ {iva_gen_hoy:,.0f}"
+        self.val_iva_pagado_mes.value = f"$ {iva_pag_mes:,.0f}"
+        self.val_iva_pagado_hoy.value = f"$ {iva_pag_hoy:,.0f}"
+        
+        rentabilidad = 0
+        if ingresos > 0:
+            rentabilidad = ((ingresos - compras) / ingresos) * 100
+            
+        self.val_rentabilidad.value = f"{rentabilidad:.1f}%"
+        self.val_rentabilidad.color = "#2ecca0" if rentabilidad >= 0 else "#f26c61"
+        
+        # Basic rotacion (Ventas / Inventario)
+        if val_inv > 0:
+            rotacion_global = ingresos / val_inv
+            self.val_rotacion.value = f"{rotacion_global:.2f}x"
+        else:
+            self.val_rotacion.value = "N/D"
+
+        # Nuevos KPIs y Ajustes
+        proyeccion_ventas = self.db.get_proyeccion_ventas(fecha_corte=self.fecha_filtro_dash)
+        self.val_proyeccion_ventas.value = f"$ {proyeccion_ventas:,.0f}"
+        
+        proy_rent = 0
+        if proyeccion_ventas > 0:
+            proy_rent = ((proyeccion_ventas - val_inv) / proyeccion_ventas) * 100
+        
+        self.val_proyeccion_rentabilidad.value = f"{proy_rent:.1f}%"
+        self.val_proyeccion_rentabilidad.color = "#2ecca0" if proy_rent >= 0 else "#f26c61"
+
+        hoy_obj = datetime.datetime.strptime(self.fecha_filtro_dash, "%Y-%m-%d").date() if self.fecha_filtro_dash else datetime.date.today()
+        if hoy_obj.month == 12:
+            ultimo_dia_mes = datetime.date(hoy_obj.year, 12, 31).day
+        else:
+            ultimo_dia_mes = (datetime.date(hoy_obj.year, hoy_obj.month + 1, 1) - datetime.timedelta(days=1)).day
+        dias_restantes = max(1, ultimo_dia_mes - hoy_obj.day + 1)
+        restante_vender = max(0, proyeccion_ventas - ingresos)
+        meta_diaria = restante_vender / dias_restantes
+        self.val_meta_diaria.value = f"$ {meta_diaria:,.0f} / día"
+
+        mes_actual = hoy_obj.strftime("%Y-%m")
+        ajustes_bd = self.db.get_ajustes_mes(mes_actual, fecha_corte=self.fecha_filtro_dash)
+        
+        tipos_salida = {
+            "Daño / Merma": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Vencimiento": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Pérdida": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Consumo Familiar": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Consumo Cliente (Cortesía)": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Donación Saliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Otro (Salida)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
+        }
+
+        tipos_entrada = {
+            "Sobrante de Inventario": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Donación Entrante": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Devolución Cliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Otro (Entrada)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
+        }
+        
+        for fila in ajustes_bd:
+            tipo_bd = fila.get("tipo_ajuste", "")
+            motivo_bd = fila.get("motivo_observacion", "")
+            cant = float(fila.get("cantidad_total") or 0)
+            costo = float(fila.get("costo_total") or 0)
+            conteo = int(fila.get("conteo") or 0)
+            
+            asignado = False
+            if tipo_bd in ("AJUSTE_ENTRADA", "ENTRADA_POR_SOBRANTE"):
+                for key in tipos_entrada.keys():
+                    if key.lower() in motivo_bd.lower():
+                        tipos_entrada[key]["conteo"] += conteo
+                        tipos_entrada[key]["cantidad"] += cant
+                        tipos_entrada[key]["costo"] += costo
+                        asignado = True
+                        break
+                if not asignado:
+                    tipos_entrada["Otro (Entrada)"]["conteo"] += conteo
+                    tipos_entrada["Otro (Entrada)"]["cantidad"] += cant
+                    tipos_entrada["Otro (Entrada)"]["costo"] += costo
+            else:
+                for key in tipos_salida.keys():
+                    if key.lower() in motivo_bd.lower():
+                        tipos_salida[key]["conteo"] += conteo
+                        tipos_salida[key]["cantidad"] += cant
+                        tipos_salida[key]["costo"] += costo
+                        asignado = True
+                        break
+                if not asignado:
+                    # Fallback por tipo
+                    if tipo_bd == "BAJA_VENCIMIENTO": k = "Vencimiento"
+                    elif tipo_bd == "SALIDA_POR_FALTANTE": k = "Pérdida"
+                    else: k = "Otro (Salida)"
+                    tipos_salida[k]["conteo"] += conteo
+                    tipos_salida[k]["cantidad"] += cant
+                    tipos_salida[k]["costo"] += costo
+
+        total_costo_entradas = sum([d["costo"] for d in tipos_entrada.values()])
+        total_costo_salidas = sum([d["costo"] for d in tipos_salida.values()])
+        
+        total_cant_entradas = sum([d["cantidad"] for d in tipos_entrada.values()])
+        total_cant_salidas = sum([d["cantidad"] for d in tipos_salida.values()])
+        
+        neto = total_costo_entradas - total_costo_salidas
+        if neto > 0:
+            self.lbl_neto_ajustes_header.value = f"NETO (POSITIVO): +${neto:,.0f}"
+            self.lbl_neto_ajustes_header.color = "#2ecca0"
+        elif neto < 0:
+            self.lbl_neto_ajustes_header.value = f"NETO (NEGATIVO): -${abs(neto):,.0f}"
+            self.lbl_neto_ajustes_header.color = "#f26c61"
+        else:
+            self.lbl_neto_ajustes_header.value = f"NETO: $0"
+            self.lbl_neto_ajustes_header.color = "grey"
+
+        # Limpiar columnas
+        self.col_ajustes_entrada.controls.clear()
+        self.col_ajustes_salida.controls.clear()
+
+        # Render Entrada
+        for key, datos in tipos_entrada.items():
+            self.col_ajustes_entrada.controls.append(
+                ft.Row([
+                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
+                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
+                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#2ecca0")
+                ])
+            )
+            
+        # Rellenar con espacio invisible para igualar simetría
+        filas_faltantes = len(tipos_salida) - len(tipos_entrada)
+        for _ in range(max(0, filas_faltantes)):
+            self.col_ajustes_entrada.controls.append(
+                ft.Container(height=18, content=ft.Text("")) # Fila transparente de relleno
+            )
+            
+        self.col_ajustes_entrada.controls.append(ft.Divider(color="black12", height=10))
+        self.col_ajustes_entrada.controls.append(
+            ft.Row([
+                ft.Text("TOTAL ENTRADAS", size=12, weight="bold"),
+                ft.Text(f"{total_cant_entradas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
+                ft.Text(f"${total_costo_entradas:,.0f}", size=12, weight="bold", color="#2ecca0")
+            ])
+        )
+        
+        # Render Salida
+        for key, datos in tipos_salida.items():
+            self.col_ajustes_salida.controls.append(
+                ft.Row([
+                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
+                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
+                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#f26c61")
+                ])
+            )
+        self.col_ajustes_salida.controls.append(ft.Divider(color="black12", height=10))
+        self.col_ajustes_salida.controls.append(
+            ft.Row([
+                ft.Text("TOTAL SALIDAS", size=12, weight="bold"),
+                ft.Text(f"{total_cant_salidas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
+                ft.Text(f"${total_costo_salidas:,.0f}", size=12, weight="bold", color="#f26c61")
+            ])
+        )
+
+        # 2. Load Chart Data (Nativo Flet)
+        try:
+            tendencia = self.db.get_tendencia_diaria(fecha_corte=self.fecha_filtro_dash)
+            dias_ordenados = sorted(tendencia.keys())
+            max_val_y = 0
+            
+            pts_ventas = []
+            pts_compras = []
+            etiquetas_x = []
+            
+            for i, dia in enumerate(dias_ordenados):
+                v = float(tendencia[dia]["ventas"])
+                c = float(tendencia[dia]["compras"])
+                if v > max_val_y: max_val_y = v
+                if c > max_val_y: max_val_y = c
+                # Poner la fecha SOLO en el tooltip de arriba (compras) para que Flet no la duplique al apilar
+                tt_compras = f"{dia}\nCostos: ${c:,.0f}"
+                tt_ventas = f"Ingresos: ${v:,.0f}"
+                estilo_tt = ft.TextStyle(size=12, weight="bold", color="black87")
+                
+                pts_ventas.append(ft.LineChartDataPoint(i, v, tooltip=tt_ventas, tooltip_style=estilo_tt))
+                pts_compras.append(ft.LineChartDataPoint(i, c, tooltip=tt_compras, tooltip_style=estilo_tt))
+                
+                # Densidad en Eje X: Mostrar todos los días con la fecha completa rotada
+                etiquetas_x.append(
+                    ft.ChartAxisLabel(
+                        value=i, 
+                        label=ft.Container(
+                            content=ft.Text(dia, size=9, color="grey"),
+                            padding=ft.padding.only(top=10),
+                            rotate=-0.5
+                        )
+                    )
+                )
+                
+            if not pts_ventas:
+                pts_ventas = [ft.LineChartDataPoint(0, 0)]
+                pts_compras = [ft.LineChartDataPoint(0, 0)]
+                
+            self.chart_ventas.data_points = pts_ventas
+            self.chart_compras.data_points = pts_compras
+            
+            self.line_chart.max_x = len(dias_ordenados) - 1 if dias_ordenados else 0
+            max_y_calc = max_val_y * 1.15 if max_val_y > 0 else 1000
+            self.line_chart.max_y = max_y_calc
+            
+            def formato_moneda_corta(valor):
+                if valor >= 1000000: return f"${valor/1000000:.1f}M"
+                if valor >= 1000: return f"${valor/1000:.0f}k"
+                return f"${valor:.0f}"
+                
+            # Mayor densidad en Y: 8 divisiones en lugar de 5
+            intervalo_y = max_y_calc / 8 if max_y_calc > 0 else 100
+            etiquetas_y = [
+                ft.ChartAxisLabel(value=step * intervalo_y, label=ft.Text(formato_moneda_corta(step * intervalo_y), size=11, color="grey"))
+                for step in range(9)
+            ]
+            
+            self.line_chart.left_axis.labels = etiquetas_y
+            self.line_chart.left_axis.labels_interval = intervalo_y
+            self.line_chart.bottom_axis.labels = etiquetas_x
+            self.line_chart.bottom_axis.labels_interval = 1
+            
+            # Cuadrícula visible completa con efecto punteado
+            self.line_chart.horizontal_grid_lines = ft.ChartGridLines(
+                interval=intervalo_y,
+                color=ft.colors.with_opacity(0.05, "black"),
+                width=1,
+                dash_pattern=[4, 4]
+            )
+            self.line_chart.vertical_grid_lines = ft.ChartGridLines(
+                interval=2, # Línea vertical sincronizada con el eje X
+                color=ft.colors.with_opacity(0.05, "black"),
+                width=1,
+                dash_pattern=[4, 4]
+            )
+            
+        except Exception as e:
+            print(f"Error crítico construyendo Chart Flet: {e}")
+        
+        # 3. Load Tables Data (A prueba de fallos)
+        try:
+            top_ventas = self.db.get_top_ventas_mes(limit=10, fecha_corte=self.fecha_filtro_dash)
+            self.dt_ventas.rows.clear()
+            for item in top_ventas:
+                self.dt_ventas.rows.append(
+                    ft.DataRow(cells=[
+                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
+                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
+                        ft.DataCell(ft.Text(str(item.get('unidades_vendidas') or 0), size=11)),
+                        ft.DataCell(ft.Text(f"${float(item.get('ingreso_total') or 0):,.2f}", size=11))
+                    ])
+                )
+        except Exception as e:
+            print(f"Error crítico en tabla ventas: {e}")
+            
+        try:
+            top_costos = self.db.get_top_costo_inventario(limit=10, fecha_corte=self.fecha_filtro_dash)
+            self.dt_costos.rows.clear()
+            for item in top_costos:
+                self.dt_costos.rows.append(
+                    ft.DataRow(cells=[
+                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
+                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
+                        ft.DataCell(ft.Text(f"${float(item.get('valor_inventario') or 0):,.2f}", size=11)),
+                        ft.DataCell(ft.Text(str(item.get('rotacion') or ''), size=11))
+                    ])
+                )
+        except Exception as e:
+            print(f"Error crítico en tabla costos: {e}")
+            
+        try:
+            self.categorias_row.controls.clear()
+            for cat in kpis_cat:
+                self.categorias_row.controls.append(self._crear_card_categoria(cat))
+        except Exception as e:
+            print(f"Error cargando KPIs por categoría: {e}")
+            
+        # Apagar indicador de carga al finalizar todo el trabajo
+        self.progress_bar.visible = False
+        
+        self.safe_update()
+
+    def _build_kpi_card(self, title, value_control, icon, subtext_control=None):
+        column_controls = [
+            ft.Row([
+                ft.Text(title, size=12, color="grey", weight="w500", expand=True),
+                ft.Icon(ft.icons.HELP_OUTLINE, size=12, color="grey")
+            ], spacing=5),
+            value_control,
+        ]
+        if subtext_control:
+            column_controls.append(subtext_control)
+            
+        value_control.size = 20
+            
+        return ft.Container(
+            content=ft.Row([
+                ft.Container(
+                    content=ft.Icon(icon, color=Config.COLOR_SECONDARY, size=24),
+                    bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_SECONDARY),
+                    padding=10,
+                    border_radius=8
+                ),
+                ft.Column(column_controls, spacing=2, expand=True)
+            ], alignment=ft.MainAxisAlignment.START),
+            bgcolor="white",
+            padding=15,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+        )
+
+    def _crear_card_categoria(self, cat_data):
+        nombre = cat_data["categoria"]
+        inv_costo = cat_data["inventario_costo"]
+        ventas = cat_data["ventas_realizadas"]
+        proy_venta = cat_data["proyeccion_venta"]
+        cumplimiento = cat_data["cumplimiento_pct"]
+        rotacion = cat_data["rotacion"]
+        rendimiento = cat_data["rendimiento_pct"]
+    
+        # Color condicional para cumplimiento
+        color_cumplimiento = "green700" if cumplimiento >= 50 else ("orange700" if cumplimiento > 0 else "grey")
+        color_rendimiento = "green700" if rendimiento >= 0 else "red700"
+    
+        return ft.Container(
+            content=ft.Column([
+                # Cabecera Categoría
+                ft.Row([
+                    ft.Icon(ft.icons.CATEGORY_OUTLINED, size=16, color=Config.COLOR_PRIMARY),
+                    ft.Text(nombre.upper(), weight="bold", size=12, color=Config.COLOR_PRIMARY, expand=True)
+                ]),
+                ft.Divider(height=1, color="#eeeeee"),
+                
+                # Fila 1: Inventario Costo vs Ventas
+                ft.Row([
+                    ft.Text("Inventario (Costo):", size=11, color="grey", expand=True),
+                    ft.Text(f"${inv_costo:,.0f}", size=11, weight="bold")
+                ]),
+                ft.Row([
+                    ft.Text("Ventas Realizadas:", size=11, color="grey", expand=True),
+                    ft.Text(f"${ventas:,.0f}", size=11, weight="bold", color="green700")
+                ]),
+                
+                # Fila 2: Proyección Venta vs % Cumplimiento
+                ft.Row([
+                    ft.Text("Proyección Venta:", size=11, color="grey", expand=True),
+                    ft.Text(f"${proy_venta:,.0f}", size=11, weight="bold", color="blue700")
+                ]),
+                ft.Row([
+                    ft.Text("% Cumplimiento:", size=11, color="grey", expand=True),
+                    ft.Text(f"{cumplimiento:.1f}%", size=11, weight="bold", color=color_cumplimiento)
+                ]),
+                
+                ft.Divider(height=1, color="#f0f0f0"),
+                
+                # Fila 3: Rotación y Rendimiento Real
+                ft.Row([
+                    ft.Text("Rotación:", size=11, color="grey"),
+                    ft.Text(f"{rotacion:.2f}x", size=11, weight="bold"),
+                    ft.Container(expand=True),
+                    ft.Text("Rendimiento Real:", size=11, color="grey"),
+                    ft.Text(f"{rendimiento:.1f}%", size=11, weight="bold", color=color_rendimiento)
+                ])
+            ], spacing=4),
+            padding=12,
+            bgcolor="white",
+            border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.03, "black")),
+            col={"sm": 12, "md": 6, "lg": 4}
+        )
+
+    def copiar_resumen_kpis(self, e):
+        """
+        Construye un texto formateado con todos los indicadores actuales
+        del resumen financiero y lo guarda en el portapapeles del sistema.
+        """
+        periodo = self.lbl_periodo_dash.value.replace("Periodo: ", "").strip()
+        fecha_hora = self.lbl_fecha_hora.value
+        
+        texto_copia = (
+            f"📊 RESUMEN FINANCIERO Y OPERATIVO ({periodo.upper()})\n"
+            f"📅 Generado el: {fecha_hora}\n"
+            f"-----------------------------------------\n"
+            f"💰 COSTOS E INVENTARIO:\n"
+            f"  • Costo Inv. Actual: {self.val_inventario.value}\n"
+            f"  • Total Compras (Mes): {self.val_compras.value}\n"
+            f"  • Compras (Hoy): {self.val_compras_hoy.value}\n\n"
+            f"📈 VENTAS E INGRESOS:\n"
+            f"  • Total Ventas (Mes): {self.val_ingresos.value}\n"
+            f"  • Ventas (Hoy): {self.val_ventas_hoy.value}\n"
+            f"  • Margen Rentabilidad: {self.val_rentabilidad.value}\n\n"
+            f"🎯 OBJETIVOS Y PROYECCIONES:\n"
+            f"  • Proy. Ventas Stock: {self.val_proyeccion_ventas.value}\n"
+            f"  • Proy. Rentabilidad: {self.val_proyeccion_rentabilidad.value}\n"
+            f"  • Meta Venta Diaria: {self.val_meta_diaria.value}\n"
+            f"  • Rotación Global: {self.val_rotacion.value}\n"
+            f"-----------------------------------------"
+        )
+
+        if self.page:
+            self.page.set_clipboard(texto_copia)
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Row([
+                    ft.Icon(ft.icons.CHECK_CIRCLE, color="white", size=18),
+                    ft.Text("Resumen financiero copiado al portapapeles exitosamente", color="white")
+                ]),
+                bgcolor="green700"
+            )
+            self.page.snack_bar.open = True
+            self.safe_update()
+````
+
+## File: ui/views/informes.py
+````python
+import flet as ft
+from config import Config
+from core.supabase_client import SupabaseClient
+import datetime
+from calendar import monthrange
+import threading
+
+class InformesView(ft.Container):
+    def __init__(self):
+        super().__init__()
+        self.expand = True
+        self.db = SupabaseClient()
+        self.save_pdf_picker = ft.FilePicker(on_result=self._save_pdf_result)
+        self.save_excel_picker = ft.FilePicker(on_result=self._save_excel_result)
+        
+        # --- PANEL IZQUIERDO: CONSTRUCTOR DE INFORMES ---
+        self.drop_tipo_informe = ft.Dropdown(
+            label="Tipo de Informe",
+            options=[
+                ft.dropdown.Option("Valorización de Inventario"),
+                ft.dropdown.Option("Informe de Compras"),
+                ft.dropdown.Option("Informe de Ventas"),
+                ft.dropdown.Option("Historial de Ajustes"),
+                ft.dropdown.Option("Informe de Impuestos"),
+                ft.dropdown.Option("Resumen de KPIs")
+            ],
+            value="Valorización de Inventario",
+            dense=True, border_radius=8,
+            height=38, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8)
+        )
+        
+        self.drop_filtro_fecha = ft.Dropdown(
+            label="Periodo",
+            options=[
+                ft.dropdown.Option("Día de Hoy"),
+                ft.dropdown.Option("Mes Actual"),
+                ft.dropdown.Option("Histórico Completo")
+            ],
+            value="Histórico Completo",
+            dense=True, border_radius=8,
+            height=38, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8)
+        )
+        
+        self.opcion_detalle = ft.RadioGroup(
+            content=ft.Row([
+                ft.Radio(value="Completo", label="Completo"),
+                ft.Radio(value="Resumido", label="Resumido")
+            ]),
+            value="Completo"
+        )
+        
+        self.btn_generar = ft.ElevatedButton(
+            "Generar Previsualización", 
+            icon=ft.icons.PLAY_ARROW, 
+            bgcolor=Config.COLOR_PRIMARY, 
+            color="white",
+            on_click=self.generar_informe,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+        
+        self.btn_pdf = ft.OutlinedButton(
+            "Exportar a PDF", 
+            icon=ft.icons.PICTURE_AS_PDF, 
+            icon_color="red", 
+            on_click=self.exportar_pdf,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+        
+        self.btn_excel = ft.OutlinedButton(
+            "Exportar a Excel", 
+            icon=ft.icons.TABLE_VIEW, 
+            icon_color="green", 
+            on_click=self.exportar_excel,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+        
+        # Tarjeta informativa corta para la exportación a Excel
+        info_excel_box = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.INFO_OUTLINED, size=15, color="blue700"),
+                ft.Text(
+                    "Excel genera el consolidado general completo (Inventario, Compras, Ventas y Ajustes) acumulado a la fecha, sin aplicar los filtros seleccionados.",
+                    size=10,
+                    color="blue900",
+                    expand=True
+                )
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
+            padding=8,
+            bgcolor="#e3f2fd",
+            border_radius=6,
+            border=ft.border.all(1, "#bbdefb")
+        )
+        
+        panel_controles = ft.Container(
+            content=ft.Column([
+                ft.Text("Parámetros del Informe", weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Divider(height=1, color="#eeeeee"),
+                self.drop_tipo_informe,
+                self.drop_filtro_fecha,
+                ft.Text("Nivel de Detalle", size=12, color="grey"),
+                self.opcion_detalle,
+                ft.Container(height=10),
+                self.btn_generar,
+                ft.Divider(height=15, color="transparent"),
+                ft.Text("Exportación", weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Divider(height=1, color="#eeeeee"),
+                self.btn_pdf,
+                ft.Divider(height=8, color="#f0f0f0"), # Separador suave entre PDF y Excel
+                info_excel_box,
+                self.btn_excel
+            ], spacing=12),
+            bgcolor="white", padding=20, border_radius=8, width=300,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))
+        )
+        
+        # --- PANEL DERECHO: LIENZO DEL DOCUMENTO (A4) ---
+        self.doc_header_empresa = ft.Text("TIENDA Y ABARROTES LOS DESECHABLES DE DOÑA MARY SAS", weight="bold", size=16, text_align=ft.TextAlign.CENTER)
+        self.doc_header_titulo = ft.Text("INFORME DE VALORIZACIÓN DE INVENTARIO", weight="bold", size=14, text_align=ft.TextAlign.CENTER)
+        self.doc_header_periodo = ft.Text("Periodo: Histórico Completo", size=11, color="grey", text_align=ft.TextAlign.CENTER)
+        self.doc_header_fecha = ft.Text(f"Fecha de Generación: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", size=11, color="grey", text_align=ft.TextAlign.CENTER)
+        
+        self.doc_cuerpo = ft.Column(spacing=5)
+        
+        self.lienzo_documento = ft.Container(
+            content=ft.Column([
+                ft.Container(
+                    content=ft.Column([
+                        self.doc_header_empresa,
+                        self.doc_header_titulo,
+                        self.doc_header_periodo,
+                        self.doc_header_fecha
+                    ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    alignment=ft.alignment.center,
+                    padding=ft.padding.only(bottom=20)
+                ),
+                ft.Divider(height=2, color="black"),
+                self.doc_cuerpo
+            ]),
+            bgcolor="white",
+            padding=40,
+            border_radius=5,
+            shadow=ft.BoxShadow(spread_radius=2, blur_radius=10, color=ft.colors.with_opacity(0.1, "black"))
+        )
+        
+        scroll_lienzo = ft.Column([self.lienzo_documento], scroll=ft.ScrollMode.ALWAYS, expand=True)
+        
+        # --- ENSAMBLAJE FINAL ---
+        self.content = ft.Row([
+            panel_controles,
+            scroll_lienzo
+        ], expand=True, spacing=20, vertical_alignment=ft.CrossAxisAlignment.START)
+
+    def did_mount(self):
+        if self.page:
+            if self.save_pdf_picker not in self.page.overlay:
+                self.page.overlay.append(self.save_pdf_picker)
+            if self.save_excel_picker not in self.page.overlay:
+                self.page.overlay.append(self.save_excel_picker)
+            self.page.update()
+
+    def generar_informe(self, e):
+        self.doc_cuerpo.controls.clear()
+        self.doc_cuerpo.controls.append(ft.Container(content=ft.ProgressRing(), alignment=ft.alignment.center, padding=50))
+        if self.page: self.page.update()
+        threading.Thread(target=self._worker_generar_informe, daemon=True).start()
+
+    def _worker_generar_informe(self):
+        tipo_informe = self.drop_tipo_informe.value
+        detalle = self.opcion_detalle.value
+        periodo_filtro = self.drop_filtro_fecha.value
+
+        # 1. Cálculo del Rango de Fechas
+        hoy = datetime.date.today()
+        if periodo_filtro == "Día de Hoy":
+            fecha_inicio = hoy.strftime("%Y-%m-%d")
+            fecha_fin = hoy.strftime("%Y-%m-%d")
+        elif periodo_filtro == "Mes Actual":
+            fecha_inicio = hoy.replace(day=1).strftime("%Y-%m-%d")
+            ultimo_dia = monthrange(hoy.year, hoy.month)[1]
+            fecha_fin = hoy.replace(day=ultimo_dia).strftime("%Y-%m-%d")
+        else:
+            # Histórico Completo
+            fecha_inicio = "2000-01-01"
+            fecha_fin = "2100-12-31"
+
+        # 2. Actualizar Cabecera del Documento
+        self.doc_header_titulo.value = f"INFORME DE {tipo_informe.upper()}"
+        self.doc_header_periodo.value = f"Periodo: {fecha_inicio} al {fecha_fin} | Tipo: {detalle}"
+        self.doc_header_fecha.value = f"Fecha de Generación: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')}"
+
+        self.doc_cuerpo.controls.clear()
+
+        # 3. Enrutador según el tipo de informe
+        if tipo_informe == "Valorización de Inventario":
+            self._generar_valorizacion(detalle, fecha_corte=fecha_fin if periodo_filtro != "Histórico Completo" else None)
+        elif tipo_informe == "Informe de Compras":
+            self._generar_compras(fecha_inicio, fecha_fin, detalle)
+        elif tipo_informe == "Informe de Ventas":
+            self._generar_ventas(fecha_inicio, fecha_fin, detalle)
+        elif tipo_informe == "Historial de Ajustes":
+            self._generar_ajustes(fecha_inicio, fecha_fin, detalle)
+        elif tipo_informe == "Informe de Impuestos":
+            self._generar_impuestos(fecha_inicio, fecha_fin, detalle)
+        elif tipo_informe == "Resumen de KPIs":
+            self._generar_kpis(fecha_inicio, fecha_fin)
+
+        if self.page:
+            self.page.update()
+
+    def _generar_impuestos(self, fecha_inicio, fecha_fin, detalle):
+        raw_compras, _ = self.db.get_compras(page=1, page_size=100000)
+        raw_ventas, _ = self.db.get_ventas(page=1, page_size=100000)
+
+        # Filtrar Compras por Rango de Fechas
+        compras_filtradas = []
+        tot_compras_base = 0.0
+        tot_compras_iva = 0.0
+        tot_compras_total = 0.0
+
+        for c in raw_compras:
+            f = str(c.get("fecha") or "")[:10]
+            if fecha_inicio <= f <= fecha_fin:
+                tot = float(c.get("costo_total") or 0)
+                iva = float(c.get("iva") or c.get("valor_iva") or 0)
+                base = tot - iva
+                cant = float(c.get("cantidad") or 0)
+                cat_i = c.get("catalogo_insumos") or {}
+                
+                compras_filtradas.append({
+                    "fecha": f,
+                    "doc": c.get("numero_factura") or c.get("numero_entrada") or "S/D",
+                    "insumo": cat_i.get("nombre", "Desconocido"),
+                    "cant": cant,
+                    "base": base,
+                    "iva": iva,
+                    "total": tot
+                })
+                tot_compras_base += base
+                tot_compras_iva += iva
+                tot_compras_total += tot
+
+        # Filtrar Ventas por Rango de Fechas
+        ventas_filtradas = []
+        tot_ventas_base = 0.0
+        tot_ventas_iva = 0.0
+        tot_ventas_total = 0.0
+
+        for v in raw_ventas:
+            f = str(v.get("fecha") or "")[:10]
+            if fecha_inicio <= f <= fecha_fin:
+                tot = float(v.get("total") or 0)
+                iva = float(v.get("iva") or 0)
+                base = float(v.get("subtotal") or (tot - iva))
+                cant = float(v.get("cantidad") or 0)
+                cat_i = v.get("catalogo_insumos") or {}
+
+                ventas_filtradas.append({
+                    "fecha": f,
+                    "doc": v.get("factura_no") or "S/D",
+                    "insumo": v.get("descripcion") or cat_i.get("nombre") or "Desconocido",
+                    "cant": cant,
+                    "base": base,
+                    "iva": iva,
+                    "total": tot
+                })
+                tot_ventas_base += base
+                tot_ventas_iva += iva
+                tot_ventas_total += tot
+
+        balance_iva = tot_ventas_iva - tot_compras_iva
+
+        # Guardar estructura para PDF/Excel
+        self.current_data = {
+            "compras": compras_filtradas,
+            "ventas": ventas_filtradas,
+            "tot_compras_base": tot_compras_base,
+            "tot_compras_iva": tot_compras_iva,
+            "tot_compras_total": tot_compras_total,
+            "tot_ventas_base": tot_ventas_base,
+            "tot_ventas_iva": tot_ventas_iva,
+            "tot_ventas_total": tot_ventas_total,
+            "balance_iva": balance_iva
+        }
+        self.current_total = balance_iva
+        self.current_periodo = self.doc_header_periodo.value
+
+        def _crear_resumen_impuestos_row(label, val_base, val_iva, val_total, is_header=False, color_txt="black"):
+            weight = "bold" if is_header else "normal"
+            size = 12 if is_header else 11
+            return ft.Row([
+                ft.Text(label, weight=weight, size=size, expand=True, color=color_txt),
+                ft.Text(f"${val_base:,.2f}" if isinstance(val_base, (int, float)) else val_base, weight=weight, size=size, width=110, text_align=ft.TextAlign.RIGHT, color=color_txt),
+                ft.Text(f"${val_iva:,.2f}" if isinstance(val_iva, (int, float)) else val_iva, weight=weight, size=size, width=110, text_align=ft.TextAlign.RIGHT, color=color_txt),
+                ft.Text(f"${val_total:,.2f}" if isinstance(val_total, (int, float)) else val_total, weight=weight, size=size, width=120, text_align=ft.TextAlign.RIGHT, color=color_txt),
+            ])
+
+        if detalle == "Resumido":
+            self.doc_cuerpo.controls.append(_crear_resumen_impuestos_row("CONCEPTO / CONSOLIDADO", "VALOR BASE", "IVA ACUMULADO", "VALOR TOTAL", is_header=True))
+            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
+            
+            self.doc_cuerpo.controls.append(_crear_resumen_impuestos_row("VENTAS (IVA GENERADO)", tot_ventas_base, tot_ventas_iva, tot_ventas_total, color_txt="blue700"))
+            self.doc_cuerpo.controls.append(_crear_resumen_impuestos_row("COMPRAS (IVA PAGADO / DESCONTABLE)", tot_compras_base, tot_compras_iva, tot_compras_total, color_txt="teal700"))
+            self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
+
+            color_bal = "red" if balance_iva > 0 else "green"
+            lbl_bal = "BALANCE NETO DE IVA (POR PAGAR)" if balance_iva > 0 else "BALANCE NETO DE IVA (A FAVOR)"
+            self.doc_cuerpo.controls.append(
+                ft.Row([
+                    ft.Text(f"{lbl_bal}:", weight="bold", size=13, expand=True, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"${balance_iva:,.2f}", weight="bold", size=14, width=150, text_align=ft.TextAlign.RIGHT, color=color_bal),
+                ])
+            )
+        else:
+            # VISTA COMPLETA DETALLADA
+            # 1. SECCIÓN COMPRAS
+            self.doc_cuerpo.controls.append(ft.Container(content=ft.Text("COMPRAS (IVA PAGADO EN ENTRADAS)", weight="bold", size=13, color="teal700"), padding=ft.padding.only(top=10, bottom=5)))
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text("FECHA", weight="bold", size=10, width=65),
+                ft.Text("DOC.", weight="bold", size=10, width=80),
+                ft.Text("INSUMO", weight="bold", size=10, expand=True),
+                ft.Text("BASE", weight="bold", size=10, width=80, text_align=ft.TextAlign.RIGHT),
+                ft.Text("IVA", weight="bold", size=10, width=70, text_align=ft.TextAlign.RIGHT),
+                ft.Text("TOTAL", weight="bold", size=10, width=85, text_align=ft.TextAlign.RIGHT),
+            ]))
+            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
+
+            for c in compras_filtradas:
+                self.doc_cuerpo.controls.append(ft.Row([
+                    ft.Text(c['fecha'], size=10, width=65),
+                    ft.Text(c['doc'], size=10, width=80, no_wrap=True),
+                    ft.Text(c['insumo'], size=10, expand=True, no_wrap=True),
+                    ft.Text(f"${c['base']:,.2f}", size=10, width=80, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"${c['iva']:,.2f}", size=10, width=70, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"${c['total']:,.2f}", size=10, width=85, text_align=ft.TextAlign.RIGHT),
+                ]))
+
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text("TOTAL COMPRAS:", weight="bold", size=11, expand=True, text_align=ft.TextAlign.RIGHT),
+                ft.Text(f"${tot_compras_base:,.2f}", weight="bold", size=11, width=80, text_align=ft.TextAlign.RIGHT),
+                ft.Text(f"${tot_compras_iva:,.2f}", weight="bold", size=11, width=70, text_align=ft.TextAlign.RIGHT, color="teal700"),
+                ft.Text(f"${tot_compras_total:,.2f}", weight="bold", size=11, width=85, text_align=ft.TextAlign.RIGHT),
+            ]))
+            self.doc_cuerpo.controls.append(ft.Divider(height=15, color="transparent"))
+
+            # 2. SECCIÓN VENTAS
+            self.doc_cuerpo.controls.append(ft.Container(content=ft.Text("VENTAS (IVA GENERADO EN SALIDAS)", weight="bold", size=13, color="blue700"), padding=ft.padding.only(top=10, bottom=5)))
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text("FECHA", weight="bold", size=10, width=65),
+                ft.Text("DOC.", weight="bold", size=10, width=80),
+                ft.Text("INSUMO", weight="bold", size=10, expand=True),
+                ft.Text("BASE", weight="bold", size=10, width=80, text_align=ft.TextAlign.RIGHT),
+                ft.Text("IVA", weight="bold", size=10, width=70, text_align=ft.TextAlign.RIGHT),
+                ft.Text("TOTAL", weight="bold", size=10, width=85, text_align=ft.TextAlign.RIGHT),
+            ]))
+            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
+
+            for v in ventas_filtradas:
+                self.doc_cuerpo.controls.append(ft.Row([
+                    ft.Text(v['fecha'], size=10, width=65),
+                    ft.Text(v['doc'], size=10, width=80, no_wrap=True),
+                    ft.Text(v['insumo'], size=10, expand=True, no_wrap=True),
+                    ft.Text(f"${v['base']:,.2f}", size=10, width=80, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"${v['iva']:,.2f}", size=10, width=70, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"${v['total']:,.2f}", size=10, width=85, text_align=ft.TextAlign.RIGHT),
+                ]))
+
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text("TOTAL VENTAS:", weight="bold", size=11, expand=True, text_align=ft.TextAlign.RIGHT),
+                ft.Text(f"${tot_ventas_base:,.2f}", weight="bold", size=11, width=80, text_align=ft.TextAlign.RIGHT),
+                ft.Text(f"${tot_ventas_iva:,.2f}", weight="bold", size=11, width=70, text_align=ft.TextAlign.RIGHT, color="blue700"),
+                ft.Text(f"${tot_ventas_total:,.2f}", weight="bold", size=11, width=85, text_align=ft.TextAlign.RIGHT),
+            ]))
+            self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
+
+            color_bal = "red" if balance_iva > 0 else "green"
+            lbl_bal = "BALANCE NETO DE IVA (POR PAGAR)" if balance_iva > 0 else "BALANCE NETO DE IVA (A FAVOR)"
+            self.doc_cuerpo.controls.append(
+                ft.Row([
+                    ft.Text(f"{lbl_bal}:", weight="bold", size=13, expand=True, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"${balance_iva:,.2f}", weight="bold", size=13, width=120, text_align=ft.TextAlign.RIGHT, color=color_bal),
+                ])
+            )
+            self.doc_cuerpo.controls.append(ft.Divider(height=4, color="black"))
+
+    def _generar_valorizacion(self, detalle, fecha_corte=None):
+        # Obtener datos calculados desde la base de datos
+        data, _ = self.db.get_insumos(page=1, page_size=100000, fecha_corte=fecha_corte)
+
+        if not data:
+            self.doc_cuerpo.controls.append(
+                ft.Container(content=ft.Text("No hay datos para los filtros seleccionados.", size=14, color="grey"), padding=30, alignment=ft.alignment.center)
+            )
+            self.current_data = {}
+            self.current_total = 0
+            return
+
+        agrupacion = {}
+        gran_total_costo = 0.0
+        gran_total_cant = 0.0
+
+        for item in data:
+            cat = (item.get("categoria") or "SIN CATEGORIA").strip().upper()
+            stock_real = float(item.get("stock_actual") or item.get("stock_real") or 0)
+            costo_u = float(item.get("costo_unitario") or 0)
+            
+            # REGLA DE NEGOCIO: Un informe de valorización evalúa existencias reales.
+            # Saldos negativos (ventas sin compra ingresada) se evalúan en 0 para evitar cantidades negativas y '$-0.00'.
+            stock_val = max(0.0, stock_real)
+            costo_total = stock_val * costo_u
+
+            # Solo se valoran ítems con existencia disponible real
+            if stock_val > 0 and costo_total > 0:
+                if cat not in agrupacion:
+                    agrupacion[cat] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
+
+                agrupacion[cat]["items"].append({
+                    "codigo": item.get("codigo_insumo"),
+                    "nombre": item.get("nombre"),
+                    "stock": stock_val,
+                    "costo_u": costo_u,
+                    "total": costo_total
+                })
+                agrupacion[cat]["subtotal"] += costo_total
+                agrupacion[cat]["cant_total"] += stock_val
+                gran_total_costo += costo_total
+                gran_total_cant += stock_val
+
+        # Guardar en memoria para exportación PDF/Excel
+        self.current_data = agrupacion
+        self.current_total = gran_total_costo
+        self.current_periodo = self.doc_header_periodo.value
+
+        if detalle == "Resumido":
+            self._dibujar_resumido(agrupacion, "CATEGORÍA", gran_total_costo, gran_total_cant, "GRAN TOTAL VALORIZACIÓN")
+        else:
+            self.doc_cuerpo.controls.append(
+                ft.Row([
+                    ft.Text("CÓDIGO", weight="bold", size=11, width=60),
+                    ft.Text("INSUMO", weight="bold", size=11, expand=True),
+                    ft.Text("CANT.", weight="bold", size=11, width=60, text_align=ft.TextAlign.RIGHT),
+                    ft.Text("COSTO U.", weight="bold", size=11, width=80, text_align=ft.TextAlign.RIGHT),
+                    ft.Text("TOTAL", weight="bold", size=11, width=100, text_align=ft.TextAlign.RIGHT),
+                ])
+            )
+            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
+
+            for cat, datos_cat in sorted(agrupacion.items()):
+                self.doc_cuerpo.controls.append(
+                    ft.Container(content=ft.Text(f"GRUPO: {cat.upper()}", weight="bold", size=12, color=Config.COLOR_PRIMARY), padding=ft.padding.only(top=10, bottom=5))
+                )
+                for i in sorted(datos_cat["items"], key=lambda x: x["nombre"]):
+                    self.doc_cuerpo.controls.append(
+                        ft.Row([
+                            ft.Text(i['codigo'], size=11, width=60),
+                            ft.Text(i['nombre'], size=11, expand=True, no_wrap=True),
+                            ft.Text(f"{i['stock']:g}", size=11, width=60, text_align=ft.TextAlign.RIGHT),
+                            ft.Text(f"${i['costo_u']:,.2f}", size=11, width=80, text_align=ft.TextAlign.RIGHT),
+                            ft.Text(f"${i['total']:,.2f}", size=11, width=100, text_align=ft.TextAlign.RIGHT),
+                        ])
+                    )
+                self.doc_cuerpo.controls.append(
+                    ft.Row([
+                        ft.Text(f"Total {cat}:", weight="bold", size=11, expand=True, text_align=ft.TextAlign.RIGHT),
+                        ft.Text(f"${datos_cat['subtotal']:,.2f}", weight="bold", size=12, width=100, text_align=ft.TextAlign.RIGHT),
+                    ])
+                )
+                self.doc_cuerpo.controls.append(ft.Divider(height=1, color="#eeeeee"))
+
+            self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
+            self.doc_cuerpo.controls.append(
+                ft.Row([
+                    ft.Text("GRAN TOTAL VALORIZACIÓN:", weight="bold", size=14, expand=True, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"${gran_total_costo:,.2f}", weight="bold", size=14, width=150, text_align=ft.TextAlign.RIGHT),
+                ])
+            )
+            self.doc_cuerpo.controls.append(ft.Divider(height=4, color="black"))
+
+    def _generar_compras(self, fecha_inicio, fecha_fin, detalle):
+        data, _ = self.db.get_compras(page=1, page_size=10000)
+        agrupacion = {}
+        gran_total = 0.0
+        gran_total_cant = 0.0
+
+        for item in data:
+            fecha = item.get("fecha", "")[:10]
+            if not (fecha_inicio <= fecha <= fecha_fin): continue
+
+            proveedor = item.get("proveedor", "Desconocido")
+            costo_total = float(item.get("costo_total") or 0)
+            cant = float(item.get("cantidad", 0))
+
+            if proveedor not in agrupacion:
+                agrupacion[proveedor] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
+
+            agrupacion[proveedor]["items"].append({
+                "fecha": fecha,
+                "factura": item.get("numero_factura", ""),
+                "insumo": item.get("catalogo_insumos", {}).get("nombre", ""),
+                "cant": cant,
+                "total": costo_total
+            })
+            agrupacion[proveedor]["subtotal"] += costo_total
+            agrupacion[proveedor]["cant_total"] += cant
+            gran_total += costo_total
+            gran_total_cant += cant
+
+        self.current_data = agrupacion
+        self.current_total = gran_total
+        self.current_periodo = self.doc_header_periodo.value
+
+        if detalle == "Resumido":
+            self._dibujar_resumido(agrupacion, "PROVEEDOR", gran_total, gran_total_cant)
+        else:
+            self._dibujar_tabla_financiera(agrupacion, "PROVEEDOR", gran_total, ["FECHA", "FACTURA", "INSUMO", "CANT.", "TOTAL"])
+
+    def _generar_ventas(self, fecha_inicio, fecha_fin, detalle):
+        data, _ = self.db.get_ventas(page=1, page_size=10000)
+        agrupacion = {}
+        gran_total = 0.0
+        gran_total_cant = 0.0
+
+        for item in data:
+            fecha = item.get("fecha", "")[:10]
+            if not (fecha_inicio <= fecha <= fecha_fin): continue
+
+            cat = item.get("catalogo_insumos", {}).get("categoria", "SIN CATEGORIA")
+            
+            if cat not in agrupacion:
+                agrupacion[cat] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
+
+            total = float(item.get("total") or 0)
+            cant = float(item.get("cantidad", 0))
+            agrupacion[cat]["items"].append({
+                "fecha": fecha,
+                "factura": item.get("factura_no", ""),
+                "insumo": item.get("descripcion") or item.get("catalogo_insumos", {}).get("nombre", ""),
+                "cant": cant,
+                "total": total
+            })
+            agrupacion[cat]["subtotal"] += total
+            agrupacion[cat]["cant_total"] += cant
+            gran_total += total
+            gran_total_cant += cant
+
+        self.current_data = agrupacion
+        self.current_total = gran_total
+        self.current_periodo = self.doc_header_periodo.value
+
+        if detalle == "Resumido":
+            self._dibujar_resumido(agrupacion, "CATEGORÍA", gran_total, gran_total_cant)
+        else:
+            self._dibujar_tabla_financiera(agrupacion, "CATEGORÍA", gran_total, ["FECHA", "FACTURA", "INSUMO", "CANT.", "INGRESOS"])
+
+    def _generar_ajustes(self, fecha_inicio, fecha_fin, detalle):
+        data = self.db.get_ajustes_inventario()
+        agrupacion = {}
+        gran_total_neto = 0.0
+        gran_total_cant = 0.0
+
+        for item in data:
+            if item.get("estado_registro") != "VÁLIDO": continue
+
+            fecha = item.get("fecha_ajuste", "")[:10]
+            if not (fecha_inicio <= fecha <= fecha_fin): continue
+
+            tipo = "ENTRADAS (+)" if item.get("tipo_ajuste") in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE') else "SALIDAS (-)"
+            if tipo not in agrupacion:
+                agrupacion[tipo] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
+
+            costo = float(item.get("costo_total_ajuste") or 0)
+            cant = float(item.get("cantidad", 0))
+
+            raw_motivo = item.get("motivo", "")
+            raw_obs = item.get("observacion", "") or item.get("observaciones", "")
+            if not raw_motivo and item.get("motivo_observacion"):
+                partes = item.get("motivo_observacion").split("]", 1)
+                raw_motivo = partes[0].replace("[", "").strip() if len(partes) > 1 else item.get("motivo_observacion")
+                raw_obs = partes[1].strip() if len(partes) > 1 else ""
+
+            agrupacion[tipo]["items"].append({
+                "fecha": fecha,
+                "motivo": raw_motivo,
+                "obs": raw_obs,
+                "insumo": item.get("catalogo_insumos", {}).get("nombre", ""),
+                "cant": cant,
+                "total": costo
+            })
+            agrupacion[tipo]["subtotal"] += costo
+            agrupacion[tipo]["cant_total"] += cant
+            gran_total_neto += costo if tipo == "ENTRADAS (+)" else -costo
+            gran_total_cant += cant if tipo == "ENTRADAS (+)" else -cant
+
+        self.current_data = agrupacion
+        self.current_total = gran_total_neto
+        self.current_periodo = self.doc_header_periodo.value
+
+        if detalle == "Resumido":
+            self._dibujar_resumido(agrupacion, "TIPO DE AJUSTE", gran_total_neto, gran_total_cant, "IMPACTO NETO")
+        else:
+            self._dibujar_tabla_financiera(agrupacion, "TIPO DE AJUSTE", gran_total_neto, ["FECHA", "MOTIVO", "OBSERVACIÓN", "INSUMO", "CANT.", "COSTO TOTAL"], label_gran_total="IMPACTO NETO", is_ajuste=True)
+
+    def _dibujar_resumido(self, agrupacion, label_grupo, gran_total_val, gran_total_cant=0, label_gran_total="GRAN TOTAL"):
+        self.doc_cuerpo.controls.append(ft.Row([
+            ft.Text(label_grupo, weight="bold", size=11, expand=True),
+            ft.Text("CANT. TOTAL", weight="bold", size=11, width=100, text_align=ft.TextAlign.RIGHT),
+            ft.Text("VALOR TOTAL", weight="bold", size=11, width=120, text_align=ft.TextAlign.RIGHT),
+        ]))
+        self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
+
+        for grupo, datos in sorted(agrupacion.items()):
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text(grupo.upper(), size=11, expand=True, weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Text(f"{datos.get('cant_total', 0):g}", size=11, width=100, text_align=ft.TextAlign.RIGHT),
+                ft.Text(f"${datos['subtotal']:,.2f}", size=11, width=120, text_align=ft.TextAlign.RIGHT),
+            ]))
+            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="#eeeeee"))
+
+        self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
+        color_total = "red" if gran_total_val < 0 else "black"
+        self.doc_cuerpo.controls.append(ft.Row([
+            ft.Text(f"{label_gran_total}:", weight="bold", size=14, expand=True, text_align=ft.TextAlign.RIGHT),
+            ft.Text(f"{gran_total_cant:g}", weight="bold", size=14, width=100, text_align=ft.TextAlign.RIGHT),
+            ft.Text(f"${gran_total_val:,.2f}", weight="bold", size=14, width=120, text_align=ft.TextAlign.RIGHT, color=color_total),
+        ]))
+
+    def _dibujar_tabla_financiera(self, agrupacion, label_grupo, gran_total, headers, label_gran_total="GRAN TOTAL", is_ajuste=False):
+        if not agrupacion:
+            self.doc_cuerpo.controls.append(ft.Container(content=ft.Text("No hay datos para los filtros seleccionados.", size=14, color="grey"), padding=30, alignment=ft.alignment.center))
+            return
+
+        # Cabeceras
+        if is_ajuste:
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text(headers[0], weight="bold", size=11, width=65),
+                ft.Text(headers[1], weight="bold", size=11, width=90),
+                ft.Text(headers[2], weight="bold", size=11, expand=True),
+                ft.Text(headers[3], weight="bold", size=11, width=100),
+                ft.Text(headers[4], weight="bold", size=11, width=45, text_align=ft.TextAlign.RIGHT),
+                ft.Text(headers[5], weight="bold", size=11, width=70, text_align=ft.TextAlign.RIGHT),
+            ]))
+        else:
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text(headers[0], weight="bold", size=11, width=70),
+                ft.Text(headers[1], weight="bold", size=11, width=90),
+                ft.Text(headers[2], weight="bold", size=11, expand=True),
+                ft.Text(headers[3], weight="bold", size=11, width=60, text_align=ft.TextAlign.RIGHT),
+                ft.Text(headers[4], weight="bold", size=11, width=100, text_align=ft.TextAlign.RIGHT),
+            ]))
+        self.doc_cuerpo.controls.append(ft.Divider(height=1, color="black"))
+
+        for grupo, datos in sorted(agrupacion.items()):
+            self.doc_cuerpo.controls.append(ft.Container(content=ft.Text(f"{label_grupo}: {grupo.upper()}", weight="bold", size=12, color=Config.COLOR_PRIMARY), padding=ft.padding.only(top=10, bottom=5)))
+            for i in datos["items"]:
+                if is_ajuste:
+                    fila_ui = ft.Row([
+                        ft.Text(i['fecha'], size=11, width=65),
+                        ft.Text(i['motivo'], size=11, width=90, no_wrap=True, weight="bold"),
+                        ft.Text(i['obs'], size=11, expand=True), # Observación toma el espacio restante
+                        ft.Text(i['insumo'], size=11, width=100, no_wrap=True),
+                        ft.Text(f"{i['cant']:g}", size=11, width=45, text_align=ft.TextAlign.RIGHT),
+                        ft.Text(f"${i['total']:,.2f}", size=11, width=70, text_align=ft.TextAlign.RIGHT),
+                    ])
+                else:
+                    fila_ui = ft.Row([
+                        ft.Text(i['fecha'], size=11, width=70),
+                        ft.Text(i['factura'], size=11, width=90, no_wrap=True),
+                        ft.Text(i['insumo'], size=11, expand=True, no_wrap=True),
+                        ft.Text(f"{i['cant']:g}", size=11, width=60, text_align=ft.TextAlign.RIGHT),
+                        ft.Text(f"${i['total']:,.2f}", size=11, width=100, text_align=ft.TextAlign.RIGHT),
+                    ])
+                self.doc_cuerpo.controls.append(fila_ui)
+            self.doc_cuerpo.controls.append(ft.Row([
+                ft.Text(f"Total {grupo}:", weight="bold", size=11, expand=True, text_align=ft.TextAlign.RIGHT),
+                ft.Text(f"${datos['subtotal']:,.2f}", weight="bold", size=12, width=100, text_align=ft.TextAlign.RIGHT),
+            ]))
+            self.doc_cuerpo.controls.append(ft.Divider(height=1, color="#eeeeee"))
+
+        self.doc_cuerpo.controls.append(ft.Divider(height=2, color="black"))
+        color_total = "red" if gran_total < 0 else "black"
+        self.doc_cuerpo.controls.append(ft.Row([
+            ft.Text(f"{label_gran_total}:", weight="bold", size=14, expand=True, text_align=ft.TextAlign.RIGHT),
+            ft.Text(f"${gran_total:,.2f}", weight="bold", size=14, width=150, text_align=ft.TextAlign.RIGHT, color=color_total),
+        ]))
+        self.doc_cuerpo.controls.append(ft.Divider(height=4, color="black"))
+
+    def _generar_kpis(self, fecha_inicio, fecha_fin):
+        # Como los KPIs son un resumen global dictado por los métodos SQL actuales (que operan por mes/hoy)
+        # Mostraremos la foto actual del sistema independientemente del filtro de fechas (con una advertencia visual)
+
+        res_cat = self.db.get_catalogo_summary()
+        res_ven = self.db.get_ventas_summary()
+        res_com = self.db.get_compras_summary()
+        kpis_inv = self.db.get_inventario_kpis()
+
+        val_inv = kpis_inv.get('valor_inventario', 0)
+        ingresos = float(res_ven.get('total_mes') or 0)
+        compras = float(res_com.get('total_mes') or 0)
+
+        rentabilidad = ((ingresos - compras) / ingresos) * 100 if ingresos > 0 else 0
+        rotacion = ingresos / val_inv if val_inv > 0 else 0
+
+        def _crear_kpi_fila(label, valor, color="black"):
+            return ft.Row([
+                ft.Text(label, size=13, expand=True),
+                ft.Text(valor, size=14, weight="bold", color=color, width=150, text_align=ft.TextAlign.RIGHT)
+            ])
+
+        self.doc_cuerpo.controls.extend([
+            ft.Container(content=ft.Text("NOTA: Este resumen muestra el estado actual del MES EN CURSO según las métricas del Dashboard, independientemente del filtro de fechas seleccionado.", size=10, color="orange", italic=True), padding=10, bgcolor="#fff3cd", border_radius=5),
+            ft.Divider(height=10, color="transparent"),
+            ft.Text("MÉTRICAS DE INVENTARIO Y COSTOS", weight="bold", size=14, color=Config.COLOR_PRIMARY),
+            ft.Divider(height=1, color="black"),
+            _crear_kpi_fila("Valorización Actual del Inventario", f"${val_inv:,.2f}"),
+            _crear_kpi_fila("Total Compras (Mes Actual)", f"${compras:,.2f}"),
+            ft.Divider(height=20, color="transparent"),
+            ft.Text("MÉTRICAS DE VENTAS E INGRESOS", weight="bold", size=14, color=Config.COLOR_PRIMARY),
+            ft.Divider(height=1, color="black"),
+            _crear_kpi_fila("Total Ventas (Mes Actual)", f"${ingresos:,.2f}", "green"),
+            _crear_kpi_fila("IVA Recaudado (Mes Actual)", f"${res_ven.get('iva_mes', 0):,.2f}"),
+            ft.Divider(height=20, color="transparent"),
+            ft.Text("RENDIMIENTO FINANCIERO (MES ACTUAL)", weight="bold", size=14, color=Config.COLOR_PRIMARY),
+            ft.Divider(height=1, color="black"),
+            _crear_kpi_fila("Margen de Rentabilidad Bruta", f"{rentabilidad:.1f}%", "green" if rentabilidad >= 0 else "red"),
+            _crear_kpi_fila("Índice de Rotación", f"{rotacion:.2f}x"),
+            ft.Divider(height=4, color="black")
+        ])
+
+    def exportar_pdf(self, e):
+        if not hasattr(self, 'current_data') or not self.current_data:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Primero genera la previsualización del informe."), bgcolor="orange")
+            self.page.snack_bar.open = True
+            self.page.update()
+            return
+
+        # Garantizar registración en overlay antes de invocar el diálogo
+        if self.page:
+            if self.save_pdf_picker not in self.page.overlay:
+                self.page.overlay.append(self.save_pdf_picker)
+                self.page.update()
+
+        nombre_sugerido = f"{self.drop_tipo_informe.value.replace(' ', '_')}_{datetime.date.today().strftime('%Y%m%d')}.pdf"
+        self.save_pdf_picker.save_file(
+            dialog_title="Guardar Informe PDF",
+            file_name=nombre_sugerido,
+            allowed_extensions=["pdf"]
+        )
+
+    def _save_pdf_result(self, e: ft.FilePickerResultEvent):
+        if not e.path:
+            return
+            
+        try:
+            from fpdf import FPDF
+            
+            class PDFReport(FPDF):
+                def header(instance):
+                    instance.set_font("Arial", 'B', 12)
+                    instance.cell(0, 6, "TIENDA Y ABARROTES LOS DESECHABLES DE DOÑA MARY SAS", ln=True, align='C')
+                    instance.set_font("Arial", 'B', 10)
+                    instance.cell(0, 5, "REPORTE OFICIAL DE INVENTARIOS Y OPERACIONES", ln=True, align='C')
+                    instance.set_font("Arial", '', 8)
+                    instance.cell(0, 4, f"Generado el: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M %p')}", ln=True, align='C')
+                    instance.ln(4)
+                    instance.line(10, instance.get_y(), 200, instance.get_y())
+                    instance.ln(4)
+
+                def footer(instance):
+                    instance.set_y(-15)
+                    instance.set_font("Arial", 'I', 8)
+                    instance.cell(0, 10, f"Página {instance.page_no()}/{{nb}}", align='C')
+
+            pdf = PDFReport()
+            pdf.alias_nb_pages()
+            pdf.add_page()
+            pdf.set_auto_page_break(auto=True, margin=15)
+
+            # Título del Informe
+            pdf.set_font("Arial", 'B', 11)
+            pdf.cell(0, 6, str(self.doc_header_titulo.value).encode('latin-1', 'replace').decode('latin-1'), ln=True)
+            pdf.set_font("Arial", '', 9)
+            pdf.cell(0, 5, str(self.doc_header_periodo.value).encode('latin-1', 'replace').decode('latin-1'), ln=True)
+            pdf.ln(4)
+
+            es_resumido = self.opcion_detalle.value == "Resumido"
+            es_ajuste = self.drop_tipo_informe.value == "Historial de Ajustes"
+
+            if es_resumido:
+                # Tabla Resumida
+                pdf.set_font("Arial", 'B', 8)
+                pdf.cell(110, 6, "GRUPO / CATEGORIA", border=1)
+                pdf.cell(35, 6, "CANT. TOTAL", border=1, align='R')
+                pdf.cell(45, 6, "VALOR TOTAL", border=1, align='R')
+                pdf.ln()
+
+                pdf.set_font("Arial", '', 8)
+                for grupo, datos in sorted(self.current_data.items()):
+                    g_nombre = str(grupo).upper().encode('latin-1', 'replace').decode('latin-1')
+                    pdf.cell(110, 6, g_nombre, border="L,R,B")
+                    pdf.cell(35, 6, f"{datos.get('cant_total', 0):g}", border="L,R,B", align='R')
+                    pdf.cell(45, 6, f"${datos['subtotal']:,.2f}", border="L,R,B", align='R', ln=True)
+
+                pdf.ln(4)
+                pdf.set_font("Arial", 'B', 9)
+                pdf.cell(145, 7, "TOTAL GENERAL:", align='R')
+                pdf.cell(45, 7, f"${self.current_total:,.2f}", border=1, align='R', ln=True)
+
+            else:
+                # Tabla Completa
+                pdf.set_font("Arial", 'B', 8)
+                if es_ajuste:
+                    pdf.cell(20, 6, "FECHA", border=1)
+                    pdf.cell(30, 6, "MOTIVO", border=1)
+                    pdf.cell(50, 6, "OBSERVACION", border=1)
+                    pdf.cell(45, 6, "INSUMO", border=1)
+                    pdf.cell(20, 6, "CANT.", border=1, align='R')
+                    pdf.cell(25, 6, "COSTO TOT.", border=1, align='R')
+                else:
+                    pdf.cell(20, 6, "FECHA/COD", border=1)
+                    pdf.cell(30, 6, "DOC/FACT", border=1)
+                    pdf.cell(75, 6, "INSUMO / DESCRIPCION", border=1)
+                    pdf.cell(20, 6, "CANT.", border=1, align='R')
+                    pdf.cell(20, 6, "COSTO U.", border=1, align='R')
+                    pdf.cell(25, 6, "TOTAL", border=1, align='R')
+                pdf.ln()
+
+                for grupo, datos in sorted(self.current_data.items()):
+                    pdf.set_font("Arial", 'B', 8)
+                    pdf.cell(0, 6, f"  GRUPO: {str(grupo).upper().encode('latin-1', 'replace').decode('latin-1')}", border="L,R,B", ln=True)
+                    pdf.set_font("Arial", '', 7)
+
+                    for i in datos["items"]:
+                        insumo_txt = str(i.get('insumo') or i.get('nombre', '')).encode('latin-1', 'replace').decode('latin-1')[:35]
+                        
+                        if es_ajuste:
+                            motivo_txt = str(i.get('motivo', '')).encode('latin-1', 'replace').decode('latin-1')[:18]
+                            obs_txt = str(i.get('obs', '')).encode('latin-1', 'replace').decode('latin-1')[:30]
+                            pdf.cell(20, 5, str(i.get('fecha', '')), border="L")
+                            pdf.cell(30, 5, motivo_txt)
+                            pdf.cell(50, 5, obs_txt)
+                            pdf.cell(45, 5, insumo_txt)
+                            pdf.cell(20, 5, f"{i.get('cant', 0):g}", align='R')
+                            pdf.cell(25, 5, f"${i.get('total', 0):,.2f}", border="R", align='R', ln=True)
+                        else:
+                            c_code = str(i.get('codigo') or i.get('fecha', ''))
+                            c_doc = str(i.get('factura', ''))[:15]
+                            c_u = f"${i.get('costo_u', 0):,.2f}" if 'costo_u' in i else "-"
+                            pdf.cell(20, 5, c_code, border="L")
+                            pdf.cell(30, 5, c_doc)
+                            pdf.cell(75, 5, insumo_txt)
+                            pdf.cell(20, 5, f"{i.get('stock', i.get('cant', 0)):g}", align='R')
+                            pdf.cell(20, 5, c_u, align='R')
+                            pdf.cell(25, 5, f"${i.get('total', 0):,.2f}", border="R", align='R', ln=True)
+
+                    pdf.set_font("Arial", 'B', 8)
+                    pdf.cell(165, 5, f"Subtotal {grupo}:", border="L,B", align='R')
+                    pdf.cell(25, 5, f"${datos['subtotal']:,.2f}", border="R,B", align='R', ln=True)
+
+                pdf.ln(4)
+                pdf.set_font("Arial", 'B', 9)
+                pdf.cell(165, 7, "TOTAL GENERAL:", align='R')
+                pdf.cell(25, 7, f"${self.current_total:,.2f}", border=1, align='R', ln=True)
+
+            pdf.output(e.path)
+            self.page.snack_bar = ft.SnackBar(ft.Text("¡PDF exportado con éxito!"), bgcolor="green")
+            self.page.snack_bar.open = True
+            self.page.update()
+
+        except Exception as ex:
+            self.page.snack_bar = ft.SnackBar(ft.Text(f"Error al generar PDF: {ex}"), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.page.update()
+
+    def exportar_excel(self, e):
+        # Garantizar registración en overlay antes de invocar el diálogo
+        if self.page:
+            if self.save_excel_picker not in self.page.overlay:
+                self.page.overlay.append(self.save_excel_picker)
+                self.page.update()
+
+        nombre_sugerido = f"Inventario_Consolidado_Dona_Mary_{datetime.date.today().strftime('%Y%m%d')}.xlsx"
+        self.save_excel_picker.save_file(
+            dialog_title="Guardar Consolidado Excel",
+            file_name=nombre_sugerido,
+            allowed_extensions=["xlsx"]
+        )
+
+    def _save_excel_result(self, e: ft.FilePickerResultEvent):
+        if not e.path:
+            return
+            
+        self.page.snack_bar = ft.SnackBar(ft.Text("Generando consolidado Excel en segundo plano..."), bgcolor="blue")
+        self.page.snack_bar.open = True
+        self.page.update()
+        
+        threading.Thread(target=self._worker_generar_excel, args=(e.path,), daemon=True).start()
+
+    def _worker_generar_excel(self, file_path):
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+
+            # 1. Obtener datos completos de la base de datos sin filtros
+            raw_inv, _ = self.db.get_insumos(page=1, page_size=999999)
+            raw_compras, _ = self.db.get_compras(page=1, page_size=999999)
+            raw_ventas, _ = self.db.get_ventas(page=1, page_size=999999)
+            raw_ajustes = self.db.get_ajustes_inventario() or []
+
+            wb = openpyxl.Workbook()
+            wb.remove(wb.active) # Eliminar hoja por defecto
+
+            # Estilos generales
+            fill_header = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
+            font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            font_title = Font(name="Calibri", size=14, bold=True, color="1B365D")
+            font_sub = Font(name="Calibri", size=10, italic=True, color="555555")
+            border_thin = Border(
+                left=Side(style='thin', color='CCCCCC'), right=Side(style='thin', color='CCCCCC'),
+                top=Side(style='thin', color='CCCCCC'), bottom=Side(style='thin', color='CCCCCC')
+            )
+            num_fmt_curr = '"$"#,##0.00'
+            num_fmt_qty = '#,##0'
+
+            fecha_emision = datetime.datetime.now().strftime("%d/%m/%Y %I:%M %p")
+            nombre_empresa = "TIENDA Y ABARROTES LOS DESECHABLES DE DOÑA MARY SAS"
+
+            def agregar_encabezado(ws, titulo):
+                ws['A1'] = nombre_empresa
+                ws['A1'].font = font_title
+                ws['A2'] = f"CONSOLIDADO SISTEMA: {titulo.upper()}"
+                ws['A2'].font = Font(name="Calibri", size=12, bold=True)
+                ws['A3'] = f"Fecha de emisión: {fecha_emision} | Datos acumulados sin filtros"
+                ws['A3'].font = font_sub
+
+            # ----------------------------------------------------
+            # HOJA 1: COMPRAS
+            # ----------------------------------------------------
+            ws_c = wb.create_sheet(title="Compras")
+            agregar_encabezado(ws_c, "Detalle de Registro de Compras")
+            ws_c.append([])
+            ws_c.append(["Fecha", "Código Insumo", "Nombre Insumo", "Factura / Documento", "Cantidad", "Costo Total"])
+
+            for r_idx, c in enumerate(raw_compras, start=6):
+                cat_i = c.get("catalogo_insumos") or {}
+                ws_c.cell(row=r_idx, column=1, value=str(c.get("fecha", ""))[:10])
+                ws_c.cell(row=r_idx, column=2, value=str(c.get("codigo_insumo", "")))
+                ws_c.cell(row=r_idx, column=3, value=cat_i.get("nombre", "Desconocido"))
+                ws_c.cell(row=r_idx, column=4, value=str(c.get("numero_factura") or c.get("numero_entrada") or ""))
+                ws_c.cell(row=r_idx, column=5, value=float(c.get("cantidad") or 0))
+                ws_c.cell(row=r_idx, column=6, value=float(c.get("costo_total") or 0))
+
+            # ----------------------------------------------------
+            # HOJA 2: VENTAS
+            # ----------------------------------------------------
+            ws_v = wb.create_sheet(title="Ventas")
+            agregar_encabezado(ws_v, "Detalle de Registro de Ventas")
+            ws_v.append([])
+            ws_v.append(["Fecha", "Código Insumo", "Nombre Insumo", "Comprobante / Pedido", "Cantidad", "Ingreso Total"])
+
+            for r_idx, v in enumerate(raw_ventas, start=6):
+                cat_i = v.get("catalogo_insumos") or {}
+                ws_v.cell(row=r_idx, column=1, value=str(v.get("fecha", ""))[:10])
+                ws_v.cell(row=r_idx, column=2, value=str(v.get("codigo_insumo", "")))
+                ws_v.cell(row=r_idx, column=3, value=cat_i.get("nombre") or v.get("descripcion") or "Desconocido")
+                ws_v.cell(row=r_idx, column=4, value=str(v.get("factura_no", "")))
+                ws_v.cell(row=r_idx, column=5, value=float(v.get("cantidad") or 0))
+                ws_v.cell(row=r_idx, column=6, value=float(v.get("total") or 0))
+
+            # ----------------------------------------------------
+            # HOJA 3: AJUSTES
+            # ----------------------------------------------------
+            ws_a = wb.create_sheet(title="Ajustes")
+            agregar_encabezado(ws_a, "Detalle de Ajustes de Inventario")
+            ws_a.append([])
+            ws_a.append(["Fecha", "Código Insumo", "Nombre Insumo", "Tipo", "Cantidad", "Motivo"])
+
+            for r_idx, a in enumerate(raw_ajustes, start=6):
+                if a.get("estado_registro") != "VÁLIDO": continue
+                cat_i = a.get("catalogo_insumos") or {}
+                es_ent = a.get("tipo_ajuste") in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
+                
+                ws_a.cell(row=r_idx, column=1, value=str(a.get("fecha_ajuste", ""))[:10])
+                ws_a.cell(row=r_idx, column=2, value=str(a.get("codigo_insumo", "")))
+                ws_a.cell(row=r_idx, column=3, value=cat_i.get("nombre", "Desconocido"))
+                ws_a.cell(row=r_idx, column=4, value="Entrada" if es_ent else "Salida")
+                ws_a.cell(row=r_idx, column=5, value=float(a.get("cantidad") or 0))
+                ws_a.cell(row=r_idx, column=6, value=str(a.get("motivo_observacion", "")))
+
+            # ----------------------------------------------------
+            # HOJA 4: INVENTARIO (HOJA MAESTRA CON FÓRMULAS)
+            # ----------------------------------------------------
+            ws_inv = wb.create_sheet(title="Inventario")
+            agregar_encabezado(ws_inv, "Catálogo General de Inventario y Valorización Formulado")
+            ws_inv.append([])
+            
+            headers_inv = [
+                "Código", "Nombre", "Categoría", "Ubicación", "Stock Inicial",
+                "Entradas", "Costo Entradas", "Salidas", "Ingresos por Salidas",
+                "Stock Actual", "Costo del Stock Actual", "Proyección Ingresos Stock Actual",
+                "Precio de Venta del Sistema", "Costo Unitario del Sistema",
+                "Ajustes Entradas", "Ajustes Salidas", "Costo Ajustes Entradas", "Ingresos Ajustes Salidas"
+            ]
+            ws_inv.append(headers_inv)
+
+            for idx, i in enumerate(raw_inv, start=6):
+                code = str(i.get("codigo_insumo", ""))
+                
+                # Datos estáticos base
+                ws_inv.cell(row=idx, column=1, value=code) # A
+                ws_inv.cell(row=idx, column=2, value=str(i.get("nombre", ""))) # B
+                ws_inv.cell(row=idx, column=3, value=str(i.get("categoria", ""))) # C
+                ws_inv.cell(row=idx, column=4, value=str(i.get("ubicacion") or "N/A")) # D
+                ws_inv.cell(row=idx, column=5, value=float(i.get("stock_inicial") or 0)) # E
+
+                # Fórmulas SUMIF sobre Compras y Ventas
+                ws_inv.cell(row=idx, column=6, value=f'=SUMIF(Compras!B:B, A{idx}, Compras!E:E)') # F: Entradas
+                ws_inv.cell(row=idx, column=7, value=f'=SUMIF(Compras!B:B, A{idx}, Compras!F:F)') # G: Costo Entradas
+                ws_inv.cell(row=idx, column=8, value=f'=SUMIF(Ventas!B:B, A{idx}, Ventas!E:E)') # H: Salidas
+                ws_inv.cell(row=idx, column=9, value=f'=SUMIF(Ventas!B:B, A{idx}, Ventas!F:F)') # I: Ingresos Salidas
+
+                # Precios/Costos Unitarios Maestros
+                ws_inv.cell(row=idx, column=13, value=float(i.get("precio_venta") or 0)) # M: Precio Venta
+                ws_inv.cell(row=idx, column=14, value=float(i.get("costo_unitario") or 0)) # N: Costo Unitario
+
+                # Fórmulas SUMIFS sobre Ajustes
+                ws_inv.cell(row=idx, column=15, value=f'=SUMIFS(Ajustes!E:E, Ajustes!B:B, A{idx}, Ajustes!D:D, "Entrada")') # O: Ajustes Entradas
+                ws_inv.cell(row=idx, column=16, value=f'=SUMIFS(Ajustes!E:E, Ajustes!B:B, A{idx}, Ajustes!D:D, "Salida")') # P: Ajustes Salidas
+
+                # Fórmulas de Totales en Inventario
+                ws_inv.cell(row=idx, column=10, value=f'=E{idx}+F{idx}-H{idx}+O{idx}-P{idx}') # J: Stock Actual
+                ws_inv.cell(row=idx, column=11, value=f'=J{idx}*N{idx}') # K: Costo Stock Actual
+                ws_inv.cell(row=idx, column=12, value=f'=J{idx}*M{idx}') # L: Proyección Ingresos
+                ws_inv.cell(row=idx, column=17, value=f'=O{idx}*N{idx}') # Q: Costo Ajustes Entradas
+                ws_inv.cell(row=idx, column=18, value=f'=P{idx}*M{idx}') # R: Ingresos Ajustes Salidas
+
+            # ----------------------------------------------------
+            # APLICAR FORMATOS Y AUTOFIT A TODAS LAS HOJAS
+            # ----------------------------------------------------
+            for sheet in wb.worksheets:
+                for cell in sheet[5]:
+                    cell.fill = fill_header
+                    cell.font = font_header
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+                for col in sheet.columns:
+                    max_len = 0
+                    col_letter = get_column_letter(col[0].column)
+                    for cell in col:
+                        if cell.row >= 5 and cell.value is not None:
+                            max_len = max(max_len, len(str(cell.value)))
+                            cell.border = border_thin
+
+                        # Formatear números en la hoja Inventario
+                        if sheet.title == "Inventario" and cell.row >= 6:
+                            if col_letter in ["G", "I", "K", "L", "M", "N", "Q", "R"]:
+                                cell.number_format = num_fmt_curr
+                            elif col_letter in ["E", "F", "H", "J", "O", "P"]:
+                                cell.number_format = num_fmt_qty
+                        elif sheet.title in ["Compras", "Ventas"] and cell.row >= 6:
+                            if col_letter == "F": cell.number_format = num_fmt_curr
+                            elif col_letter == "E": cell.number_format = num_fmt_qty
+
+                    sheet.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
+            wb.save(file_path)
+
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text("¡Consolidado Excel generado y formulado con éxito!"), bgcolor="green")
+                self.page.snack_bar.open = True
+                self.page.update()
+
+        except Exception as ex:
+            print(f"Error generando Excel: {ex}")
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error al generar Excel: {ex}"), bgcolor="red")
+                self.page.snack_bar.open = True
+                self.page.update()
+````
+
 ## File: ui/views/compras.py
 ````python
 import flet as ft
@@ -8062,6 +8509,17 @@ class ComprasView(ft.Container):
             tooltip="Filtrar por Fecha",
             on_click=self.open_date_picker
         )
+        
+        self.btn_crear_manual = ft.ElevatedButton(
+            text="Registrar Manual",
+            icon=ft.icons.ADD_BOX,
+            bgcolor=Config.COLOR_PRIMARY,
+            color="white",
+            height=40,
+            on_click=self.abrir_modal_crear_compra,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+
         self.btn_clear_date = ft.IconButton(
             icon=ft.icons.CLEAR,
             tooltip="Limpiar Fecha",
@@ -8120,10 +8578,12 @@ class ComprasView(ft.Container):
                 ft.DataColumn(ft.Text("No. Factura", weight="bold")),
                 ft.DataColumn(ft.Text("Proveedor", weight="bold")),
                 ft.DataColumn(ft.Text("Código Item", weight="bold")),
-                ft.DataColumn(ft.Container(content=ft.Text("Nombre", weight="bold"), width=300)),
+                ft.DataColumn(ft.Container(content=ft.Text("Nombre", weight="bold"), width=230)),
                 ft.DataColumn(ft.Text("Cantidad", weight="bold"), numeric=True),
                 ft.DataColumn(ft.Text("Costo Unit.", weight="bold"), numeric=True),
+                ft.DataColumn(ft.Text("IVA", weight="bold"), numeric=True),
                 ft.DataColumn(ft.Text("Costo Total", weight="bold"), numeric=True),
+                ft.DataColumn(ft.Text("Acciones", weight="bold")),
             ],
             rows=[],
             heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
@@ -8211,7 +8671,9 @@ class ComprasView(ft.Container):
         row_filtros_compras = ft.Row([
             self.search_autocomplete,
             self.btn_date,
-            self.btn_clear_date
+            self.btn_clear_date,
+            ft.Container(expand=True),
+            self.btn_crear_manual
         ])
         
         contenedor_tabla_compras = ft.Container(
@@ -8593,11 +9055,11 @@ class ComprasView(ft.Container):
             
             btn_eliminar = ft.IconButton(
                 icon=ft.icons.DELETE_OUTLINED,
-                icon_color="red700",
-                icon_size=18,
+                icon_color="red",
                 tooltip="Eliminar Carga",
                 on_click=lambda e, d=data: self.on_eliminar_carga(d)
             )
+            
             acciones_row = ft.Row([btn_accion, txt_crono, btn_eliminar], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER)
             
             color_estado = "black"
@@ -8621,14 +9083,14 @@ class ComprasView(ft.Container):
         if self.page:
             self.page.update()
 
+
     def on_eliminar_carga(self, data):
+        grupo_key = data.get("fecha")
+        num_pag = str(data.get("pagina"))
         estado = data.get("estado")
         id_carga = data["id"]
-        grupo_key = data["fecha"]
-        num_pag = str(data["pagina"])
         
         if estado == "Guardado":
-            # Extraer productos guardados para mostrarlos en el modal
             datos_ext = data.get("datos_extraidos", [])
             filas_resumen = []
             lista_eas = []
@@ -8676,7 +9138,7 @@ class ComprasView(ft.Container):
                             del self.cargas_data[grupo_key]
                     self._save_cargas()
                     
-                    self.page.snack_bar = ft.SnackBar(ft.Text("Carga e inventario de compras revertidos exitosamente."), bgcolor="orange700")
+                    self.page.snack_bar = ft.SnackBar(ft.Text("Carga e inventario revertidos exitosamente."), bgcolor="orange700")
                     self.page.snack_bar.open = True
                     self.load_data()
                     self.load_summary()
@@ -8696,7 +9158,6 @@ class ComprasView(ft.Container):
                     ft.Text("Eliminar Carga Guardada (Afecta BD)", size=16, weight="bold", color="red700")
                 ]),
                 content=ft.Container(
-                    width=450,
                     content=ft.Column([
                         ft.Container(
                             content=ft.Text(
@@ -8707,7 +9168,8 @@ class ComprasView(ft.Container):
                         ),
                         ft.Text("Insumos que se eliminarán:", size=12, weight="bold", color=Config.COLOR_PRIMARY),
                         ft.Container(
-                            content=ft.Column(filas_resumen, scroll=ft.ScrollMode.AUTO, max_height=180),
+                            content=ft.Column(filas_resumen, scroll=ft.ScrollMode.AUTO),
+                            height=180,
                             padding=8, bgcolor="#f8f9fa", border_radius=6, border=ft.border.all(1, "#e0e0e0")
                         ),
                         ft.Divider(height=5),
@@ -8718,7 +9180,8 @@ class ComprasView(ft.Container):
                             ft.Text("Costo Total a Revertir:", size=11, color="grey"),
                             ft.Text(f"${costo_tot:,.0f}", size=12, weight="bold", color="red700")
                         ])
-                    ], tight=True, spacing=10)
+                    ], tight=True, spacing=10),
+                    width=450
                 ),
                 actions=[
                     ft.TextButton("Cancelar", on_click=cerrar_dialogo_guardado),
@@ -8730,12 +9193,11 @@ class ComprasView(ft.Container):
             self.safe_update()
 
         else:
-            # Carga No Guardada (Nuevo, Falló, Procesado con éxito, Sobreescrito)
+            # Carga No Guardada
             def confirmar_eliminar_simple(e):
                 dlg.open = False
                 self.safe_update()
                 
-                # Borrar archivo local si existe
                 import os
                 arch_local = data.get("archivo")
                 if arch_local and os.path.exists(arch_local):
@@ -9428,7 +9890,10 @@ class ComprasView(ft.Container):
             costo_unit = float(item.get('costo_unitario', 0) or 0)
             costo_tot = float(item.get('costo_total', 0) or 0)
             
+            iva_val = float(item.get('iva') or item.get('valor_iva') or 0)
+            
             str_costo_unit = f"${costo_unit:,.2f}"
+            str_iva = f"${iva_val:,.2f}"
             str_costo_tot = f"${costo_tot:,.2f}"
             
             row = ft.DataRow(
@@ -9437,10 +9902,17 @@ class ComprasView(ft.Container):
                     ft.DataCell(ft.Text(str(item.get('numero_factura') or 'N/A'))),
                     ft.DataCell(ft.Text(str(item.get('proveedor') or 'N/A'))),
                     ft.DataCell(ft.Text(str(item.get('codigo_insumo', '')))),
-                    ft.DataCell(ft.Container(content=ft.Text(nombre_insumo), width=300)),
+                    ft.DataCell(ft.Container(content=ft.Text(nombre_insumo), width=280)),
                     ft.DataCell(ft.Text(str(cantidad), weight="bold")),
                     ft.DataCell(ft.Text(str_costo_unit)),
+                    ft.DataCell(ft.Text(str_iva)),
                     ft.DataCell(ft.Text(str_costo_tot, color="blue", weight="bold")),
+                    ft.DataCell(
+                        ft.Row([
+                            ft.IconButton(icon=ft.icons.EDIT_OUTLINED, icon_color="blue", tooltip="Editar", on_click=lambda e, i=item: self.abrir_modal_editar_compra(i)),
+                            ft.IconButton(icon=ft.icons.DELETE_OUTLINED, icon_color="red", tooltip="Eliminar", on_click=lambda e, i=item: self.confirmar_eliminar_compra(i))
+                        ], spacing=0)
+                    ),
                 ]
             )
             self.data_table.rows.append(row)
@@ -9641,6 +10113,215 @@ class ComprasView(ft.Container):
 
         import threading
         threading.Thread(target=worker, daemon=True).start()
+
+    # --- INICIO CRUD MANUAL COMPRAS ---
+    def _construir_modal_crud(self):
+        self.crud_codigo_insumo = CustomAutoComplete(
+            hint_text="Buscar insumo (Código o Nombre)",
+            on_select=self._on_insumo_crud_select
+        )
+        self.crud_codigo_insumo.width = 350
+        self.crud_fecha = ft.TextField(label="Fecha (YYYY-MM-DD)", width=150)
+        self.crud_ea = ft.TextField(label="N° Entrada (EA)", width=150)
+        self.crud_factura = ft.TextField(label="N° Factura", width=150)
+        self.crud_proveedor = ft.TextField(label="Proveedor", width=250)
+        self.crud_cantidad = ft.TextField(label="Cantidad", width=120, on_change=self._calc_tot_crud)
+        self.crud_costo_unit = ft.TextField(label="Costo Unit.", width=120, prefix_text="$", on_change=self._calc_tot_crud)
+        self.crud_iva = ft.TextField(label="IVA", width=120, prefix_text="$", on_change=self._calc_tot_crud)
+        self.crud_total_lbl = ft.Text("$ 0.00", size=20, weight="bold", color="blue700")
+        self.crud_item_id = None
+        
+        self.dlg_crud = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Registrar Compra"),
+            content=ft.Container(
+                width=600,
+                content=ft.Column([
+                    self.crud_codigo_insumo,
+                    ft.Row([self.crud_fecha, self.crud_ea, self.crud_factura]),
+                    self.crud_proveedor,
+                    ft.Row([self.crud_cantidad, self.crud_costo_unit, self.crud_iva]),
+                    ft.Divider(height=10),
+                    ft.Row([ft.Text("Costo Total:", size=16, weight="bold"), self.crud_total_lbl])
+                ], tight=True, spacing=15)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: self._cerrar_crud()),
+                ft.ElevatedButton("Guardar", bgcolor="blue700", color="white", on_click=self.guardar_compra_formulario)
+            ]
+        )
+
+    def _on_insumo_crud_select(self, e):
+        pass
+
+    def _calc_tot_crud(self, e=None):
+        try:
+            cant = float(self.crud_cantidad.value or 0)
+            cost = float(self.crud_costo_unit.value or 0)
+            iva = float(self.crud_iva.value or 0)
+            tot = (cant * cost) + iva
+            self.crud_total_lbl.value = f"$ {tot:,.2f}"
+            self.safe_update()
+        except ValueError:
+            self.crud_total_lbl.value = "$ 0.00"
+            self.safe_update()
+
+    def _cerrar_crud(self):
+        self.dlg_crud.open = False
+        self.safe_update()
+
+    def abrir_modal_crear_compra(self, e=None):
+        if not hasattr(self, 'dlg_crud'):
+            self._construir_modal_crud()
+            
+        insumos, _ = self.db.get_insumos(page=1, page_size=99999)
+        self.crud_codigo_insumo.suggestions = [{"key": i['codigo_insumo'], "value": f"[{i['codigo_insumo']}] {i['nombre']}"} for i in insumos]
+        
+        self.crud_item_id = None
+        self.dlg_crud.title.value = "Registrar Nueva Compra"
+        self.crud_codigo_insumo.value = ""
+        self.crud_fecha.value = datetime.date.today().strftime("%Y-%m-%d")
+        self.crud_ea.value = ""
+        self.crud_factura.value = ""
+        self.crud_proveedor.value = ""
+        self.crud_cantidad.value = ""
+        self.crud_costo_unit.value = ""
+        self.crud_iva.value = "0"
+        self._calc_tot_crud()
+        
+        self.page.overlay.append(self.dlg_crud)
+        self.dlg_crud.open = True
+        self.safe_update()
+
+    def abrir_modal_editar_compra(self, item):
+        if not hasattr(self, 'dlg_crud'):
+            self._construir_modal_crud()
+            
+        insumos, _ = self.db.get_insumos(page=1, page_size=99999)
+        self.crud_codigo_insumo.suggestions = [{"key": i['codigo_insumo'], "value": f"[{i['codigo_insumo']}] {i['nombre']}"} for i in insumos]
+        
+        self.crud_item_id = item.get("id_compra")
+        self.dlg_crud.title.value = "Editar Compra"
+        
+        cod = item.get("codigo_insumo", "")
+        nom = item.get("catalogo_insumos", {}).get("nombre", "")
+        self.crud_codigo_insumo.value = f"[{cod}] {nom}" if cod else ""
+        self.crud_fecha.value = str(item.get("fecha") or "")[:10]
+        self.crud_ea.value = str(item.get("numero_entrada") or "")
+        self.crud_factura.value = str(item.get("numero_factura") or "")
+        self.crud_proveedor.value = str(item.get("proveedor") or "")
+        self.crud_cantidad.value = str(item.get("cantidad") or 0)
+        self.crud_costo_unit.value = str(item.get("costo_unitario") or 0)
+        self.crud_iva.value = str(item.get("iva") or item.get("valor_iva") or 0)
+        self._calc_tot_crud()
+        
+        self.page.overlay.append(self.dlg_crud)
+        self.dlg_crud.open = True
+        self.safe_update()
+
+    def guardar_compra_formulario(self, e):
+        cod_raw = self.crud_codigo_insumo.value
+        if not cod_raw or "[" not in cod_raw or "]" not in cod_raw:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Selecciona un insumo válido del listado."), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.safe_update()
+            return
+            
+        codigo_insumo = cod_raw.split("[")[1].split("]")[0]
+        
+        try:
+            cant = float(self.crud_cantidad.value or 0)
+            costo = float(self.crud_costo_unit.value or 0)
+            iva = float(self.crud_iva.value or 0)
+            tot = (cant * costo) + iva
+        except ValueError:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Revisa los valores numéricos ingresados."), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.safe_update()
+            return
+            
+        datos = {
+            "fecha": self.crud_fecha.value,
+            "numero_entrada": self.crud_ea.value,
+            "numero_factura": self.crud_factura.value,
+            "proveedor": self.crud_proveedor.value,
+            "codigo_insumo": codigo_insumo,
+            "cantidad": cant,
+            "costo_unitario": costo,
+            "iva": iva,
+            "valor_iva": iva,
+            "costo_total": tot
+        }
+        
+        if self.crud_item_id:
+            # Edit
+            ok = self.db.update_compra_individual(self.crud_item_id, datos)
+            msg = "Compra actualizada exitosamente."
+        else:
+            # Create
+            datos["estado_registro"] = "VÁLIDO"
+            ok = self.db.insert_compras([datos])
+            msg = "Compra registrada exitosamente."
+            
+        if ok:
+            self._cerrar_crud()
+            self.page.snack_bar = ft.SnackBar(ft.Text(msg), bgcolor="green")
+            self.page.snack_bar.open = True
+            self.load_data()
+            self.load_summary()
+        else:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Error al guardar la compra en la BD."), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.safe_update()
+
+    def confirmar_eliminar_compra(self, item):
+        id_compra = item.get("id_compra")
+        cant = float(item.get("cantidad") or 0)
+        insumo = item.get("catalogo_insumos", {}).get("nombre", "Desconocido")
+        ea = item.get("numero_entrada") or item.get("numero_factura") or "S/D"
+        tot = float(item.get("costo_total") or 0)
+        
+        def do_eliminar(e):
+            dlg.open = False
+            self.safe_update()
+            if self.db.eliminar_compra_individual(id_compra):
+                self.page.snack_bar = ft.SnackBar(ft.Text("Compra eliminada y stock revertido."), bgcolor="green")
+                self.page.snack_bar.open = True
+                self.load_data()
+                self.load_summary()
+            else:
+                self.page.snack_bar = ft.SnackBar(ft.Text("Error al eliminar la compra en la BD."), bgcolor="red")
+                self.page.snack_bar.open = True
+                self.safe_update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.WARNING_AMBER_ROUNDED, color="red700"),
+                ft.Text("Eliminar Registro de Compra", color="red700")
+            ]),
+            content=ft.Container(
+                width=400,
+                content=ft.Column([
+                    ft.Text(f"Insumo: {insumo}", weight="bold"),
+                    ft.Text(f"N° Documento: {ea}"),
+                    ft.Text(f"Cantidad: {cant:g} unds"),
+                    ft.Text(f"Costo Total: ${tot:,.2f}", color="blue700", weight="bold"),
+                    ft.Divider(),
+                    ft.Text(
+                        f"⚠️ ADVERTENCIA: Al eliminar este registro de compra, se restarán {cant:g} unidades del inventario disponible y se ajustará el histórico financiero.",
+                        color="red900", weight="bold"
+                    )
+                ], tight=True)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: (setattr(dlg, 'open', False), self.safe_update())),
+                ft.ElevatedButton("Eliminar Definitivamente", bgcolor="red700", color="white", on_click=do_eliminar)
+            ]
+        )
+        self.page.overlay.append(dlg)
+        dlg.open = True
+        self.safe_update()
+    # --- FIN CRUD MANUAL COMPRAS ---
 ````
 
 ## File: ui/views/ventas.py
@@ -9728,6 +10409,17 @@ class VentasView(ft.Container):
             tooltip="Filtrar por Fecha",
             on_click=self.open_date_picker
         )
+        
+        self.btn_crear_manual = ft.ElevatedButton(
+            text="Registrar Manual",
+            icon=ft.icons.ADD_BOX,
+            bgcolor=Config.COLOR_PRIMARY,
+            color="white",
+            height=40,
+            on_click=self.abrir_modal_crear_venta,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+
         self.btn_clear_date = ft.IconButton(
             icon=ft.icons.CLEAR,
             tooltip="Limpiar Fecha",
@@ -9822,7 +10514,7 @@ class VentasView(ft.Container):
                 ft.DataColumn(ft.Text("Fecha", weight="bold")),
                 ft.DataColumn(ft.Text("Factura", weight="bold")),
                 ft.DataColumn(ft.Text("Código", weight="bold")),
-                ft.DataColumn(ft.Container(content=ft.Text("Nombre / Descripción", weight="bold"), width=300)),
+                ft.DataColumn(ft.Container(content=ft.Text("Nombre / Descripción", weight="bold"), width=250)),
                 ft.DataColumn(ft.Text("Cantidad", weight="bold"), numeric=True),
                 ft.DataColumn(ft.Text("Precio Unit.", weight="bold"), numeric=True),
                 ft.DataColumn(ft.Text("IVA", weight="bold"), numeric=True),
@@ -10493,7 +11185,8 @@ class VentasView(ft.Container):
                         ),
                         ft.Text("Insumos vendidos a revertir:", size=12, weight="bold", color=Config.COLOR_PRIMARY),
                         ft.Container(
-                            content=ft.Column(filas_resumen, scroll=ft.ScrollMode.AUTO, max_height=180),
+                            content=ft.Column(filas_resumen, scroll=ft.ScrollMode.AUTO),
+                            height=180,
                             padding=8, bgcolor="#f8f9fa", border_radius=6, border=ft.border.all(1, "#e0e0e0")
                         ),
                         ft.Divider(height=5),
@@ -11222,6 +11915,12 @@ class VentasView(ft.Container):
                     ft.DataCell(ft.Text(str_precio)),
                     ft.DataCell(ft.Text(str_iva, color="grey")),
                     ft.DataCell(ft.Text(str_total, color="green", weight="bold")),
+                    ft.DataCell(
+                        ft.Row([
+                            ft.IconButton(icon=ft.icons.EDIT_OUTLINED, icon_color="blue", tooltip="Editar", on_click=lambda e, i=item: self.abrir_modal_editar_venta(i)),
+                            ft.IconButton(icon=ft.icons.DELETE_OUTLINED, icon_color="red", tooltip="Eliminar", on_click=lambda e, i=item: self.confirmar_eliminar_venta(i))
+                        ], spacing=0)
+                    ),
                 ]
             )
             self.data_table.rows.append(row)
@@ -11422,477 +12121,241 @@ class VentasView(ft.Container):
 
         import threading
         threading.Thread(target=worker, daemon=True).start()
+
+    # --- INICIO CRUD MANUAL VENTAS ---
+    def _construir_modal_crud(self):
+        self.crud_codigo_insumo = CustomAutoComplete(
+            hint_text="Buscar insumo (Código o Nombre)",
+            on_select=self._on_insumo_crud_select
+        )
+        self.crud_codigo_insumo.width = 350
+        self.crud_fecha = ft.TextField(label="Fecha (YYYY-MM-DD)", width=150)
+        self.crud_factura = ft.TextField(label="N° Factura / Remisión", width=180)
+        self.crud_tipo_doc = ft.Dropdown(label="Tipo Doc.", options=[ft.dropdown.Option("Remisión"), ft.dropdown.Option("Factura POS")], width=150)
+        
+        self.crud_cantidad = ft.TextField(label="Cantidad", width=120, on_change=self._calc_tot_crud)
+        self.crud_precio_unit = ft.TextField(label="Precio Unit.", width=120, prefix_text="$", on_change=self._calc_tot_crud)
+        self.crud_descuento = ft.TextField(label="Descuento", width=120, prefix_text="$", on_change=self._calc_tot_crud)
+        self.crud_iva = ft.TextField(label="IVA", width=120, prefix_text="$", on_change=self._calc_tot_crud)
+        
+        self.crud_total_lbl = ft.Text("$ 0.00", size=20, weight="bold", color="green700")
+        self.crud_item_id = None
+        
+        self.dlg_crud = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Registrar Venta"),
+            content=ft.Container(
+                width=600,
+                content=ft.Column([
+                    self.crud_codigo_insumo,
+                    ft.Row([self.crud_fecha, self.crud_factura, self.crud_tipo_doc]),
+                    ft.Row([self.crud_cantidad, self.crud_precio_unit]),
+                    ft.Row([self.crud_descuento, self.crud_iva]),
+                    ft.Divider(height=10),
+                    ft.Row([ft.Text("Total Venta:", size=16, weight="bold"), self.crud_total_lbl])
+                ], tight=True, spacing=15)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: self._cerrar_crud()),
+                ft.ElevatedButton("Guardar", bgcolor="green700", color="white", on_click=self.guardar_venta_formulario)
+            ]
+        )
+
+    def _on_insumo_crud_select(self, e):
+        pass
+
+    def _calc_tot_crud(self, e=None):
+        try:
+            cant = float(self.crud_cantidad.value or 0)
+            precio = float(self.crud_precio_unit.value or 0)
+            desc = float(self.crud_descuento.value or 0)
+            iva = float(self.crud_iva.value or 0)
+            tot = (cant * precio) + iva - desc
+            self.crud_total_lbl.value = f"$ {tot:,.2f}"
+            self.safe_update()
+        except ValueError:
+            self.crud_total_lbl.value = "$ 0.00"
+            self.safe_update()
+
+    def _cerrar_crud(self):
+        self.dlg_crud.open = False
+        self.safe_update()
+
+    def abrir_modal_crear_venta(self, e=None):
+        if not hasattr(self, 'dlg_crud'):
+            self._construir_modal_crud()
+            
+        insumos, _ = self.db.get_insumos(page=1, page_size=99999)
+        self.crud_codigo_insumo.suggestions = [{"key": i['codigo_insumo'], "value": f"[{i['codigo_insumo']}] {i['nombre']}"} for i in insumos]
+        
+        self.crud_item_id = None
+        self.dlg_crud.title.value = "Registrar Nueva Venta"
+        self.crud_codigo_insumo.value = ""
+        self.crud_fecha.value = datetime.date.today().strftime("%Y-%m-%d")
+        self.crud_factura.value = ""
+        self.crud_tipo_doc.value = "Remisión"
+        self.crud_cantidad.value = ""
+        self.crud_precio_unit.value = ""
+        self.crud_descuento.value = "0"
+        self.crud_iva.value = "0"
+        self._calc_tot_crud()
+        
+        self.page.overlay.append(self.dlg_crud)
+        self.dlg_crud.open = True
+        self.safe_update()
+
+    def abrir_modal_editar_venta(self, item):
+        if not hasattr(self, 'dlg_crud'):
+            self._construir_modal_crud()
+            
+        insumos, _ = self.db.get_insumos(page=1, page_size=99999)
+        self.crud_codigo_insumo.suggestions = [{"key": i['codigo_insumo'], "value": f"[{i['codigo_insumo']}] {i['nombre']}"} for i in insumos]
+        
+        self.crud_item_id = item.get("id_venta")
+        self.dlg_crud.title.value = "Editar Venta"
+        
+        cod = item.get("codigo_insumo", "")
+        nom_bd = item.get("catalogo_insumos", {}).get("nombre", "")
+        nom_desc = item.get("descripcion", "")
+        nom_final = nom_bd if nom_bd else nom_desc
+        
+        self.crud_codigo_insumo.value = f"[{cod}] {nom_final}" if cod else ""
+        self.crud_fecha.value = str(item.get("fecha") or "")[:10]
+        self.crud_factura.value = str(item.get("factura_no") or "")
+        self.crud_tipo_doc.value = str(item.get("tipo_documento") or "Remisión")
+        
+        cant = float(item.get("cantidad") or 0)
+        self.crud_cantidad.value = str(int(cant)) if cant.is_integer() else str(cant)
+        
+        self.crud_precio_unit.value = str(item.get("subtotal") or 0)
+        self.crud_descuento.value = str(item.get("descuento") or 0)
+        self.crud_iva.value = str(item.get("iva") or 0)
+        self._calc_tot_crud()
+        
+        self.page.overlay.append(self.dlg_crud)
+        self.dlg_crud.open = True
+        self.safe_update()
+
+    def guardar_venta_formulario(self, e):
+        cod_raw = self.crud_codigo_insumo.value
+        if not cod_raw or "[" not in cod_raw or "]" not in cod_raw:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Selecciona un insumo válido del listado."), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.safe_update()
+            return
+            
+        codigo_insumo = cod_raw.split("[")[1].split("]")[0]
+        
+        try:
+            cant = float(self.crud_cantidad.value or 0)
+            precio = float(self.crud_precio_unit.value or 0)
+            desc = float(self.crud_descuento.value or 0)
+            iva = float(self.crud_iva.value or 0)
+            tot = (cant * precio) + iva - desc
+        except ValueError:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Revisa los valores numéricos ingresados."), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.safe_update()
+            return
+            
+        datos = {
+            "fecha": self.crud_fecha.value,
+            "factura_no": self.crud_factura.value,
+            "tipo_documento": self.crud_tipo_doc.value,
+            "codigo_insumo": codigo_insumo,
+            "cantidad": cant,
+            "subtotal": precio,
+            "descuento": desc,
+            "iva": iva,
+            "total": tot
+        }
+        
+        if self.crud_item_id:
+            # Edit
+            ok = self.db.update_venta_individual(self.crud_item_id, datos)
+            msg = "Venta actualizada exitosamente."
+        else:
+            # Create
+            datos["estado_registro"] = "VÁLIDO"
+            ok = self.db.insert_venta_individual(datos)
+            msg = "Venta registrada exitosamente."
+            
+        if ok:
+            self._cerrar_crud()
+            self.page.snack_bar = ft.SnackBar(ft.Text(msg), bgcolor="green")
+            self.page.snack_bar.open = True
+            self.load_data()
+            self.load_summary()
+        else:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Error al guardar la venta en la BD."), bgcolor="red")
+            self.page.snack_bar.open = True
+            self.safe_update()
+
+    def confirmar_eliminar_venta(self, item):
+        id_venta = item.get("id_venta")
+        cant = float(item.get("cantidad") or 0)
+        
+        cat_info = item.get("catalogo_insumos", {})
+        nom_bd = cat_info.get("nombre") if isinstance(cat_info, dict) else None
+        insumo = nom_bd or item.get("descripcion", "Desconocido")
+        
+        fact = item.get("factura_no") or "S/D"
+        tot = float(item.get("total") or 0)
+        
+        def do_eliminar(e):
+            dlg.open = False
+            self.safe_update()
+            if self.db.eliminar_venta_individual(id_venta):
+                self.page.snack_bar = ft.SnackBar(ft.Text("Venta eliminada y stock reincorporado."), bgcolor="green")
+                self.page.snack_bar.open = True
+                self.load_data()
+                self.load_summary()
+            else:
+                self.page.snack_bar = ft.SnackBar(ft.Text("Error al eliminar la venta en la BD."), bgcolor="red")
+                self.page.snack_bar.open = True
+                self.safe_update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.WARNING_AMBER_ROUNDED, color="red700"),
+                ft.Text("Eliminar Registro de Venta", color="red700")
+            ]),
+            content=ft.Container(
+                width=400,
+                content=ft.Column([
+                    ft.Text(f"Insumo: {insumo}", weight="bold"),
+                    ft.Text(f"N° Factura: {fact}"),
+                    ft.Text(f"Cantidad: {cant:g} unds"),
+                    ft.Text(f"Total Venta: ${tot:,.2f}", color="green700", weight="bold"),
+                    ft.Divider(),
+                    ft.Text(
+                        f"⚠️ ADVERTENCIA: Al eliminar este registro de venta, se devolverán {cant:g} unidades al inventario disponible (reincorporación de stock) y se restará del histórico de ingresos.",
+                        color="red900", weight="bold"
+                    )
+                ], tight=True)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: (setattr(dlg, 'open', False), self.safe_update())),
+                ft.ElevatedButton("Eliminar Definitivamente", bgcolor="red700", color="white", on_click=do_eliminar)
+            ]
+        )
+        self.page.overlay.append(dlg)
+        dlg.open = True
+        self.safe_update()
+    # --- FIN CRUD MANUAL VENTAS ---
 ````
 
 ## File: cargas_locales.json
 ````json
 {
-    "2026-08-17_Factura POS": {
-        "1": {
-            "id": 1,
-            "pagina": 1,
-            "tipo": "Factura POS",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Factura_POS_Pag_1.pdf",
-            "estado": "Guardado",
-            "datos_extraidos": [
-                {
-                    "numero_factura": "26396",
-                    "productos": [
-                        {
-                            "cantidad": 50,
-                            "codigo_item": "2151",
-                            "costo_total": 95000,
-                            "iva": 0,
-                            "subtotal": 95000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26397",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0105",
-                            "costo_total": 400,
-                            "iva": 0,
-                            "subtotal": 400
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26398",
-                    "productos": [
-                        {
-                            "cantidad": 100,
-                            "codigo_item": "0573",
-                            "costo_total": 41500,
-                            "iva": 0,
-                            "subtotal": 41500
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0174",
-                            "costo_total": 2100,
-                            "iva": 0,
-                            "subtotal": 2100
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26399",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0615",
-                            "costo_total": 14600,
-                            "iva": 0,
-                            "subtotal": 14600
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26400",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "2333",
-                            "costo_total": 3500,
-                            "iva": 0,
-                            "subtotal": 3500
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26401",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0022",
-                            "costo_total": 2200,
-                            "iva": 0,
-                            "subtotal": 2200
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26402",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "2036",
-                            "costo_total": 4000,
-                            "iva": 0,
-                            "subtotal": 4000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26403",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0726",
-                            "costo_total": 12500,
-                            "iva": 0,
-                            "subtotal": 12500
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26404",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0483",
-                            "costo_total": 21900,
-                            "iva": 0,
-                            "subtotal": 21900
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0108",
-                            "costo_total": 17000,
-                            "iva": 0,
-                            "subtotal": 17000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26405",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0165",
-                            "costo_total": 7800,
-                            "iva": 0,
-                            "subtotal": 7800
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26406",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1591",
-                            "costo_total": 4600,
-                            "iva": 0,
-                            "subtotal": 4600
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0024",
-                            "costo_total": 8850,
-                            "iva": 0,
-                            "subtotal": 8850
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0644",
-                            "costo_total": 7600,
-                            "iva": 0,
-                            "subtotal": 7600
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1664",
-                            "costo_total": 2600,
-                            "iva": 0,
-                            "subtotal": 2600
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0655",
-                            "costo_total": 11200,
-                            "iva": 0,
-                            "subtotal": 11200
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0178",
-                            "costo_total": 2800,
-                            "iva": 0,
-                            "subtotal": 2800
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1639",
-                            "costo_total": 5600,
-                            "iva": 0,
-                            "subtotal": 5600
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26407",
-                    "productos": [
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0573",
-                            "costo_total": 8800,
-                            "iva": 0,
-                            "subtotal": 8800
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26408",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1176",
-                            "costo_total": 15900,
-                            "iva": 0,
-                            "subtotal": 15900
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26409",
-                    "productos": [
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0355",
-                            "costo_total": 19600,
-                            "iva": 0,
-                            "subtotal": 19600
-                        }
-                    ]
-                }
-            ]
-        },
-        "2": {
-            "id": 2,
-            "pagina": 2,
-            "tipo": "Factura POS",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Factura_POS_Pag_2.pdf",
-            "estado": "Guardado",
-            "datos_extraidos": [
-                {
-                    "numero_factura": "26410",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0074",
-                            "costo_total": 8000,
-                            "iva": 0,
-                            "subtotal": 8000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26411",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1639",
-                            "costo_total": 6500,
-                            "iva": 0,
-                            "subtotal": 6500
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26412",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1079",
-                            "costo_total": 5600,
-                            "iva": 0,
-                            "subtotal": 5600
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26413",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0043",
-                            "costo_total": 5000,
-                            "iva": 0,
-                            "subtotal": 5000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26414",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1080",
-                            "costo_total": 21000,
-                            "iva": 0,
-                            "subtotal": 21000
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0234",
-                            "costo_total": 5950,
-                            "iva": 0,
-                            "subtotal": 5950
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26415",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0425",
-                            "costo_total": 4000,
-                            "iva": 0,
-                            "subtotal": 4000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26416",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1847",
-                            "costo_total": 5200,
-                            "iva": 0,
-                            "subtotal": 5200
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26417",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1478",
-                            "costo_total": 5600,
-                            "iva": 0,
-                            "subtotal": 5600
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1009",
-                            "costo_total": 2200,
-                            "iva": 0,
-                            "subtotal": 2200
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26418",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0663",
-                            "costo_total": 6000,
-                            "iva": 0,
-                            "subtotal": 6000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26419",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0347",
-                            "costo_total": 8500,
-                            "iva": 0,
-                            "subtotal": 8500
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26420",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1472",
-                            "costo_total": 1700,
-                            "iva": 0,
-                            "subtotal": 1700
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26421",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0416",
-                            "costo_total": 9600,
-                            "iva": 0,
-                            "subtotal": 9600
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26422",
-                    "productos": [
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "1281",
-                            "costo_total": 2400,
-                            "iva": 0,
-                            "subtotal": 2400
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1009",
-                            "costo_total": 2000,
-                            "iva": 0,
-                            "subtotal": 2000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26423",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1478",
-                            "costo_total": 2200,
-                            "iva": 0,
-                            "subtotal": 2200
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26424",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0425",
-                            "costo_total": 2000,
-                            "iva": 0,
-                            "subtotal": 2000
-                        }
-                    ]
-                },
-                {
-                    "numero_factura": "26425",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1478",
-                            "costo_total": 2500,
-                            "iva": 0,
-                            "subtotal": 2500
-                        }
-                    ]
-                }
-            ]
-        }
-    },
-    "2026-08-17_Remisi\u00f3n": {
+    "2026-08-18_None": {},
+    "2026-08-18_Remisi\u00f3n": {
         "1": {
             "id": 3,
             "pagina": 1,
             "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_1.pdf",
+            "fecha": "2026-08-18",
+            "archivo": "pdfs_locales/ventas_2026-08-18_Remisi\u00f3n_Pag_1.pdf",
             "estado": "Guardado",
             "datos_extraidos": [
                 {
@@ -12149,9 +12612,9 @@ class VentasView(ft.Container):
             "id": 4,
             "pagina": 2,
             "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_2.pdf",
-            "estado": "Procesado con \u00e9xito",
+            "fecha": "2026-08-18",
+            "archivo": "pdfs_locales/ventas_2026-08-18_Remisi\u00f3n_Pag_2.pdf",
+            "estado": "Guardado",
             "datos_extraidos": [
                 {
                     "fecha": "03/08/2026",
@@ -12420,2941 +12883,8 @@ class VentasView(ft.Container):
             "id": 5,
             "pagina": 3,
             "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_3.pdf",
-            "estado": "Procesado con \u00e9xito",
-            "datos_extraidos": [
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37928",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0629",
-                            "costo_total": 18200,
-                            "iva": 2906,
-                            "subtotal": 15294
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0605",
-                            "costo_total": 8850,
-                            "iva": 1413,
-                            "subtotal": 7437
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0626",
-                            "costo_total": 35200,
-                            "iva": 5620,
-                            "subtotal": 29580
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0622",
-                            "costo_total": 9950,
-                            "iva": 1589,
-                            "subtotal": 8361
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0170",
-                            "costo_total": 5400,
-                            "iva": 862,
-                            "subtotal": 4538
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0108",
-                            "costo_total": 17000,
-                            "iva": 2714,
-                            "subtotal": 14286
-                        },
-                        {
-                            "cantidad": 15,
-                            "codigo_item": "0105",
-                            "costo_total": 6000,
-                            "iva": 958,
-                            "subtotal": 5042
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37929",
-                    "productos": [
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "1402",
-                            "costo_total": 17250,
-                            "iva": 2754,
-                            "subtotal": 14496
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "1518",
-                            "costo_total": 23000,
-                            "iva": 3672,
-                            "subtotal": 19328
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "1428",
-                            "costo_total": 30000,
-                            "iva": 4790,
-                            "subtotal": 25210
-                        },
-                        {
-                            "cantidad": 15,
-                            "codigo_item": "0105",
-                            "costo_total": 6000,
-                            "iva": 958,
-                            "subtotal": 5042
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0130",
-                            "costo_total": 9000,
-                            "iva": 1437,
-                            "subtotal": 7563
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "1664",
-                            "costo_total": 13000,
-                            "iva": 2076,
-                            "subtotal": 10924
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0187",
-                            "costo_total": 8700,
-                            "iva": 1389,
-                            "subtotal": 7311
-                        },
-                        {
-                            "cantidad": 200,
-                            "codigo_item": "0581",
-                            "costo_total": 88000,
-                            "iva": 14050,
-                            "subtotal": 73950
-                        },
-                        {
-                            "cantidad": 50,
-                            "codigo_item": "0572",
-                            "costo_total": 13500,
-                            "iva": 2155,
-                            "subtotal": 11345
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1764",
-                            "costo_total": 5200,
-                            "iva": 830,
-                            "subtotal": 4370
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "0654",
-                            "costo_total": 112000,
-                            "iva": 17882,
-                            "subtotal": 94118
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0283",
-                            "costo_total": 7500,
-                            "iva": 1197,
-                            "subtotal": 6303
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0668",
-                            "costo_total": 2400,
-                            "iva": 383,
-                            "subtotal": 2017
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0304",
-                            "costo_total": 19500,
-                            "iva": 3113,
-                            "subtotal": 16387
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0313",
-                            "costo_total": 19500,
-                            "iva": 3113,
-                            "subtotal": 16387
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0917",
-                            "costo_total": 4100,
-                            "iva": 655,
-                            "subtotal": 3445
-                        },
-                        {
-                            "cantidad": 4,
-                            "codigo_item": "0477",
-                            "costo_total": 2400,
-                            "iva": 383,
-                            "subtotal": 2017
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "965",
-                            "costo_total": 13500,
-                            "iva": 2155,
-                            "subtotal": 11345
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0713",
-                            "costo_total": 19500,
-                            "iva": 3113,
-                            "subtotal": 16387
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0438",
-                            "costo_total": 9000,
-                            "iva": 1437,
-                            "subtotal": 7563
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0629",
-                            "costo_total": 18600,
-                            "iva": 2970,
-                            "subtotal": 15630
-                        },
-                        {
-                            "cantidad": 15,
-                            "codigo_item": "0781",
-                            "costo_total": 72000,
-                            "iva": 11496,
-                            "subtotal": 60504
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0959",
-                            "costo_total": 4950,
-                            "iva": 790,
-                            "subtotal": 4160
-                        },
-                        {
-                            "cantidad": 15,
-                            "codigo_item": "0263",
-                            "costo_total": 8250,
-                            "iva": 1317,
-                            "subtotal": 6933
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1974",
-                            "costo_total": 63000,
-                            "iva": 10059,
-                            "subtotal": 52941
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0852",
-                            "costo_total": 13500,
-                            "iva": 2155,
-                            "subtotal": 11345
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0659",
-                            "costo_total": 21000,
-                            "iva": 3353,
-                            "subtotal": 17647
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "0774",
-                            "costo_total": 95000,
-                            "iva": 15168,
-                            "subtotal": 79832
-                        },
-                        {
-                            "cantidad": 4,
-                            "codigo_item": "0961",
-                            "costo_total": 21400,
-                            "iva": 3417,
-                            "subtotal": 17983
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37930",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0484",
-                            "costo_total": 22800,
-                            "iva": 3640,
-                            "subtotal": 19160
-                        }
-                    ]
-                }
-            ]
-        },
-        "4": {
-            "id": 6,
-            "pagina": 4,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_4.pdf",
-            "estado": "Procesado con \u00e9xito",
-            "datos_extraidos": [
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37930",
-                    "productos": [
-                        {
-                            "cantidad": 15,
-                            "codigo_item": "0644",
-                            "costo_total": 57000,
-                            "iva": 9101,
-                            "subtotal": 47899
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0313",
-                            "costo_total": 34000,
-                            "iva": 5429,
-                            "subtotal": 28571
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1770",
-                            "costo_total": 23700,
-                            "iva": 3784,
-                            "subtotal": 19916
-                        },
-                        {
-                            "cantidad": 7,
-                            "codigo_item": "0858",
-                            "costo_total": 29050,
-                            "iva": 4638,
-                            "subtotal": 24412
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0298",
-                            "costo_total": 19200,
-                            "iva": 3066,
-                            "subtotal": 16134
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1665",
-                            "costo_total": 4600,
-                            "iva": 734,
-                            "subtotal": 3866
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1852",
-                            "costo_total": 9700,
-                            "iva": 1549,
-                            "subtotal": 8151
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "5467",
-                            "costo_total": 11700,
-                            "iva": 1868,
-                            "subtotal": 9832
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0725",
-                            "costo_total": 17100,
-                            "iva": 2730,
-                            "subtotal": 14370
-                        },
-                        {
-                            "cantidad": 30,
-                            "codigo_item": "0263",
-                            "costo_total": 16500,
-                            "iva": 2634,
-                            "subtotal": 13866
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0678",
-                            "costo_total": 32500,
-                            "iva": 5189,
-                            "subtotal": 27311
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1336",
-                            "costo_total": 15000,
-                            "iva": 2395,
-                            "subtotal": 12605
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37931",
-                    "productos": [
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0519",
-                            "costo_total": 71000,
-                            "iva": 11336,
-                            "subtotal": 59664
-                        },
-                        {
-                            "cantidad": 4,
-                            "codigo_item": "965",
-                            "costo_total": 54800,
-                            "iva": 8750,
-                            "subtotal": 46050
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37932",
-                    "productos": [
-                        {
-                            "cantidad": 40,
-                            "codigo_item": "0106",
-                            "costo_total": 8800,
-                            "iva": 1405,
-                            "subtotal": 7395
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0411",
-                            "costo_total": 8600,
-                            "iva": 1373,
-                            "subtotal": 7227
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0029",
-                            "costo_total": 15950,
-                            "iva": 2547,
-                            "subtotal": 13403
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "4880",
-                            "costo_total": 4500,
-                            "iva": 718,
-                            "subtotal": 3782
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "4883",
-                            "costo_total": 4500,
-                            "iva": 718,
-                            "subtotal": 3782
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0841",
-                            "costo_total": 11250,
-                            "iva": 1796,
-                            "subtotal": 9454
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1149",
-                            "costo_total": 27450,
-                            "iva": 4383,
-                            "subtotal": 23067
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "4879",
-                            "costo_total": 4500,
-                            "iva": 718,
-                            "subtotal": 3782
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0105",
-                            "costo_total": 4000,
-                            "iva": 639,
-                            "subtotal": 3361
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37933",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0029",
-                            "costo_total": 16000,
-                            "iva": 2555,
-                            "subtotal": 13445
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0033",
-                            "costo_total": 7500,
-                            "iva": 1197,
-                            "subtotal": 6303
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0646",
-                            "costo_total": 14900,
-                            "iva": 2379,
-                            "subtotal": 12521
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0849",
-                            "costo_total": 4200,
-                            "iva": 671,
-                            "subtotal": 3529
-                        },
-                        {
-                            "cantidad": 6,
-                            "codigo_item": "1075",
-                            "costo_total": 21600,
-                            "iva": 3449,
-                            "subtotal": 18151
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1369",
-                            "costo_total": 4600,
-                            "iva": 734,
-                            "subtotal": 3866
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0044",
-                            "costo_total": 16000,
-                            "iva": 762,
-                            "subtotal": 15238
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37934",
-                    "productos": [
-                        {
-                            "cantidad": 30,
-                            "codigo_item": "0646",
-                            "costo_total": 120002,
-                            "iva": 19160,
-                            "subtotal": 109842.1
-                        }
-                    ]
-                }
-            ]
-        },
-        "5": {
-            "id": 7,
-            "pagina": 5,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_5.pdf",
-            "estado": "Procesado con \u00e9xito",
-            "datos_extraidos": [
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37934",
-                    "productos": [
-                        {
-                            "cantidad": 6,
-                            "codigo_item": "0848",
-                            "costo_total": 23100,
-                            "iva": 3688,
-                            "subtotal": 19412
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37935",
-                    "productos": [
-                        {
-                            "cantidad": 200,
-                            "codigo_item": "4860",
-                            "costo_total": 106000,
-                            "iva": 16924,
-                            "subtotal": 89076
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37936",
-                    "productos": [
-                        {
-                            "cantidad": 17,
-                            "codigo_item": "1347",
-                            "costo_total": 303600,
-                            "iva": 48474,
-                            "subtotal": 255126
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37937",
-                    "productos": [
-                        {
-                            "cantidad": 50,
-                            "codigo_item": "0385",
-                            "costo_total": 82500,
-                            "iva": 13172,
-                            "subtotal": 69328
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "1722",
-                            "costo_total": 35245,
-                            "iva": 5627,
-                            "subtotal": 29618
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0847",
-                            "costo_total": 17000,
-                            "iva": 2714,
-                            "subtotal": 14286
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0688",
-                            "costo_total": 20000,
-                            "iva": 3193,
-                            "subtotal": 16807
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0394",
-                            "costo_total": 15500,
-                            "iva": 2475,
-                            "subtotal": 13025
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37938",
-                    "productos": [
-                        {
-                            "cantidad": 145,
-                            "codigo_item": "1893",
-                            "costo_total": 362500,
-                            "iva": 57878,
-                            "subtotal": 304622
-                        },
-                        {
-                            "cantidad": 60,
-                            "codigo_item": "0098",
-                            "costo_total": 174000,
-                            "iva": 27782,
-                            "subtotal": 146218
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0990",
-                            "costo_total": 38550,
-                            "iva": 6155,
-                            "subtotal": 32395
-                        },
-                        {
-                            "cantidad": 24,
-                            "codigo_item": "0555",
-                            "costo_total": 57600,
-                            "iva": 9197,
-                            "subtotal": 48403
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37939",
-                    "productos": [
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "0074",
-                            "costo_total": 36000,
-                            "iva": 5748,
-                            "subtotal": 30252
-                        },
-                        {
-                            "cantidad": 4,
-                            "codigo_item": "0250",
-                            "costo_total": 36000,
-                            "iva": 5748,
-                            "subtotal": 30252
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0280",
-                            "costo_total": 19000,
-                            "iva": 3034,
-                            "subtotal": 15966
-                        },
-                        {
-                            "cantidad": 200,
-                            "codigo_item": "0572",
-                            "costo_total": 51000,
-                            "iva": 8143,
-                            "subtotal": 42857
-                        },
-                        {
-                            "cantidad": 4,
-                            "codigo_item": "0654",
-                            "costo_total": 42400,
-                            "iva": 6770,
-                            "subtotal": 35630
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "0846",
-                            "costo_total": 55000,
-                            "iva": 8782,
-                            "subtotal": 46218
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "0849",
-                            "costo_total": 42000,
-                            "iva": 6706,
-                            "subtotal": 35294
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "1089",
-                            "costo_total": 76000,
-                            "iva": 12134,
-                            "subtotal": 63866
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0688",
-                            "costo_total": 18500,
-                            "iva": 2954,
-                            "subtotal": 15546
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0674",
-                            "costo_total": 14200,
-                            "iva": 2267,
-                            "subtotal": 11933
-                        },
-                        {
-                            "cantidad": 15,
-                            "codigo_item": "0644",
-                            "costo_total": 57000,
-                            "iva": 9101,
-                            "subtotal": 47899
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37940",
-                    "productos": [
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "1665",
-                            "costo_total": 18000,
-                            "iva": 2874,
-                            "subtotal": 15126
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "1667",
-                            "costo_total": 26700,
-                            "iva": 4263,
-                            "subtotal": 22437
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "1079",
-                            "costo_total": 44000,
-                            "iva": 7025,
-                            "subtotal": 36975
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "1666",
-                            "costo_total": 46000,
-                            "iva": 7345,
-                            "subtotal": 38655
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "1172",
-                            "costo_total": 24750,
-                            "iva": 3952,
-                            "subtotal": 20798
-                        }
-                    ]
-                }
-            ]
-        },
-        "6": {
-            "id": 8,
-            "pagina": 6,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_6.pdf",
-            "estado": "Procesado con \u00e9xito",
-            "datos_extraidos": [
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37940",
-                    "productos": [
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "1174",
-                            "costo_total": 33600,
-                            "iva": 5365,
-                            "subtotal": 28235
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37941",
-                    "productos": [
-                        {
-                            "cantidad": 100,
-                            "codigo_item": "0578",
-                            "costo_total": 46000,
-                            "iva": 7345,
-                            "subtotal": 38655
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "0056",
-                            "costo_total": 3400,
-                            "iva": 543,
-                            "subtotal": 2857
-                        },
-                        {
-                            "cantidad": 6,
-                            "codigo_item": "0847",
-                            "costo_total": 18000,
-                            "iva": 2874,
-                            "subtotal": 15126
-                        },
-                        {
-                            "cantidad": 6,
-                            "codigo_item": "0688",
-                            "costo_total": 22200,
-                            "iva": 3545,
-                            "subtotal": 18655
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1089",
-                            "costo_total": 3800,
-                            "iva": 607,
-                            "subtotal": 3193
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0007",
-                            "costo_total": 6500,
-                            "iva": 1038,
-                            "subtotal": 5462
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1784",
-                            "costo_total": 7500,
-                            "iva": 1197,
-                            "subtotal": 6303
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0386",
-                            "costo_total": 3600,
-                            "iva": 171,
-                            "subtotal": 3429
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0001",
-                            "costo_total": 23000,
-                            "iva": 3672,
-                            "subtotal": 19328
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0594",
-                            "costo_total": 3300,
-                            "iva": 0,
-                            "subtotal": 3300
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1451",
-                            "costo_total": 8000,
-                            "iva": 0,
-                            "subtotal": 8000
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0070",
-                            "costo_total": 4500,
-                            "iva": 718,
-                            "subtotal": 3782
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1272",
-                            "costo_total": 23700,
-                            "iva": 3784,
-                            "subtotal": 19916
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0108",
-                            "costo_total": 17000,
-                            "iva": 2714,
-                            "subtotal": 14286
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1818",
-                            "costo_total": 9200,
-                            "iva": 1469,
-                            "subtotal": 7731
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1817",
-                            "costo_total": 9200,
-                            "iva": 1469,
-                            "subtotal": 7731
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1591",
-                            "costo_total": 9200,
-                            "iva": 1469,
-                            "subtotal": 7731
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0170",
-                            "costo_total": 3000,
-                            "iva": 479,
-                            "subtotal": 2521
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0653",
-                            "costo_total": 4000,
-                            "iva": 639,
-                            "subtotal": 3361
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1297",
-                            "costo_total": 4500,
-                            "iva": 718,
-                            "subtotal": 3782
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37942",
-                    "productos": [
-                        {
-                            "cantidad": 15,
-                            "codigo_item": "9104",
-                            "costo_total": 135000,
-                            "iva": 21555,
-                            "subtotal": 113445
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "9103",
-                            "costo_total": 58550,
-                            "iva": 9348,
-                            "subtotal": 49202
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37943",
-                    "productos": [
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "2315",
-                            "costo_total": 24000,
-                            "iva": 3832,
-                            "subtotal": 20168
-                        },
-                        {
-                            "cantidad": 15,
-                            "codigo_item": "1953",
-                            "costo_total": 56250,
-                            "iva": 8981,
-                            "subtotal": 47269
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "0523",
-                            "costo_total": 76500,
-                            "iva": 12214,
-                            "subtotal": 64286
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0471",
-                            "costo_total": 31500,
-                            "iva": 5029,
-                            "subtotal": 26471
-                        }
-                    ]
-                },
-                {
-                    "fecha": "03/08/2026",
-                    "numero_factura": "37944",
-                    "productos": [
-                        {
-                            "cantidad": 90,
-                            "codigo_item": "0659",
-                            "costo_total": 409500,
-                            "iva": 65382,
-                            "subtotal": 344118
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37946",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0250",
-                            "costo_total": 9500,
-                            "iva": 1517,
-                            "subtotal": 7983
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1227",
-                            "costo_total": 19149,
-                            "iva": 3057,
-                            "subtotal": 16092
-                        }
-                    ]
-                }
-            ]
-        },
-        "7": {
-            "id": 9,
-            "pagina": 7,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_7.pdf",
-            "estado": "Procesado con \u00e9xito",
-            "datos_extraidos": [
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37946",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1402",
-                            "costo_total": 3450,
-                            "iva": 551,
-                            "subtotal": 2899
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1518",
-                            "costo_total": 4600,
-                            "iva": 734,
-                            "subtotal": 3866
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1404",
-                            "costo_total": 5000,
-                            "iva": 798,
-                            "subtotal": 4202
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1967",
-                            "costo_total": 4600,
-                            "iva": 734,
-                            "subtotal": 3866
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "2357",
-                            "costo_total": 10800,
-                            "iva": 1724,
-                            "subtotal": 9076
-                        },
-                        {
-                            "cantidad": 4,
-                            "codigo_item": "0741",
-                            "costo_total": 26000,
-                            "iva": 4151,
-                            "subtotal": 21849
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "1839",
-                            "costo_total": 15500,
-                            "iva": 2475,
-                            "subtotal": 13025
-                        },
-                        {
-                            "cantidad": 4,
-                            "codigo_item": "0999",
-                            "costo_total": 15200,
-                            "iva": 2427,
-                            "subtotal": 12773
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0680",
-                            "costo_total": 15700,
-                            "iva": 2507,
-                            "subtotal": 13193
-                        },
-                        {
-                            "cantidad": 30,
-                            "codigo_item": "0572",
-                            "costo_total": 8100,
-                            "iva": 1293,
-                            "subtotal": 6807
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "0578",
-                            "costo_total": 4900,
-                            "iva": 782,
-                            "subtotal": 4118
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "1093",
-                            "costo_total": 14500,
-                            "iva": 2315,
-                            "subtotal": 12185
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1511",
-                            "costo_total": 2000,
-                            "iva": 319,
-                            "subtotal": 1681
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0044",
-                            "costo_total": 8000,
-                            "iva": 381,
-                            "subtotal": 7619
-                        },
-                        {
-                            "cantidad": 50,
-                            "codigo_item": "0449",
-                            "costo_total": 20000,
-                            "iva": 3193,
-                            "subtotal": 16807
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0842",
-                            "costo_total": 2300,
-                            "iva": 367,
-                            "subtotal": 1933
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37947",
-                    "productos": [
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "0304",
-                            "costo_total": 65000,
-                            "iva": 10378,
-                            "subtotal": 54622
-                        },
-                        {
-                            "cantidad": 9,
-                            "codigo_item": "0313",
-                            "costo_total": 58500,
-                            "iva": 9340,
-                            "subtotal": 49160
-                        },
-                        {
-                            "cantidad": 9,
-                            "codigo_item": "0713",
-                            "costo_total": 58500,
-                            "iva": 9340,
-                            "subtotal": 49160
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37948",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0815",
-                            "costo_total": 6000,
-                            "iva": 958,
-                            "subtotal": 5042
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0276",
-                            "costo_total": 7800,
-                            "iva": 1245,
-                            "subtotal": 6555
-                        },
-                        {
-                            "cantidad": 8,
-                            "codigo_item": "0842",
-                            "costo_total": 16800,
-                            "iva": 2682,
-                            "subtotal": 14118
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0612",
-                            "costo_total": 19800,
-                            "iva": 3161,
-                            "subtotal": 16639
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0250",
-                            "costo_total": 23000,
-                            "iva": 3672,
-                            "subtotal": 19328
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0655",
-                            "costo_total": 25000,
-                            "iva": 3992,
-                            "subtotal": 21008
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0686",
-                            "costo_total": 4000,
-                            "iva": 639,
-                            "subtotal": 3361
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37949",
-                    "productos": [
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0044",
-                            "costo_total": 39500,
-                            "iva": 1881,
-                            "subtotal": 37619
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37950",
-                    "productos": [
-                        {
-                            "cantidad": 100,
-                            "codigo_item": "0250",
-                            "costo_total": 1490000,
-                            "iva": 237899,
-                            "subtotal": 1252101
-                        },
-                        {
-                            "cantidad": 50,
-                            "codigo_item": "1591",
-                            "costo_total": 230000,
-                            "iva": 36723,
-                            "subtotal": 193277
-                        },
-                        {
-                            "cantidad": 100,
-                            "codigo_item": "0783",
-                            "costo_total": 490000,
-                            "iva": 78235,
-                            "subtotal": 411765
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1589",
-                            "costo_total": 135000,
-                            "iva": 21555,
-                            "subtotal": 113445
-                        },
-                        {
-                            "cantidad": 96,
-                            "codigo_item": "0560",
-                            "costo_total": 576000,
-                            "iva": 91966,
-                            "subtotal": 484034
-                        },
-                        {
-                            "cantidad": 72,
-                            "codigo_item": "0556",
-                            "costo_total": 266400,
-                            "iva": 42534,
-                            "subtotal": 223866
-                        }
-                    ]
-                }
-            ]
-        },
-        "8": {
-            "id": 10,
-            "pagina": 8,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_8.pdf",
-            "estado": "Procesado con \u00e9xito",
-            "datos_extraidos": [
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37950",
-                    "productos": [
-                        {
-                            "cantidad": 60,
-                            "codigo_item": "0841",
-                            "costo_total": 126000,
-                            "iva": 20118,
-                            "subtotal": 105882
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37951",
-                    "productos": [
-                        {
-                            "cantidad": 1200,
-                            "codigo_item": "0581",
-                            "costo_total": 496800,
-                            "iva": 79321,
-                            "subtotal": 417479
-                        },
-                        {
-                            "cantidad": 30,
-                            "codigo_item": "4126",
-                            "costo_total": 75000,
-                            "iva": 11975,
-                            "subtotal": 63025
-                        },
-                        {
-                            "cantidad": 30,
-                            "codigo_item": "4129",
-                            "costo_total": 138000,
-                            "iva": 22034,
-                            "subtotal": 115966
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0655",
-                            "costo_total": 230000,
-                            "iva": 36723,
-                            "subtotal": 193277
-                        },
-                        {
-                            "cantidad": 60,
-                            "codigo_item": "1776",
-                            "costo_total": 354000,
-                            "iva": 56521,
-                            "subtotal": 297479
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "0302",
-                            "costo_total": 94300,
-                            "iva": 15056,
-                            "subtotal": 79244
-                        },
-                        {
-                            "cantidad": 15,
-                            "codigo_item": "0631",
-                            "costo_total": 129750,
-                            "iva": 20716,
-                            "subtotal": 109034
-                        },
-                        {
-                            "cantidad": 30,
-                            "codigo_item": "0644",
-                            "costo_total": 109000,
-                            "iva": 17403,
-                            "subtotal": 91597
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37952",
-                    "productos": [
-                        {
-                            "cantidad": 40,
-                            "codigo_item": "2252",
-                            "costo_total": 498000,
-                            "iva": 79513,
-                            "subtotal": 418487
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37953",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0029",
-                            "costo_total": 27000,
-                            "iva": 4311,
-                            "subtotal": 22689
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1832",
-                            "costo_total": 27000,
-                            "iva": 4311,
-                            "subtotal": 22689
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1652",
-                            "costo_total": 29700,
-                            "iva": 4742,
-                            "subtotal": 24958
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0411",
-                            "costo_total": 25800,
-                            "iva": 4119,
-                            "subtotal": 21681
-                        },
-                        {
-                            "cantidad": 6,
-                            "codigo_item": "1092",
-                            "costo_total": 99000,
-                            "iva": 15807,
-                            "subtotal": 83193
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1321",
-                            "costo_total": 18900,
-                            "iva": 0,
-                            "subtotal": 18900
-                        },
-                        {
-                            "cantidad": 37,
-                            "codigo_item": "0848",
-                            "costo_total": 142450,
-                            "iva": 22744,
-                            "subtotal": 119706
-                        },
-                        {
-                            "cantidad": 50,
-                            "codigo_item": "0845",
-                            "costo_total": 230000,
-                            "iva": 36723,
-                            "subtotal": 193277
-                        },
-                        {
-                            "cantidad": 48,
-                            "codigo_item": "0486",
-                            "costo_total": 96000,
-                            "iva": 15328,
-                            "subtotal": 80672
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1724",
-                            "costo_total": 17000,
-                            "iva": 2714,
-                            "subtotal": 14286
-                        },
-                        {
-                            "cantidad": 18,
-                            "codigo_item": "0962",
-                            "costo_total": 201600,
-                            "iva": 32188,
-                            "subtotal": 169412
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1814",
-                            "costo_total": 80400,
-                            "iva": 12837,
-                            "subtotal": 67563
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37954",
-                    "productos": [
-                        {
-                            "cantidad": 37,
-                            "codigo_item": "0847",
-                            "costo_total": 111000,
-                            "iva": 17723,
-                            "subtotal": 93277
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1570",
-                            "costo_total": 6600,
-                            "iva": 1054,
-                            "subtotal": 5546
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0179",
-                            "costo_total": 3300,
-                            "iva": 527,
-                            "subtotal": 2773
-                        },
-                        {
-                            "cantidad": 4,
-                            "codigo_item": "0658",
-                            "costo_total": 50600,
-                            "iva": 8079,
-                            "subtotal": 42521
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37955",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0007",
-                            "costo_total": 6500,
-                            "iva": 1038,
-                            "subtotal": 5462
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0629",
-                            "costo_total": 18200,
-                            "iva": 2906,
-                            "subtotal": 15294
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "972",
-                            "costo_total": 27000,
-                            "iva": 0,
-                            "subtotal": 27000
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0655",
-                            "costo_total": 22400,
-                            "iva": 3576,
-                            "subtotal": 18824
-                        }
-                    ]
-                }
-            ]
-        },
-        "9": {
-            "id": 11,
-            "pagina": 9,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_9.pdf",
-            "estado": "Procesado con \u00e9xito",
-            "datos_extraidos": [
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37955",
-                    "productos": [
-                        {
-                            "cantidad": 6,
-                            "codigo_item": "0837",
-                            "costo_total": 18600,
-                            "iva": 2970,
-                            "subtotal": 15630
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1402",
-                            "costo_total": 6900,
-                            "iva": 1102,
-                            "subtotal": 5798
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37956",
-                    "productos": [
-                        {
-                            "cantidad": 15,
-                            "codigo_item": "0463",
-                            "costo_total": 78750,
-                            "iva": 12574,
-                            "subtotal": 66176
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "0460",
-                            "costo_total": 56000,
-                            "iva": 8941,
-                            "subtotal": 47059
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37957",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0519",
-                            "costo_total": 31200,
-                            "iva": 4982,
-                            "subtotal": 26218
-                        },
-                        {
-                            "cantidad": 200,
-                            "codigo_item": "0581",
-                            "costo_total": 83062,
-                            "iva": 13262,
-                            "subtotal": 69800
-                        },
-                        {
-                            "cantidad": 200,
-                            "codigo_item": "0574",
-                            "costo_total": 92000,
-                            "iva": 14689,
-                            "subtotal": 77311
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0684",
-                            "costo_total": 27250,
-                            "iva": 4351,
-                            "subtotal": 22899
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "0814",
-                            "costo_total": 50000,
-                            "iva": 7983,
-                            "subtotal": 42017
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0657",
-                            "costo_total": 253000,
-                            "iva": 40395,
-                            "subtotal": 212605
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0654",
-                            "costo_total": 224000,
-                            "iva": 35765,
-                            "subtotal": 188235
-                        },
-                        {
-                            "cantidad": 6,
-                            "codigo_item": "1591",
-                            "costo_total": 2880,
-                            "iva": 460,
-                            "subtotal": 2420
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "1817",
-                            "costo_total": 22500,
-                            "iva": 3592,
-                            "subtotal": 18908
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "1818",
-                            "costo_total": 22500,
-                            "iva": 3592,
-                            "subtotal": 18908
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "1776",
-                            "costo_total": 31500,
-                            "iva": 5029,
-                            "subtotal": 26471
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "1890",
-                            "costo_total": 22050,
-                            "iva": 3521,
-                            "subtotal": 18529
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37958",
-                    "productos": [
-                        {
-                            "cantidad": 18,
-                            "codigo_item": "0653",
-                            "costo_total": 66000,
-                            "iva": 10538,
-                            "subtotal": 55462
-                        },
-                        {
-                            "cantidad": 30,
-                            "codigo_item": "0050",
-                            "costo_total": 3000,
-                            "iva": 479,
-                            "subtotal": 2521
-                        },
-                        {
-                            "cantidad": 30,
-                            "codigo_item": "0328",
-                            "costo_total": 16500,
-                            "iva": 2634,
-                            "subtotal": 13866
-                        },
-                        {
-                            "cantidad": 30,
-                            "codigo_item": "0263",
-                            "costo_total": 15000,
-                            "iva": 2395,
-                            "subtotal": 12605
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0385",
-                            "costo_total": 4000,
-                            "iva": 639,
-                            "subtotal": 3361
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "1664",
-                            "costo_total": 21000,
-                            "iva": 3353,
-                            "subtotal": 17647
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37959",
-                    "productos": [
-                        {
-                            "cantidad": 200,
-                            "codigo_item": "2278",
-                            "costo_total": 92000,
-                            "iva": 14689,
-                            "subtotal": 77311
-                        },
-                        {
-                            "cantidad": 300,
-                            "codigo_item": "2256",
-                            "costo_total": 330000,
-                            "iva": 52689,
-                            "subtotal": 277311
-                        },
-                        {
-                            "cantidad": 400,
-                            "codigo_item": "4815",
-                            "costo_total": 280000,
-                            "iva": 44706,
-                            "subtotal": 235294
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37960",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1230",
-                            "costo_total": 38900,
-                            "iva": 6211,
-                            "subtotal": 32689
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0462",
-                            "costo_total": 106000,
-                            "iva": 16924,
-                            "subtotal": 89076
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0461",
-                            "costo_total": 99000,
-                            "iva": 15807,
-                            "subtotal": 83193
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0463",
-                            "costo_total": 15750,
-                            "iva": 2515,
-                            "subtotal": 13235
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0460",
-                            "costo_total": 16800,
-                            "iva": 2682,
-                            "subtotal": 14118
-                        }
-                    ]
-                }
-            ]
-        },
-        "10": {
-            "id": 12,
-            "pagina": 10,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_10.pdf",
-            "estado": "Procesado con \u00e9xito",
-            "datos_extraidos": [
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37960",
-                    "productos": []
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37961",
-                    "productos": [
-                        {
-                            "cantidad": 8,
-                            "codigo_item": "0713",
-                            "costo_total": 52000,
-                            "iva": 8303,
-                            "subtotal": 43697
-                        },
-                        {
-                            "cantidad": 7,
-                            "codigo_item": "0313",
-                            "costo_total": 45500,
-                            "iva": 7265,
-                            "subtotal": 38235
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0304",
-                            "costo_total": 32500,
-                            "iva": 5189,
-                            "subtotal": 27311
-                        },
-                        {
-                            "cantidad": 400,
-                            "codigo_item": "0571",
-                            "costo_total": 166000,
-                            "iva": 26504,
-                            "subtotal": 139496
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0655",
-                            "costo_total": 224000,
-                            "iva": 35765,
-                            "subtotal": 188235
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "1967",
-                            "costo_total": 23000,
-                            "iva": 3672,
-                            "subtotal": 19328
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37962",
-                    "productos": [
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "1839",
-                            "costo_total": 31000,
-                            "iva": 4950,
-                            "subtotal": 26050
-                        },
-                        {
-                            "cantidad": 8,
-                            "codigo_item": "0816",
-                            "costo_total": 28000,
-                            "iva": 4471,
-                            "subtotal": 23529
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0304",
-                            "costo_total": 20400,
-                            "iva": 3257,
-                            "subtotal": 17143
-                        },
-                        {
-                            "cantidad": 6,
-                            "codigo_item": "0283",
-                            "costo_total": 15000,
-                            "iva": 2395,
-                            "subtotal": 12605
-                        },
-                        {
-                            "cantidad": 6,
-                            "codigo_item": "0668",
-                            "costo_total": 14400,
-                            "iva": 2299,
-                            "subtotal": 12101
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1164",
-                            "costo_total": 14200,
-                            "iva": 0,
-                            "subtotal": 14200
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1079",
-                            "costo_total": 11100,
-                            "iva": 1772,
-                            "subtotal": 9328
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1666",
-                            "costo_total": 9600,
-                            "iva": 1533,
-                            "subtotal": 8067
-                        },
-                        {
-                            "cantidad": 8,
-                            "codigo_item": "1114",
-                            "costo_total": 95200,
-                            "iva": 15200,
-                            "subtotal": 80000
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0387",
-                            "costo_total": 4200,
-                            "iva": 0,
-                            "subtotal": 4200
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0882",
-                            "costo_total": 12700,
-                            "iva": 2028,
-                            "subtotal": 10672
-                        },
-                        {
-                            "cantidad": 50,
-                            "codigo_item": "0570",
-                            "costo_total": 22000,
-                            "iva": 3513,
-                            "subtotal": 18487
-                        },
-                        {
-                            "cantidad": 50,
-                            "codigo_item": "0572",
-                            "costo_total": 13500,
-                            "iva": 2155,
-                            "subtotal": 11345
-                        },
-                        {
-                            "cantidad": 500,
-                            "codigo_item": "0296",
-                            "costo_total": 225000,
-                            "iva": 35924,
-                            "subtotal": 189076
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0108",
-                            "costo_total": 18000,
-                            "iva": 2874,
-                            "subtotal": 15126
-                        },
-                        {
-                            "cantidad": 4,
-                            "codigo_item": "0009",
-                            "costo_total": 12000,
-                            "iva": 1916,
-                            "subtotal": 10084
-                        },
-                        {
-                            "cantidad": 6,
-                            "codigo_item": "1075",
-                            "costo_total": 21600,
-                            "iva": 3449,
-                            "subtotal": 18151
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0179",
-                            "costo_total": 6600,
-                            "iva": 1054,
-                            "subtotal": 5546
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0631",
-                            "costo_total": 8600,
-                            "iva": 1373,
-                            "subtotal": 7227
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "2286",
-                            "costo_total": 15006,
-                            "iva": 2396,
-                            "subtotal": 12610
-                        },
-                        {
-                            "cantidad": 4,
-                            "codigo_item": "0687",
-                            "costo_total": 16400,
-                            "iva": 2618,
-                            "subtotal": 13782
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0674",
-                            "costo_total": 7100,
-                            "iva": 1134,
-                            "subtotal": 5966
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0596",
-                            "costo_total": 12850,
-                            "iva": 2052,
-                            "subtotal": 10798
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0378",
-                            "costo_total": 21400,
-                            "iva": 3417,
-                            "subtotal": 17983
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37963",
-                    "productos": [
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "1727",
-                            "costo_total": 47850,
-                            "iva": 7640,
-                            "subtotal": 40210
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0411",
-                            "costo_total": 25800,
-                            "iva": 4119,
-                            "subtotal": 21681
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0842",
-                            "costo_total": 4500,
-                            "iva": 718,
-                            "subtotal": 3782
-                        },
-                        {
-                            "cantidad": 4,
-                            "codigo_item": "1574",
-                            "costo_total": 18000,
-                            "iva": 2874,
-                            "subtotal": 15126
-                        }
-                    ]
-                }
-            ]
-        },
-        "11": {
-            "id": 13,
-            "pagina": 11,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_11.pdf",
-            "estado": "Procesado con \u00e9xito",
-            "datos_extraidos": [
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37964",
-                    "productos": [
-                        {
-                            "cantidad": 12,
-                            "codigo_item": "0023",
-                            "costo_total": 59400,
-                            "iva": 9484,
-                            "subtotal": 49916
-                        },
-                        {
-                            "cantidad": 6,
-                            "codigo_item": "4902",
-                            "costo_total": 37200,
-                            "iva": 5939,
-                            "subtotal": 31261
-                        },
-                        {
-                            "cantidad": 12,
-                            "codigo_item": "0022",
-                            "costo_total": 24000,
-                            "iva": 3832,
-                            "subtotal": 20168
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "2026",
-                            "costo_total": 42500,
-                            "iva": 6786,
-                            "subtotal": 35714
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37965",
-                    "productos": [
-                        {
-                            "cantidad": 200,
-                            "codigo_item": "0572",
-                            "costo_total": 49000,
-                            "iva": 7824,
-                            "subtotal": 41176
-                        },
-                        {
-                            "cantidad": 60,
-                            "codigo_item": "1014",
-                            "costo_total": 108000,
-                            "iva": 17244,
-                            "subtotal": 90756
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37966",
-                    "productos": [
-                        {
-                            "cantidad": 6,
-                            "codigo_item": "1092",
-                            "costo_total": 92100,
-                            "iva": 14705,
-                            "subtotal": 77395
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37967",
-                    "productos": [
-                        {
-                            "cantidad": 27,
-                            "codigo_item": "0518",
-                            "costo_total": 630450,
-                            "iva": 100660,
-                            "subtotal": 529790
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37968",
-                    "productos": [
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0609",
-                            "costo_total": 91500,
-                            "iva": 14609,
-                            "subtotal": 76891
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0629",
-                            "costo_total": 18600,
-                            "iva": 2970,
-                            "subtotal": 15630
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0612",
-                            "costo_total": 18650,
-                            "iva": 2978,
-                            "subtotal": 15672
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0621",
-                            "costo_total": 23000,
-                            "iva": 3672,
-                            "subtotal": 19328
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0948",
-                            "costo_total": 27000,
-                            "iva": 4311,
-                            "subtotal": 22689
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0105",
-                            "costo_total": 8000,
-                            "iva": 1277,
-                            "subtotal": 6723
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37969",
-                    "productos": [
-                        {
-                            "cantidad": 15,
-                            "codigo_item": "1518",
-                            "costo_total": 63750,
-                            "iva": 10179,
-                            "subtotal": 53571
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "1667",
-                            "costo_total": 52000,
-                            "iva": 8303,
-                            "subtotal": 43697
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "1666",
-                            "costo_total": 75400,
-                            "iva": 12039,
-                            "subtotal": 63361
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37970",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0612",
-                            "costo_total": 39800,
-                            "iva": 6355,
-                            "subtotal": 33445
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0629",
-                            "costo_total": 18650,
-                            "iva": 2978,
-                            "subtotal": 15672
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0609",
-                            "costo_total": 30500,
-                            "iva": 4870,
-                            "subtotal": 25630
-                        },
-                        {
-                            "cantidad": 30,
-                            "codigo_item": "1093",
-                            "costo_total": 76590,
-                            "iva": 12229,
-                            "subtotal": 64361
-                        },
-                        {
-                            "cantidad": 6,
-                            "codigo_item": "1574",
-                            "costo_total": 22800,
-                            "iva": 3640,
-                            "subtotal": 19160
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0255",
-                            "costo_total": 9200,
-                            "iva": 1469,
-                            "subtotal": 7731
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0849",
-                            "costo_total": 4200,
-                            "iva": 671,
-                            "subtotal": 3529
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0688",
-                            "costo_total": 3700,
-                            "iva": 591,
-                            "subtotal": 3109
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0631",
-                            "costo_total": 8650,
-                            "iva": 1381,
-                            "subtotal": 7269
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0484",
-                            "costo_total": 32100,
-                            "iva": 5125,
-                            "subtotal": 26975
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0842",
-                            "costo_total": 4400,
-                            "iva": 703,
-                            "subtotal": 3697
-                        }
-                    ]
-                }
-            ]
-        },
-        "12": {
-            "id": 14,
-            "pagina": 12,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_12.pdf",
-            "estado": "Procesado con \u00e9xito",
-            "datos_extraidos": [
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37970",
-                    "productos": [
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1976",
-                            "costo_total": 49000,
-                            "iva": 7824,
-                            "subtotal": 41176
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1784",
-                            "costo_total": 6500,
-                            "iva": 1038,
-                            "subtotal": 5462
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37971",
-                    "productos": [
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "1606",
-                            "costo_total": 68100,
-                            "iva": 10873,
-                            "subtotal": 57227
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0982",
-                            "costo_total": 20300,
-                            "iva": 3241,
-                            "subtotal": 17059
-                        },
-                        {
-                            "cantidad": 200,
-                            "codigo_item": "0572",
-                            "costo_total": 54000,
-                            "iva": 8622,
-                            "subtotal": 45378
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1333",
-                            "costo_total": 15450,
-                            "iva": 2467,
-                            "subtotal": 12983
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0842",
-                            "costo_total": 6750,
-                            "iva": 1078,
-                            "subtotal": 5672
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37972",
-                    "productos": [
-                        {
-                            "cantidad": 80,
-                            "codigo_item": "0578",
-                            "costo_total": 36800,
-                            "iva": 5876,
-                            "subtotal": 30924
-                        },
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0055",
-                            "costo_total": 17000,
-                            "iva": 2714,
-                            "subtotal": 14286
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "0056",
-                            "costo_total": 3400,
-                            "iva": 543,
-                            "subtotal": 2857
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1591",
-                            "costo_total": 4600,
-                            "iva": 734,
-                            "subtotal": 3866
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1818",
-                            "costo_total": 4600,
-                            "iva": 734,
-                            "subtotal": 3866
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1817",
-                            "costo_total": 4600,
-                            "iva": 734,
-                            "subtotal": 3866
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0170",
-                            "costo_total": 1500,
-                            "iva": 239,
-                            "subtotal": 1261
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0847",
-                            "costo_total": 9000,
-                            "iva": 1437,
-                            "subtotal": 7563
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0688",
-                            "costo_total": 11100,
-                            "iva": 1772,
-                            "subtotal": 9328
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0007",
-                            "costo_total": 6500,
-                            "iva": 1038,
-                            "subtotal": 5462
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1114",
-                            "costo_total": 9500,
-                            "iva": 1517,
-                            "subtotal": 7983
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0606",
-                            "costo_total": 30500,
-                            "iva": 4870,
-                            "subtotal": 25630
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0386",
-                            "costo_total": 3600,
-                            "iva": 171,
-                            "subtotal": 3429
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0387",
-                            "costo_total": 4000,
-                            "iva": 0.0,
-                            "subtotal": 4000
-                        },
-                        {
-                            "cantidad": 4,
-                            "codigo_item": "0594",
-                            "costo_total": 6600,
-                            "iva": 0.0,
-                            "subtotal": 6600
-                        },
-                        {
-                            "cantidad": 8,
-                            "codigo_item": "1386",
-                            "costo_total": 38400,
-                            "iva": 0.0,
-                            "subtotal": 38400
-                        },
-                        {
-                            "cantidad": 4,
-                            "codigo_item": "0001",
-                            "costo_total": 92000,
-                            "iva": 14689,
-                            "subtotal": 77311
-                        },
-                        {
-                            "cantidad": 4,
-                            "codigo_item": "1297",
-                            "costo_total": 18000,
-                            "iva": 2874,
-                            "subtotal": 15126
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0653",
-                            "costo_total": 4000,
-                            "iva": 639,
-                            "subtotal": 3361
-                        }
-                    ]
-                },
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37973",
-                    "productos": [
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0601",
-                            "costo_total": 5500,
-                            "iva": 878,
-                            "subtotal": 4622
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0629",
-                            "costo_total": 18200,
-                            "iva": 2906,
-                            "subtotal": 15294
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0631",
-                            "costo_total": 8600,
-                            "iva": 1373,
-                            "subtotal": 7227
-                        },
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "0657",
-                            "costo_total": 37950,
-                            "iva": 6059,
-                            "subtotal": 31891
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0741",
-                            "costo_total": 6500,
-                            "iva": 1038,
-                            "subtotal": 5462
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0848",
-                            "costo_total": 3800,
-                            "iva": 607,
-                            "subtotal": 3193
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0854",
-                            "costo_total": 2500,
-                            "iva": 399,
-                            "subtotal": 2101
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0963",
-                            "costo_total": 9300,
-                            "iva": 1485,
-                            "subtotal": 7815
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1784",
-                            "costo_total": 7500,
-                            "iva": 1197,
-                            "subtotal": 6303
-                        }
-                    ]
-                }
-            ]
-        },
-        "13": {
-            "id": 15,
-            "pagina": 13,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_13.pdf",
-            "estado": "Procesado con \u00e9xito",
-            "datos_extraidos": [
-                {
-                    "fecha": "04/08/2026",
-                    "numero_factura": "37973",
-                    "productos": [
-                        {
-                            "cantidad": 200,
-                            "codigo_item": "2278",
-                            "costo_total": 92000,
-                            "iva": 14689,
-                            "subtotal": 77311
-                        }
-                    ]
-                },
-                {
-                    "fecha": "05/08/2026",
-                    "numero_factura": "37974",
-                    "productos": [
-                        {
-                            "cantidad": 4,
-                            "codigo_item": "1338",
-                            "costo_total": 71200,
-                            "iva": 11368,
-                            "subtotal": 59832
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1503",
-                            "costo_total": 13500,
-                            "iva": 2155,
-                            "subtotal": 11345
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0725",
-                            "costo_total": 11000,
-                            "iva": 1756,
-                            "subtotal": 9244
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "0484",
-                            "costo_total": 21400,
-                            "iva": 3417,
-                            "subtotal": 17983
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0307",
-                            "costo_total": 16000,
-                            "iva": 2555,
-                            "subtotal": 13445
-                        }
-                    ]
-                },
-                {
-                    "fecha": "05/08/2026",
-                    "numero_factura": "37975",
-                    "productos": [
-                        {
-                            "cantidad": 3,
-                            "codigo_item": "1722",
-                            "costo_total": 22500,
-                            "iva": 3592,
-                            "subtotal": 18908
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "4127",
-                            "costo_total": 28000,
-                            "iva": 4471,
-                            "subtotal": 23529
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "1004",
-                            "costo_total": 53500,
-                            "iva": 8542,
-                            "subtotal": 44958
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "1005",
-                            "costo_total": 47500,
-                            "iva": 7584,
-                            "subtotal": 39916
-                        },
-                        {
-                            "cantidad": 15,
-                            "codigo_item": "0644",
-                            "costo_total": 54495,
-                            "iva": 8701,
-                            "subtotal": 45794
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "0024",
-                            "costo_total": 94000,
-                            "iva": 15008,
-                            "subtotal": 78992
-                        }
-                    ]
-                },
-                {
-                    "fecha": "05/08/2026",
-                    "numero_factura": "37976",
-                    "productos": [
-                        {
-                            "cantidad": 200,
-                            "codigo_item": "0570",
-                            "costo_total": 82800,
-                            "iva": 13220,
-                            "subtotal": 69580
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0629",
-                            "costo_total": 18650,
-                            "iva": 2978,
-                            "subtotal": 15672
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "1770",
-                            "costo_total": 23500,
-                            "iva": 3752,
-                            "subtotal": 19748
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0074",
-                            "costo_total": 17250,
-                            "iva": 2754,
-                            "subtotal": 14496
-                        },
-                        {
-                            "cantidad": 2,
-                            "codigo_item": "1004",
-                            "costo_total": 10900,
-                            "iva": 1740,
-                            "subtotal": 9160
-                        },
-                        {
-                            "cantidad": 50,
-                            "codigo_item": "4860",
-                            "costo_total": 26500,
-                            "iva": 4231,
-                            "subtotal": 22269
-                        },
-                        {
-                            "cantidad": 1,
-                            "codigo_item": "0670",
-                            "costo_total": 4850,
-                            "iva": 774,
-                            "subtotal": 4076
-                        }
-                    ]
-                },
-                {
-                    "fecha": "05/08/2026",
-                    "numero_factura": "37977",
-                    "productos": [
-                        {
-                            "cantidad": 20,
-                            "codigo_item": "0463",
-                            "costo_total": 119000,
-                            "iva": 19000,
-                            "subtotal": 100000
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0460",
-                            "costo_total": 31000,
-                            "iva": 4950,
-                            "subtotal": 26050
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0457",
-                            "costo_total": 44500,
-                            "iva": 7105,
-                            "subtotal": 37395
-                        },
-                        {
-                            "cantidad": 5,
-                            "codigo_item": "0458",
-                            "costo_total": 52500,
-                            "iva": 8382,
-                            "subtotal": 44118
-                        }
-                    ]
-                },
-                {
-                    "fecha": "05/08/2026",
-                    "numero_factura": "37978",
-                    "productos": [
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "7589",
-                            "costo_total": 13500,
-                            "iva": 2155,
-                            "subtotal": 11345
-                        },
-                        {
-                            "cantidad": 10,
-                            "codigo_item": "1180",
-                            "costo_total": 34620,
-                            "iva": 5528,
-                            "subtotal": 29092
-                        },
-                        {
-                            "cantidad": 15,
-                            "codigo_item": "0342",
-                            "costo_total": 17700,
-                            "iva": 2826,
-                            "subtotal": 14874
-                        },
-                        {
-                            "cantidad": 15,
-                            "codigo_item": "0644",
-                            "costo_total": 54500,
-                            "iva": 8702,
-                            "subtotal": 45798
-                        }
-                    ]
-                },
-                {
-                    "fecha": "05/08/2026",
-                    "numero_factura": "37979",
-                    "productos": [
-                        {
-                            "cantidad": 15,
-                            "codigo_item": "4902",
-                            "costo_total": 96000,
-                            "iva": 15328,
-                            "subtotal": 80672
-                        }
-                    ]
-                }
-            ]
-        },
-        "14": {
-            "id": 16,
-            "pagina": 14,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_14.pdf",
-            "estado": "Nuevo"
-        },
-        "15": {
-            "id": 17,
-            "pagina": 15,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_15.pdf",
-            "estado": "Nuevo"
-        },
-        "16": {
-            "id": 18,
-            "pagina": 16,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_16.pdf",
-            "estado": "Nuevo"
-        },
-        "17": {
-            "id": 19,
-            "pagina": 17,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_17.pdf",
-            "estado": "Nuevo"
-        },
-        "18": {
-            "id": 20,
-            "pagina": 18,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_18.pdf",
-            "estado": "Nuevo"
-        },
-        "19": {
-            "id": 21,
-            "pagina": 19,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_19.pdf",
-            "estado": "Nuevo"
-        },
-        "20": {
-            "id": 22,
-            "pagina": 20,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_20.pdf",
-            "estado": "Nuevo"
-        },
-        "21": {
-            "id": 23,
-            "pagina": 21,
-            "tipo": "Remisi\u00f3n",
-            "fecha": "2026-08-17",
-            "archivo": "pdfs_locales/ventas_2026-08-17_Remisi\u00f3n_Pag_21.pdf",
+            "fecha": "2026-08-18",
+            "archivo": "pdfs_locales/ventas_2026-08-18_Remisi\u00f3n_Pag_3.pdf",
             "estado": "Nuevo"
         }
     }
@@ -15526,55 +13056,50 @@ class SupabaseClient:
             print(f"Excepción en update_insumo: {e}")
             return False
 
-    def get_compras(self, page=1, page_size=20, search="", fecha_corte=None, factura_filtro=None, proveedor_filtro=None):
-        url = f"{self.url}/registro_compras?select=*,catalogo_insumos(nombre,categoria)"
-        
-        filtros = []
-        
-        # 1. Búsqueda por texto general
-        if search:
-            search_enc = urllib.parse.quote(search.strip())
-            filtros.append(f"or=(codigo_insumo.ilike.*{search_enc}*,proveedor.ilike.*{search_enc}*,numero_factura.ilike.*{search_enc}*)")
-        
-        # 2. Fecha de corte
-        if fecha_corte:
-            filtros.append(f"fecha=eq.{fecha_corte}")
-
-        # 3. Filtro cruzado por Factura / Entrada
-        if factura_filtro:
-            factura_enc = urllib.parse.quote(str(factura_filtro).strip())
-            filtros.append(f"or=(numero_entrada.eq.{factura_enc},numero_factura.eq.{factura_enc})")
-
-        # 4. Filtro cruzado por Proveedor (Con ilike y quote para tolerar espacios y mayúsculas/minúsculas)
-        if proveedor_filtro:
-            prov_enc = urllib.parse.quote(str(proveedor_filtro).strip())
-            filtros.append(f"proveedor.ilike.*{prov_enc}*")
-            
-        if filtros:
-            url += "&" + "&".join(filtros)
-            
-        offset = (page - 1) * page_size
-        url += f"&order=fecha.desc,numero_entrada.desc&offset={offset}&limit={page_size}"
-        
-        headers = self.headers.copy()
-        headers["Prefer"] = "count=exact"
-        
+    def get_compras(self, page=1, page_size=15, search="", fecha_corte=None, factura_filtro=None, proveedor_filtro=None):
         try:
-            response = self.session.get(url, headers=headers, timeout=10)
-            if response.status_code in (200, 206):
-                data = response.json()
-                content_range = response.headers.get("Content-Range", "")
-                total_count = 0
-                if "/" in content_range:
-                    total_count = int(content_range.split("/")[1])
-                return data, total_count
-            else:
-                print(f"Error HTTP {response.status_code} en get_compras: {response.text}")
-                return [], 0
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en get_compras: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en get_compras: {e}")
+            offset = (page - 1) * page_size
+            # Incluir 'iva' explícitamente en el select
+            select_query = "id_compra,fecha,numero_entrada,numero_factura,proveedor,codigo_insumo,cantidad,costo_unitario,iva,valor_iva,costo_total,estado_registro,catalogo_insumos(nombre)"
+            
+            url = f"{self.url}/registro_compras?select={select_query}&estado_registro=eq.VÁLIDO&order=fecha.desc"
+            
+            if factura_filtro:
+                url += f"&or=(numero_entrada.eq.{factura_filtro},numero_factura.eq.{factura_filtro})"
+            if proveedor_filtro:
+                url += f"&proveedor=eq.{proveedor_filtro}"
+                
+            res = self.session.get(url, headers=self.headers, timeout=10)
+            
+            if res.status_code == 200:
+                data = res.json()
+                
+                # Filtrado por fecha_corte y búsqueda
+                filtered = []
+                for item in data:
+                    f = str(item.get("fecha") or "")[:10]
+                    if fecha_corte and f > fecha_corte:
+                        continue
+                        
+                    nom = str(item.get("catalogo_insumos", {}).get("nombre", "") if item.get("catalogo_insumos") else "").lower()
+                    cod = str(item.get("codigo_insumo") or "").lower()
+                    prov = str(item.get("proveedor") or "").lower()
+                    fact = str(item.get("numero_factura") or "").lower()
+                    
+                    if search:
+                        s = search.lower()
+                        if s not in nom and s not in cod and s not in prov and s not in fact:
+                            continue
+                            
+                    filtered.append(item)
+                    
+                total_records = len(filtered)
+                page_data = filtered[offset:offset + page_size]
+                return page_data, total_records
+                
+            return [], 0
+        except Exception as ex:
+            print(f"Error en get_compras: {ex}")
             return [], 0
 
     def get_historial_compras_dia(self, fecha_dia: str, agrupar_por: str = "FACTURA") -> list:
@@ -15640,40 +13165,29 @@ class SupabaseClient:
         return items_resultado
 
 
-    def insert_compras(self, compras_list: list):
-        """
-        Inserta una lista de registros de compras de forma masiva (bulk insert).
-        """
-        url = f"{self.url}/registro_compras"
-        
-        payload = []
-        for c in compras_list:
-            compra = {
-                "fecha": c.get("fecha"),
-                "numero_entrada": str(c.get("numero_entrada", "")),
-                "numero_factura": str(c.get("numero_factura", "")),
-                "proveedor": str(c.get("proveedor", "")),
-                "codigo_insumo": str(c.get("codigo_insumo", "")),
-                "cantidad": float(c.get("cantidad", 0) or 0),
-                "costo_unitario": float(c.get("costo_unitario", 0) or 0),
-                "valor_iva": float(c.get("iva", 0) or 0),
-                "costo_total": float(c.get("costo_total", 0) or 0),
-                "estado_registro": "VÁLIDO"
-            }
-            payload.append(compra)
-            
+    def insert_compras(self, compras_list):
+        if not compras_list: return True
         try:
-            # PostgREST permite inserción masiva enviando una lista de diccionarios JSON
-            response = self.session.post(url, json=payload, headers=self.headers, timeout=10)
-            if response.status_code in (200, 201, 204):
-                return True
-            else:
-                print(f"Error al insertar compras: {response.text}")
-                return False
-        except requests.exceptions.RequestException as req_e:
-            print(f"Error de conexión con Supabase en insert_compras: el servidor no responde")
-        except Exception as e:
-            print(f"Excepción en insert_compras: {e}")
+            url = f"{self.url}/registro_compras"
+            payload = []
+            for item in compras_list:
+                payload.append({
+                    "numero_entrada": item.get("numero_entrada"),
+                    "fecha": item.get("fecha"),
+                    "numero_factura": item.get("numero_factura"),
+                    "proveedor": item.get("proveedor"),
+                    "codigo_insumo": item.get("codigo_insumo"),
+                    "cantidad": float(item.get("cantidad") or 0),
+                    "costo_unitario": float(item.get("costo_unitario") or 0),
+                    "iva": float(item.get("iva") or item.get("valor_iva") or 0),
+                    "valor_iva": float(item.get("iva") or item.get("valor_iva") or 0),
+                    "costo_total": float(item.get("costo_total") or 0),
+                    "estado_registro": "VÁLIDO"
+                })
+            res = self.session.post(url, json=payload, headers=self.headers, timeout=10)
+            return res.status_code in (200, 201)
+        except Exception as ex:
+            print(f"Error en insert_compras: {ex}")
             return False
 
     def get_entradas_existentes(self, lista_eas: list) -> set:
@@ -16073,7 +13587,7 @@ class SupabaseClient:
             hoy = datetime.date.today().strftime("%Y-%m-%d")
             mes_actual = hoy[:7]
             
-            url = f"{self.url}/registro_compras?select=fecha,cantidad,costo_total,iva,estado_registro&estado_registro=eq.VÁLIDO"
+            url = f"{self.url}/registro_compras?select=fecha,cantidad,costo_total,iva,valor_iva,estado_registro&estado_registro=eq.VÁLIDO"
             res = self.session.get(url, headers=self.headers, timeout=10)
             
             if res.status_code == 200:
@@ -16093,8 +13607,7 @@ class SupabaseClient:
                     cant = float(c.get("cantidad") or 0)
                     
                     # Extracción segura de IVA blindando valores None/NULL
-                    raw_iva = c.get("iva")
-                    iva_val = float(raw_iva) if raw_iva is not None else 0.0
+                    iva_val = float(c.get("iva") or c.get("valor_iva") or 0)
                     
                     if f.startswith(mes_actual):
                         total_mes += monto
@@ -16645,4 +14158,57 @@ class SupabaseClient:
         # Ordenar por costo de inventario descendente
         resultado.sort(key=lambda x: (x["inventario_costo"], x["ventas_realizadas"]), reverse=True)
         return resultado
+
+
+    # --- CRUD COMPRAS INDIVIDUALES ---
+    def update_compra_individual(self, id_compra, datos):
+        """Actualiza un registro de compra individual por su UUID."""
+        try:
+            url = f"{self.url}/registro_compras?id_compra=eq.{id_compra}"
+            res = self.session.patch(url, json=datos, headers=self.headers, timeout=10)
+            return res.status_code in (200, 204)
+        except Exception as ex:
+            print(f"Error en update_compra_individual: {ex}")
+            return False
+
+    def eliminar_compra_individual(self, id_compra):
+        """Elimina un registro de compra individual de Supabase."""
+        try:
+            url = f"{self.url}/registro_compras?id_compra=eq.{id_compra}"
+            res = self.session.delete(url, headers=self.headers, timeout=10)
+            return res.status_code in (200, 204)
+        except Exception as ex:
+            print(f"Error en eliminar_compra_individual: {ex}")
+            return False
+
+    # --- CRUD VENTAS INDIVIDUALES ---
+    def insert_venta_individual(self, datos):
+        """Crea un registro de venta individual en Supabase."""
+        try:
+            url = f"{self.url}/registro_ventas"
+            res = self.session.post(url, json=[datos], headers=self.headers, timeout=10)
+            return res.status_code in (200, 201)
+        except Exception as ex:
+            print(f"Error en insert_venta_individual: {ex}")
+            return False
+
+    def update_venta_individual(self, id_venta, datos):
+        """Actualiza un registro de venta individual por su UUID."""
+        try:
+            url = f"{self.url}/registro_ventas?id_venta=eq.{id_venta}"
+            res = self.session.patch(url, json=datos, headers=self.headers, timeout=10)
+            return res.status_code in (200, 204)
+        except Exception as ex:
+            print(f"Error en update_venta_individual: {ex}")
+            return False
+
+    def eliminar_venta_individual(self, id_venta):
+        """Elimina un registro de venta individual de Supabase."""
+        try:
+            url = f"{self.url}/registro_ventas?id_venta=eq.{id_venta}"
+            res = self.session.delete(url, headers=self.headers, timeout=10)
+            return res.status_code in (200, 204)
+        except Exception as ex:
+            print(f"Error en eliminar_venta_individual: {ex}")
+            return False
 ````
