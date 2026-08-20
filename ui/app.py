@@ -8,6 +8,9 @@ from ui.views.ventas import VentasView
 from ui.views.cierre_inventario import CierreInventarioView
 from ui.views.ajustes_inventario import AjustesInventarioView
 from ui.views.informes import InformesView
+from core.logger import get_logger, log_error
+
+logger = get_logger("AppLayout")
 
 class AppLayout(ft.Row):
     def __init__(self, page: ft.Page, usuario_data=None, on_logout=None):
@@ -56,25 +59,35 @@ class AppLayout(ft.Row):
         def load_data_bg():
             vista = self.views[self.initial_route]
             if hasattr(vista, 'load_data'):
-                try: vista.load_data()
-                except Exception as e: pass
+                try:
+                    vista.load_data()
+                except Exception as e:
+                    log_error(f"load_data en vista inicial {self.initial_route}", e)
             if hasattr(vista, 'load_summary'):
-                try: vista.load_summary()
-                except Exception as e: pass
+                try:
+                    vista.load_summary()
+                except Exception as e:
+                    log_error(f"load_summary en vista inicial {self.initial_route}", e)
         threading.Thread(target=load_data_bg, daemon=True).start()
         
     def on_route_change(self, route_name):
-        if not route_name: return
+        if not route_name:
+            return
         
+        logger.info(f"Navegando a ruta: {route_name}")
         # Instanciar de forma perezosa (Lazy Loading) para evitar lag inicial
         if route_name not in self.views:
-            if route_name == "dashboard": self.views[route_name] = DashboardView()
-            elif route_name == "inventario": self.views[route_name] = InventarioView()
-            elif route_name == "compras": self.views[route_name] = ComprasView()
-            elif route_name == "ventas": self.views[route_name] = VentasView()
-            elif route_name == "ajustes_inventario": self.views[route_name] = AjustesInventarioView()
-            elif route_name == "cierre_mes": self.views[route_name] = CierreInventarioView()
-            elif route_name == "informes": self.views[route_name] = InformesView()
+            try:
+                if route_name == "dashboard": self.views[route_name] = DashboardView()
+                elif route_name == "inventario": self.views[route_name] = InventarioView()
+                elif route_name == "compras": self.views[route_name] = ComprasView()
+                elif route_name == "ventas": self.views[route_name] = VentasView()
+                elif route_name == "ajustes_inventario": self.views[route_name] = AjustesInventarioView()
+                elif route_name == "cierre_mes": self.views[route_name] = CierreInventarioView()
+                elif route_name == "informes": self.views[route_name] = InformesView()
+            except Exception as e:
+                log_error(f"Error instanciando vista {route_name}", e)
+                return
             
         # Cambiar el contenido del contenedor principal
         if route_name in self.views:
@@ -87,18 +100,17 @@ class AppLayout(ft.Row):
                 self.sidebar.actualizar_estado_activo(route_name)
             
             # Forzar recarga de datos al navegar para evitar caché estancada
-            # Se ejecuta en hilo secundario para evitar congelar la interfaz
             def load_data_bg():
                 if hasattr(vista, 'load_data'):
                     try:
                         vista.load_data()
                     except Exception as e:
-                        print(f"Error reload load_data en {route_name}: {e}")
+                        log_error(f"reload load_data en {route_name}", e)
                         
                 if hasattr(vista, 'load_summary'):
                     try:
                         vista.load_summary()
                     except Exception as e:
-                        print(f"Error reload load_summary en {route_name}: {e}")
+                        log_error(f"reload load_summary en {route_name}", e)
             
             threading.Thread(target=load_data_bg, daemon=True).start()

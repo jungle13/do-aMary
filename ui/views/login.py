@@ -125,13 +125,9 @@ class LoginView(ft.Container):
 
     def _worker_autenticar(self, user, pwd):
         try:
-            url = f"{self.db.url}/usuarios?usuario=eq.{user}&clave=eq.{pwd}&activo=eq.true"
-            res = self.db.session.get(url, headers=self.db.headers, timeout=5)
-
-            if res.status_code == 200 and len(res.json()) > 0:
-                datos_usuario = res.json()[0]
-                
-                # Transformar la tarjeta flotante en el estado de bienvenida (sin lanzar AlertDialog)
+            datos_usuario = self.db.autenticar_usuario(user, pwd)
+            if datos_usuario:
+                # Transformar la tarjeta flotante en el estado de bienvenida
                 self._mostrar_bienvenida_en_tarjeta(datos_usuario)
             else:
                 self.lbl_error.value = "Credenciales incorrectas o usuario inactivo."
@@ -141,7 +137,7 @@ class LoginView(ft.Container):
                 if self.page:
                     self.page.update()
         except Exception as ex:
-            self.lbl_error.value = f"Error de conexión: {ex}"
+            self.lbl_error.value = f"Error al verificar credenciales: {ex}"
             self.lbl_error.visible = True
             self.progress.visible = False
             self.btn_ingresar.disabled = False
