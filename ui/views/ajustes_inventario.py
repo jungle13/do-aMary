@@ -168,6 +168,31 @@ class AjustesInventarioView(ft.Container):
                 self.lbl_valor_inv_modal.value = "Valor del Inv: $0"
             self.safe_update()
 
+        def on_nuevo_stock_change(e):
+            val_txt = (self.form_nuevo_stock_real.value or "").strip().replace(',', '.')
+            if not val_txt or not self.form_codigo.value:
+                return
+            try:
+                nuevo_stock = float(val_txt)
+                stock_sist = getattr(self, 'current_stock_modal', 0.0)
+                diff = nuevo_stock - stock_sist
+
+                if diff > 0:
+                    self.form_tipo_ajuste.value = "ENTRADA"
+                    self.form_motivo.options = [ft.dropdown.Option(x) for x in ["Sobrante de Inventario", "Donación Entrante", "Devolución Cliente", "Otro (Entrada)"]]
+                    self.form_motivo.value = "Sobrante de Inventario"
+                    self.form_cant.value = str(int(diff) if diff.is_integer() else diff)
+                elif diff < 0:
+                    self.form_tipo_ajuste.value = "SALIDA"
+                    self.form_motivo.options = [ft.dropdown.Option(x) for x in ["Pérdida", "Daño / Merma", "Vencimiento", "Consumo Familiar", "Consumo Cliente (Cortesía)", "Donación Saliente", "Otro (Salida)"]]
+                    self.form_motivo.value = "Pérdida"
+                    self.form_cant.value = str(int(abs(diff)) if abs(diff).is_integer() else abs(diff))
+                else:
+                    self.form_cant.value = "0"
+                self.safe_update()
+            except ValueError:
+                pass
+
         def on_seleccionar_insumo_manual(e):
             texto = e.selection.value if hasattr(e, 'selection') and e.selection else str(e.control.value or "")
             codigo = e.selection.key if hasattr(e, 'selection') and hasattr(e.selection, 'key') and e.selection.key else ""
@@ -193,10 +218,20 @@ class AjustesInventarioView(ft.Container):
         )
 
         self.form_nombre = ft.Text("Selecciona o busca un insumo...", color="grey", italic=True, size=13)
-        self.lbl_stock_actual = ft.Text("Stock Sist: 0", weight="bold", color=Config.COLOR_PRIMARY, size=12)
+        self.lbl_stock_actual = ft.Text("Stock Sist: 0 unds", weight="bold", color=Config.COLOR_PRIMARY, size=12)
+        
+        self.form_nuevo_stock_real = ft.TextField(
+            label="Nuevo Stock Real",
+            hint_text="Ej: 15",
+            width=140,
+            dense=True,
+            border_radius=8,
+            text_align=ft.TextAlign.RIGHT,
+            on_change=on_nuevo_stock_change
+        )
 
         self.form_motivo = ft.Dropdown(label="Motivo del Ajuste", dense=True, expand=True, border_radius=8)
-        self.form_cant = ft.TextField(label="Cantidad", expand=True, dense=True, border_radius=8)
+        self.form_cant = ft.TextField(label="Cantidad Ajuste", expand=True, dense=True, border_radius=8)
 
         # Eliminamos el expand=True para evitar el desbordamiento vertical en la columna
         self.form_costo = ft.TextField(label="Costo Unitario ($)", dense=True, border_radius=8, on_change=on_costo_change)
@@ -213,15 +248,16 @@ class AjustesInventarioView(ft.Container):
                     ft.Column([
                         ft.Row([self.txt_buscador_insumo])
                     ], spacing=0),
-                    # Tarjeta de Insumo Seleccionado
+                    # Tarjeta de Insumo Seleccionado con Input de Nuevo Stock
                     ft.Container(
                         content=ft.Row([
-                            ft.Icon(ft.icons.INVENTORY_2, size=18, color=Config.COLOR_PRIMARY),
+                            ft.Icon(ft.icons.INVENTORY_2_ROUNDED, size=20, color=Config.COLOR_PRIMARY),
                             ft.Column([
                                 self.form_nombre,
                                 self.lbl_stock_actual
-                            ], spacing=1, expand=True)
-                        ]), 
+                            ], spacing=2, expand=True),
+                            self.form_nuevo_stock_real
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER), 
                         padding=10, 
                         bgcolor="#f8f9fa", 
                         border_radius=8,
@@ -284,6 +320,7 @@ class AjustesInventarioView(ft.Container):
             self.form_nombre.color = "black"
             self.current_stock_modal = float(detalle.get('stock_actual') or 0)
             self.lbl_stock_actual.value = f"Stock Sist: {self.current_stock_modal:g} unds"
+            self.form_nuevo_stock_real.value = ""
 
             tipo = self.form_tipo_ajuste.value
             nuevo_costo = 0

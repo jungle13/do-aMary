@@ -2,8 +2,11 @@ import flet as ft
 from ui.app import AppLayout
 from ui.views.login import LoginView
 from config import Config
+from core.mobile_server import iniciar_servidor_en_hilo
 
 def main(page: ft.Page):
+    # Iniciar servidor web móvil en red local Wi-Fi (puerto 8550)
+    iniciar_servidor_en_hilo(port=8550)
     page.title = "Abarrotes y Desechables Doña Mary"
     page.padding = 0
     page.theme_mode = ft.ThemeMode.LIGHT

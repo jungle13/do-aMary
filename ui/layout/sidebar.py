@@ -245,3 +245,76 @@ class Sidebar(ft.Container):
             else:
                 dlg.open = False
                 self.page.update()
+
+    def mostrar_modal_qr(self, e=None):
+        from core.mobile_service import MobileCountingService
+        from core.mobile_server import iniciar_servidor_en_hilo
+        iniciar_servidor_en_hilo(port=8550)
+        
+        service = MobileCountingService()
+        url = service.get_server_url(port=8550)
+        qr_b64 = service.get_qr_base64(port=8550)
+
+        def copiar_url(ev):
+            if self.page:
+                self.page.set_clipboard(url)
+                self.page.snack_bar = ft.SnackBar(ft.Text(f"Enlace copiado al portapapeles: {url}"), bgcolor=Config.COLOR_SUCCESS)
+                self.page.snack_bar.open = True
+                self.page.update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.PHONE_ANDROID_ROUNDED, color=Config.COLOR_ACCENT),
+                ft.Text("Conteo Móvil Wi-Fi (Bodega)", size=16, weight="bold", color=Config.COLOR_PRIMARY)
+            ]),
+            content=ft.Column([
+                ft.Row([
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Container(width=8, height=8, bgcolor=Config.COLOR_SUCCESS, border_radius=4),
+                            ft.Text("Servidor Activo en Red Local", size=11, weight="bold", color=Config.COLOR_SUCCESS)
+                        ], spacing=6),
+                        padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                        bgcolor=Config.COLOR_SUCCESS_BG,
+                        border_radius=12,
+                        border=ft.border.all(1, ft.colors.with_opacity(0.3, Config.COLOR_SUCCESS))
+                    )
+                ], alignment=ft.MainAxisAlignment.CENTER),
+                ft.Container(
+                    content=ft.Image(src_base64=qr_b64, width=190, height=190, fit=ft.ImageFit.CONTAIN),
+                    alignment=ft.alignment.center,
+                    padding=10,
+                    bgcolor="white",
+                    border=ft.border.all(1, Config.COLOR_BORDER),
+                    border_radius=12
+                ),
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.icons.LINK_ROUNDED, size=16, color=Config.COLOR_ACCENT),
+                        ft.Text(url, size=13, weight="bold", color=Config.COLOR_ACCENT, selectable=True),
+                        ft.IconButton(icon=ft.icons.COPY_ALL_ROUNDED, icon_size=18, tooltip="Copiar enlace", on_click=copiar_url)
+                    ], alignment=ft.MainAxisAlignment.CENTER),
+                    padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                    bgcolor=Config.COLOR_BACKGROUND,
+                    border=ft.border.all(1, Config.COLOR_BORDER),
+                    border_radius=8
+                ),
+                ft.Text(
+                    "Apunta con la cámara de cualquier teléfono conectado a la red Wi-Fi de la bodega para registrar el stock inicial de Agosto sin cables ni instalaciones.",
+                    size=11, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.CENTER
+                )
+            ], tight=True, spacing=10, width=380, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            actions=[
+                ft.TextButton("Copiar Enlace", on_click=copiar_url),
+                ft.ElevatedButton("Cerrar", bgcolor=Config.COLOR_PRIMARY, color="white", on_click=lambda e: self._cerrar_dialogo(dlg))
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+            shape=ft.RoundedRectangleBorder(radius=14)
+        )
+        if self.page:
+            if hasattr(self.page, "open"):
+                self.page.open(dlg)
+            else:
+                self.page.overlay.append(dlg)
+                dlg.open = True
+                self.page.update()

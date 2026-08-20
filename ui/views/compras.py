@@ -443,8 +443,8 @@ class ComprasView(ft.Container):
         def worker():
             items = self.db.get_historial_compras_dia(self.fecha_historial_activa, self.modo_agrupacion_compras)
 
-            tot_pesos = sum([item["total"] for item in items])
-            tot_unds = sum([item["unidades"] for item in items])
+            tot_pesos = sum([item.get("total", 0) for item in items])
+            tot_unds = sum([item.get("unidades", 0) for item in items])
 
             self.lbl_tot_compras_panel.value = f"${tot_pesos:,.0f} COP"
             self.lbl_cant_compras_panel.value = f"{tot_unds:g} unds"
@@ -467,23 +467,24 @@ class ComprasView(ft.Container):
         threading.Thread(target=worker, daemon=True).start()
 
     def _crear_card_item_compras(self, item):
-        tipo = item["tipo"]
+        tipo = item.get("tipo", "COMPRA")
 
         if tipo == "COMPRA":
-            badge_txt = f"FACTURA: {item['factura']}"
+            badge_txt = f"FACTURA: {item.get('factura', 'S/N')}"
             badge_bg, badge_col = "#e6f4ea", "teal800"
-            sub_txt = item["proveedor"]
+            sub_txt = item.get("proveedor", "Clientes Varios")
             icon_mat = ft.icons.RECEIPT
         elif tipo == "PROVEEDOR_RESUMEN":
-            badge_txt = f"{item['facturas_cant']} Facturas"
+            cant_f = item.get("facturas_cant", 1)
+            badge_txt = f"{cant_f} Facturas" if cant_f != 1 else "1 Factura"
             badge_bg, badge_col = "#e8f0fe", "blue800"
-            sub_txt = item["proveedor"]
+            sub_txt = item.get("proveedor", "Clientes Varios")
             icon_mat = ft.icons.BUSINESS
         else:
             # AJUSTE_ENTRADA
             badge_txt = "ENTRADA AJUSTE (+)"
             badge_bg, badge_col = "#fef3c7", "orange800"
-            sub_txt = item["factura"]
+            sub_txt = item.get("factura", "Ajuste")
             icon_mat = ft.icons.TUNE
 
         badge = ft.Container(
@@ -499,8 +500,8 @@ class ComprasView(ft.Container):
                     ft.Text(sub_txt, size=11, weight="bold", color="black87", no_wrap=True, tooltip=sub_txt),
                 ], expand=True, spacing=2),
                 ft.Column([
-                    ft.Text(f"${item['total']:,.0f}", size=11, weight="bold", color="black87"),
-                    ft.Text(f"{item['unidades']:g} unds", size=9, color="grey", text_align=ft.TextAlign.RIGHT)
+                    ft.Text(f"${item.get('total', 0):,.0f}", size=11, weight="bold", color="black87"),
+                    ft.Text(f"{item.get('unidades', 0):g} unds", size=9, color="grey", text_align=ft.TextAlign.RIGHT)
                 ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=1)
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
             padding=8,

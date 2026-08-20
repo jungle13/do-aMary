@@ -6,6 +6,7 @@ from ui.views.inventario import InventarioView
 from ui.views.compras import ComprasView
 from ui.views.ventas import VentasView
 from ui.views.cierre_inventario import CierreInventarioView
+from ui.views.conteo_inicial import ConteoInicialView
 from ui.views.ajustes_inventario import AjustesInventarioView
 from ui.views.informes import InformesView
 from config import Config
@@ -83,6 +84,7 @@ class AppLayout(ft.Row):
                 elif route_name == "inventario": self.views[route_name] = InventarioView()
                 elif route_name == "compras": self.views[route_name] = ComprasView()
                 elif route_name == "ventas": self.views[route_name] = VentasView()
+                elif route_name == "conteo": self.views[route_name] = ConteoInicialView()
                 elif route_name == "ajustes_inventario": self.views[route_name] = AjustesInventarioView()
                 elif route_name == "cierre_mes": self.views[route_name] = CierreInventarioView()
                 elif route_name == "informes": self.views[route_name] = InformesView()
@@ -94,7 +96,17 @@ class AppLayout(ft.Row):
         if route_name in self.views:
             vista = self.views[route_name]
             self.active_view.content = vista
-            self.active_view.update()
+            try:
+                if self.page:
+                    self.page.update()
+                else:
+                    self.active_view.update()
+            except Exception as e:
+                log_error(f"Error en page.update() al navegar a {route_name}", e)
+                try:
+                    self.active_view.update()
+                except Exception:
+                    pass
             
             # Resaltar la ruta activa en el menú lateral
             if hasattr(self.sidebar, "actualizar_estado_activo"):

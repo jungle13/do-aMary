@@ -1,4 +1,4 @@
-﻿"""
+"""
 Repositorio para la gestión de compras y entradas de insumos.
 """
 import datetime
@@ -86,19 +86,28 @@ class ComprasRepository:
 
                 elif agrupar_por == "PROVEEDOR":
                     agrupado = {}
+                    facturas_por_prov = {}
                     for r in data_c:
                         prov = r.get("proveedor") or "Clientes Varios"
+                        ref_f = r.get("numero_factura") or r.get("numero_entrada") or "S/N"
                         if prov not in agrupado:
                             agrupado[prov] = {
                                 "tipo": "PROVEEDOR_RESUMEN",
                                 "ref": prov,
                                 "proveedor": prov,
+                                "facturas_cant": 0,
                                 "total": 0.0,
                                 "unidades": 0.0,
                                 "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
                             }
+                            facturas_por_prov[prov] = set()
+                        facturas_por_prov[prov].add(ref_f)
                         agrupado[prov]["total"] += float(r.get("costo_total") or 0)
                         agrupado[prov]["unidades"] += float(r.get("cantidad") or 0)
+
+                    for prov in agrupado:
+                        agrupado[prov]["facturas_cant"] = len(facturas_por_prov[prov])
+
                     items_resultado.extend(list(agrupado.values()))
 
             items_resultado.sort(key=lambda x: x["hora"], reverse=True)

@@ -2,6 +2,7 @@ import flet as ft
 import threading
 from config import Config
 from core.supabase_client import SupabaseClient
+from ui.views.conteo_inicial import ConteoInicialView
 import datetime
 import math
 from dateutil.relativedelta import relativedelta
@@ -241,7 +242,8 @@ class CierreInventarioView(ft.Container):
             )
         ], visible=False, expand=True, spacing=15)
 
-        self.content = ft.Column([self.vista_lista, self.vista_detalle], expand=True)
+        self.vista_conteo_container = ft.Container(visible=False, expand=True)
+        self.content = ft.Column([self.vista_lista, self.vista_detalle, self.vista_conteo_container], expand=True)
 
 
     def _crear_tarjeta_paso(self, numero, titulo, descripcion, control_accion):
@@ -429,18 +431,53 @@ class CierreInventarioView(ft.Container):
             color_estado = {'ABIERTO': 'green', 'PRELIMINAR': 'orange', 'EN_AUDITORIA': 'blue', 'CERRADO': 'red'}
             
             row = ft.DataRow(cells=[
-                ft.DataCell(ft.Text(mes_periodo)),
+                ft.DataCell(ft.Text(mes_periodo, weight="bold")),
                 ft.DataCell(ft.Text(month)),
                 ft.DataCell(ft.Text(year)),
                 ft.DataCell(ft.Text(estado, color=color_estado.get(estado, 'black'), weight='bold')),
-                ft.DataCell(ft.ElevatedButton('Ver', tooltip="Ver Detalles del Cierre", on_click=lambda e, m=mes_periodo: self.mostrar_detalle(m)))
+                ft.DataCell(
+                    ft.Row([
+                        ft.ElevatedButton(
+                            'Conteo',
+                            icon=ft.icons.CHECKLIST_RTL_ROUNDED,
+                            bgcolor=Config.COLOR_PRIMARY,
+                            color="white",
+                            height=32,
+                            style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=10, vertical=4)),
+                            tooltip=f"Realizar Conteo / Stock Inicial de {mes_periodo}",
+                            on_click=lambda e, m=mes_periodo: self.mostrar_conteo(m)
+                        ),
+                        ft.OutlinedButton(
+                            'Ver',
+                            height=32,
+                            style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=10, vertical=4)),
+                            tooltip="Ver Detalles del Cierre",
+                            on_click=lambda e, m=mes_periodo: self.mostrar_detalle(m)
+                        )
+                    ], spacing=6)
+                )
             ])
             self.dt_periodos.rows.append(row)
             
         if self.page:
             self.page.update()
 
+    def mostrar_conteo(self, mes):
+        self.vista_lista.visible = False
+        self.vista_detalle.visible = False
+        self.vista_conteo_container.content = ConteoInicialView(mes_periodo=mes, on_volver=self.on_volver_desde_conteo)
+        self.vista_conteo_container.visible = True
+        self.safe_update()
+
+    def on_volver_desde_conteo(self):
+        self.vista_conteo_container.visible = False
+        self.vista_conteo_container.content = None
+        self.vista_lista.visible = True
+        self.load_lista_periodos()
+        self.safe_update()
+
     def mostrar_detalle(self, mes):
+        self.vista_conteo_container.visible = False
         self.vista_lista.visible = False
         self.vista_detalle.visible = True
         self.mes_seleccionado = mes
@@ -454,6 +491,7 @@ class CierreInventarioView(ft.Container):
         self.load_data_detalle()
 
     def on_volver_lista(self, e):
+        self.vista_conteo_container.visible = False
         self.vista_detalle.visible = False
         self.vista_lista.visible = True
         self.load_lista_periodos()

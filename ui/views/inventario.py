@@ -348,7 +348,7 @@ class InventarioView(ft.Container):
                         border_radius=10
                     ),
                     ft.Column([
-                        ft.Text("Proyección de Ventas", size=12, color="grey", weight="bold"),
+                        ft.Text("Objetivo de Venta (Stock)", size=12, color="grey", weight="bold"),
                         self.lbl_proyeccion_ventas
                     ], spacing=2)
                 ]),
@@ -1037,30 +1037,200 @@ class InventarioView(ft.Container):
         valor_neto_ajustes = float(item.get("valor_neto_ajustes") or 0)
         
         stock_actual = float(item.get('stock_actual') or item.get('stock_real') or 0)
-        costo_total_insumo = float(item.get('costo_total_insumo') or 0)
         costo_u = float(item.get('costo_unitario') or 0)
+        costo_antes_iva = (costo_u / 1.19) if costo_u > 0 else 0
         p_venta = float(item.get('precio_venta') or 0)
+        costo_total_insumo = float(item.get('costo_total_insumo') or (stock_actual * costo_u))
+        objetivo_venta = stock_actual * p_venta if stock_actual > 0 else 0
         
-        proyeccion_venta = stock_actual * p_venta if stock_actual > 0 else 0
-        participacion = (costo_total_insumo / self.valor_total_inventario) * 100 if getattr(self, 'valor_total_inventario', 0) > 0 else 0
-        
-        # Badges Pastel
-        badge_costo = ft.Container(content=ft.Text(f"Costo U: ${costo_u:,.0f}", size=11, weight="bold", color="grey800"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="grey100", border_radius=15)
-        badge_pventa = ft.Container(content=ft.Text(f"Precio Venta: ${p_venta:,.0f}", size=11, weight="bold", color="grey800"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="grey100", border_radius=15)
-        badge_peso = ft.Container(content=ft.Text(f"Peso Inv: {participacion:.1f}%", size=11, weight="bold", color="purple800"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="#f3e5f5", border_radius=15)
-        badge_proy = ft.Container(content=ft.Text(f"Proy Venta: ${proyeccion_venta:,.0f}", size=11, weight="bold", color="blue800"), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor="#e3f2fd", border_radius=15)
-        
-        color_bg_stock = "#e8f5e9" if stock_actual > 0 else "#ffebee"
-        color_txt_stock = "green800" if stock_actual > 0 else "red800"
-        badge_stock = ft.Container(content=ft.Text(f"Stock Actual: {stock_actual:g} unds ($ {costo_total_insumo:,.0f})", size=11, weight="bold", color=color_txt_stock), padding=ft.padding.symmetric(horizontal=8, vertical=4), bgcolor=color_bg_stock, border_radius=15)
-        
-        contenedor_badges = ft.Row(
-            [badge_costo, badge_pventa, badge_peso, badge_proy, badge_stock], 
-            spacing=5, 
-            alignment=ft.MainAxisAlignment.START,
-            wrap=True
+        # 1. Costo s/IVA (primero)
+        badge_costo_sin_iva = ft.Container(
+            content=ft.Text(
+                spans=[
+                    ft.TextSpan("Costo s/IVA: ", ft.TextStyle(size=11, color="grey700", weight="w500")),
+                    ft.TextSpan(f"${costo_antes_iva:,.0f}", ft.TextStyle(size=11, color="black87", weight="bold")),
+                ]
+            ),
+            padding=ft.padding.symmetric(horizontal=8, vertical=3),
+            bgcolor="#f8fafc",
+            border=ft.border.all(1, "#e2e8f0"),
+            border_radius=6
         )
-        
+
+        # 2. Costo Unitario (después)
+        badge_costo = ft.Container(
+            content=ft.Text(
+                spans=[
+                    ft.TextSpan("Costo U: ", ft.TextStyle(size=11, color="grey700", weight="w500")),
+                    ft.TextSpan(f"${costo_u:,.0f}", ft.TextStyle(size=11, color="black87", weight="bold")),
+                ]
+            ),
+            padding=ft.padding.symmetric(horizontal=8, vertical=3),
+            bgcolor="#f1f5f9",
+            border=ft.border.all(1, "#e2e8f0"),
+            border_radius=6
+        )
+
+        # 3. Precio Venta Dinámico
+        txt_pventa = ft.Text(
+            spans=[
+                ft.TextSpan("P. Venta: ", ft.TextStyle(size=11, color="blue800", weight="w500")),
+                ft.TextSpan(f"${p_venta:,.0f}", ft.TextStyle(size=11, color="blue900", weight="bold")),
+            ]
+        )
+        badge_pventa = ft.Container(
+            content=txt_pventa,
+            padding=ft.padding.symmetric(horizontal=8, vertical=3),
+            bgcolor="#eff6ff",
+            border=ft.border.all(1, "#bfdbfe"),
+            border_radius=6
+        )
+
+        # 4. Checks rápidos de margen (10, 15, 20)
+        checks_map = {}
+        txt_objetivo = ft.Text(
+            spans=[
+                ft.TextSpan("Objetivo Venta: ", ft.TextStyle(size=11, color="blue800", weight="w500")),
+                ft.TextSpan(f"${objetivo_venta:,.0f}", ft.TextStyle(size=11, color="blue900", weight="bold")),
+            ]
+        )
+
+        def cambiar_margen_rapido(pct):
+            if costo_u <= 0:
+                if self.page:
+                    self.page.snack_bar = ft.SnackBar(ft.Text("El insumo no tiene costo unitario para calcular el margen."), bgcolor="red")
+                    self.page.snack_bar.open = True
+                    self.page.update()
+                return
+
+            nuevo_p = round(costo_u / (1 - (pct / 100)))
+            exito = self.db.update_insumo(codigo, {"precio_venta": nuevo_p})
+            if exito:
+                item["precio_venta"] = nuevo_p
+                # Actualizar TextSpans
+                txt_pventa.spans = [
+                    ft.TextSpan("P. Venta: ", ft.TextStyle(size=11, color="blue800", weight="w500")),
+                    ft.TextSpan(f"${nuevo_p:,.0f}", ft.TextStyle(size=11, color="blue900", weight="bold")),
+                ]
+                nuevo_obj = stock_actual * nuevo_p if stock_actual > 0 else 0
+                txt_objetivo.spans = [
+                    ft.TextSpan("Objetivo Venta: ", ft.TextStyle(size=11, color="blue800", weight="w500")),
+                    ft.TextSpan(f"${nuevo_obj:,.0f}", ft.TextStyle(size=11, color="blue900", weight="bold")),
+                ]
+                # Actualizar aspecto visual de los 3 checks
+                for p_val, c_btn in checks_map.items():
+                    is_sel = (p_val == pct)
+                    c_btn.bgcolor = Config.COLOR_PRIMARY if is_sel else "#f1f5f9"
+                    c_btn.border = ft.border.all(1, Config.COLOR_PRIMARY if is_sel else "#cbd5e1")
+                    c_btn.content.color = "white" if is_sel else "grey800"
+                    c_btn.content.weight = "bold" if is_sel else "w500"
+
+                if self.page:
+                    self.page.snack_bar = ft.SnackBar(ft.Text(f"✓ [{codigo}] {nombre}: Precio ajustado al {pct}% (${nuevo_p:,.0f})"), bgcolor=Config.COLOR_SUCCESS)
+                    self.page.snack_bar.open = True
+                    self.page.update()
+            else:
+                if self.page:
+                    self.page.snack_bar = ft.SnackBar(ft.Text("Error al actualizar precio en base de datos"), bgcolor="red")
+                    self.page.snack_bar.open = True
+                    self.page.update()
+
+        def crear_check_margen(pct):
+            margen_est = round((1 - (costo_u / p_venta)) * 100) if (p_venta > 0 and costo_u > 0) else 0
+            is_active = (abs(margen_est - pct) <= 1)
+            btn = ft.Container(
+                content=ft.Text(f"{pct}%", size=10, weight="bold" if is_active else "w500", color="white" if is_active else "grey800"),
+                padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                bgcolor=Config.COLOR_PRIMARY if is_active else "#f1f5f9",
+                border=ft.border.all(1, Config.COLOR_PRIMARY if is_active else "#cbd5e1"),
+                border_radius=10,
+                tooltip=f"Fijar precio con margen del {pct}%",
+                on_click=lambda e, p=pct: cambiar_margen_rapido(p)
+            )
+            checks_map[pct] = btn
+            return btn
+
+        # 5. Stock Actual DESTACADO Y MÁS GRANDE (Alineado a la derecha)
+        if stock_actual > 0:
+            bg_stock = "#ecfdf5"
+            border_stock = "#a7f3d0"
+            color_stock = "#047857"
+        elif stock_actual == 0:
+            bg_stock = "#fffbe8"
+            border_stock = "#fde68a"
+            color_stock = "#b45309"
+        else:
+            bg_stock = "#fef2f2"
+            border_stock = "#fecaca"
+            color_stock = "#b91c1c"
+
+        badge_stock = ft.Container(
+            content=ft.Text(
+                spans=[
+                    ft.TextSpan("Stock Actual: ", ft.TextStyle(size=12, color=color_stock, weight="bold")),
+                    ft.TextSpan(f"{stock_actual:g} unds", ft.TextStyle(size=13, color=color_stock, weight="extrabold")),
+                ]
+            ),
+            padding=ft.padding.symmetric(horizontal=10, vertical=4),
+            bgcolor=bg_stock,
+            border=ft.border.all(1.5, border_stock),
+            border_radius=8
+        )
+
+        # 6. Valor Total en Costo
+        badge_valor_costo = ft.Container(
+            content=ft.Text(
+                spans=[
+                    ft.TextSpan("Valor Costo: ", ft.TextStyle(size=11, color="grey700", weight="w500")),
+                    ft.TextSpan(f"${costo_total_insumo:,.0f}", ft.TextStyle(size=11, color="black87", weight="bold")),
+                ]
+            ),
+            padding=ft.padding.symmetric(horizontal=8, vertical=3),
+            bgcolor="#f8fafc",
+            border=ft.border.all(1, "#e2e8f0"),
+            border_radius=6
+        )
+
+        # 7. Objetivo de Venta
+        badge_objetivo_venta = ft.Container(
+            content=txt_objetivo,
+            padding=ft.padding.symmetric(horizontal=8, vertical=3),
+            bgcolor="#eff6ff",
+            border=ft.border.all(1, "#bfdbfe"),
+            border_radius=6
+        )
+
+        # Contenedor dividido: Izquierda (Precios y Margen) y Derecha (Stock y Totales)
+        contenedor_badges = ft.Row(
+            [
+                ft.Row([
+                    badge_costo_sin_iva,
+                    badge_costo,
+                    badge_pventa,
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Text("Margen:", size=10, color="grey600", weight="w500"),
+                            crear_check_margen(10),
+                            crear_check_margen(15),
+                            crear_check_margen(20)
+                        ], spacing=3, tight=True),
+                        padding=ft.padding.only(left=2)
+                    )
+                ], spacing=6, alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, tight=True),
+                
+                ft.Container(expand=True),
+                
+                ft.Row([
+                    badge_stock,
+                    badge_valor_costo,
+                    badge_objetivo_venta
+                ], spacing=6, alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.CENTER, tight=True)
+            ], 
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            wrap=False
+        )
+
         def crear_bloque_metricas(titulo, cantidad, valor, color_cant, color_valor):
             return ft.Container(
                 expand=True,
@@ -1075,9 +1245,9 @@ class InventarioView(ft.Container):
         def crear_separador_vertical():
             return ft.Container(
                 width=1,
-                height=28,
+                height=26,
                 bgcolor="#e0e0e0",
-                margin=ft.padding.symmetric(horizontal=6)
+                margin=ft.padding.symmetric(horizontal=4)
             )
             
         color_neto = "red" if valor_neto_ajustes < 0 else ("green" if valor_neto_ajustes > 0 else "grey")
@@ -1097,28 +1267,28 @@ class InventarioView(ft.Container):
                 crear_bloque_metricas("NETO", neto_ajustes, valor_neto_ajustes, color_neto, color_neto)
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             bgcolor="#fafafa",
-            padding=10,
-            border_radius=8,
+            padding=ft.padding.symmetric(horizontal=8, vertical=6),
+            border_radius=6,
             border=ft.border.all(1, "#f0f0f0")
         )
-        
+
         tarjeta = ft.Container(
             bgcolor="white",
-            padding=15,
+            padding=10,
             border_radius=8,
             border=ft.border.all(1, "#e0e0e0"),
             content=ft.Column([
                 ft.Row([
                     ft.Container(
                         content=ft.Text(f"{categoria} | {ubicacion}", size=10, weight="bold", color="grey700"),
-                        bgcolor="#f5f5f5", padding=ft.padding.symmetric(horizontal=8, vertical=2), border_radius=4
+                        bgcolor="#f5f5f5", padding=ft.padding.symmetric(horizontal=6, vertical=2), border_radius=4
                     ),
-                    ft.Text(f"[{codigo}] {nombre}", size=14, weight="bold", color="black87", expand=True),
+                    ft.Text(f"[{codigo}] {nombre}", size=13, weight="bold", color="black87", expand=True),
                     ft.IconButton(icon=ft.icons.EDIT, icon_size=16, tooltip="Editar Insumo", on_click=lambda e, i=item, r=row: self.abrir_edicion_desde_tarjeta(i, r))
                 ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 contenedor_badges,
                 fila_resultados
-            ], spacing=10)
+            ], spacing=6)
         )
         return tarjeta
 
