@@ -8,6 +8,7 @@ from ui.views.ventas import VentasView
 from ui.views.cierre_inventario import CierreInventarioView
 from ui.views.ajustes_inventario import AjustesInventarioView
 from ui.views.informes import InformesView
+from config import Config
 from core.logger import get_logger, log_error
 
 logger = get_logger("AppLayout")
@@ -38,8 +39,8 @@ class AppLayout(ft.Row):
         self.active_view = ft.Container(
             content=self.views[self.initial_route],
             expand=True,
-            bgcolor="#F4F6F7",
-            padding=15,
+            bgcolor=Config.COLOR_BACKGROUND,
+            padding=18,
             alignment=ft.alignment.top_left
         )
 

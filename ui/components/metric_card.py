@@ -1,10 +1,11 @@
 ﻿"""
 Componente reutilizable de tarjeta de métricas / KPI para el Sistema Doña Mary.
+Diseño moderno con contenedor de icono translúcido, sombras suaves y jerarquía clara.
 """
 import flet as ft
 from config import Config
 
-class MetricCard(ft.Card):
+class MetricCard(ft.Container):
     def __init__(
         self,
         title: str,
@@ -12,37 +13,51 @@ class MetricCard(ft.Card):
         icon: str | None = None,
         color: str | None = None,
         subtitle: str | None = None,
-        expand: bool = True
+        expand: bool = True,
+        col: dict | int | None = None
     ):
+        card_color = color or Config.COLOR_ACCENT
+
         if isinstance(value_control, str):
-            val_text = ft.Text(value_control, size=20, weight="bold", color=color or Config.COLOR_PRIMARY)
+            val_text = ft.Text(value_control, size=22, weight="bold", color=Config.COLOR_PRIMARY)
         else:
             val_text = value_control
 
         items = [
-            ft.Text(title, size=12, color="grey700", weight="w500"),
+            ft.Text(title.upper(), size=11, color=Config.COLOR_TEXT_MUTED, weight="w600"),
             val_text
         ]
         if subtitle:
-            items.append(ft.Text(subtitle, size=11, color="grey500"))
+            items.append(ft.Text(subtitle, size=11, color=Config.COLOR_TEXT_LIGHT))
 
-        content_col = ft.Column(items, spacing=2)
+        text_col = ft.Column(items, spacing=2)
 
         if icon:
-            row_content = ft.Row([
-                ft.Icon(icon, size=28, color=color or Config.COLOR_PRIMARY),
-                content_col
-            ], spacing=12, alignment=ft.MainAxisAlignment.START)
-            container_content = row_content
+            icon_pill = ft.Container(
+                content=ft.Icon(icon, size=22, color=card_color),
+                padding=10,
+                bgcolor=ft.colors.with_opacity(0.12, card_color),
+                border_radius=10
+            )
+            inner_content = ft.Row([
+                icon_pill,
+                text_col
+            ], spacing=14, alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         else:
-            container_content = content_col
+            inner_content = text_col
 
         super().__init__(
-            content=ft.Container(
-                content=container_content,
-                padding=10,
-                border_radius=8
+            content=inner_content,
+            padding=ft.padding.symmetric(horizontal=16, vertical=14),
+            bgcolor=Config.COLOR_SURFACE,
+            border=ft.border.all(1, Config.COLOR_BORDER),
+            border_radius=12,
+            shadow=ft.BoxShadow(
+                spread_radius=1,
+                blur_radius=6,
+                color=ft.colors.with_opacity(0.04, "black"),
+                offset=ft.Offset(0, 2)
             ),
             expand=expand,
-            elevation=1
+            col=col
         )

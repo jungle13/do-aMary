@@ -42,14 +42,14 @@ class DashboardView(ft.Container):
             padding=ft.padding.symmetric(horizontal=15, vertical=10),
             bgcolor="white",
             border_radius=8,
-            border=ft.border.all(1, "#e0e0e0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+            border=ft.border.all(1, Config.COLOR_BORDER),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.04, "black"), offset=ft.Offset(0, 1))
         )
 
         header_row = ft.Row([
             ft.Column([
-                ft.Text("Dashboard General", size=28, weight="bold", color=Config.COLOR_PRIMARY),
-                ft.Text("Resumen ejecutivo del sistema", size=14, color="grey"),
+                ft.Text("Dashboard General", size=26, weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Text("Resumen ejecutivo del sistema", size=13, color=Config.COLOR_TEXT_MUTED),
             ], spacing=2),
             badge_info
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
@@ -68,14 +68,14 @@ class DashboardView(ft.Container):
         self.val_proyeccion_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
         
         self.kpi_costos_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("Costo Inv. Actual", self.val_inventario, ft.icons.INVENTORY_2), col={"xs": 12, "sm": 6, "md": 4}),
-            ft.Container(content=self._build_kpi_card("Total Compras (Mes)", self.val_compras, ft.icons.SHOPPING_BAG), col={"xs": 12, "sm": 6, "md": 4}),
-            ft.Container(content=self._build_kpi_card("Compras (Hoy)", self.val_compras_hoy, ft.icons.MONEY_OFF), col={"xs": 12, "sm": 6, "md": 4}),
+            ft.Container(content=self._build_kpi_card("Costo Inv. Actual", self.val_inventario, ft.icons.INVENTORY_2_ROUNDED, card_color=Config.COLOR_INFO), col={"xs": 12, "sm": 6, "md": 4}),
+            ft.Container(content=self._build_kpi_card("Total Compras (Mes)", self.val_compras, ft.icons.SHOPPING_BAG_ROUNDED, card_color=Config.COLOR_ACCENT), col={"xs": 12, "sm": 6, "md": 4}),
+            ft.Container(content=self._build_kpi_card("Compras (Hoy)", self.val_compras_hoy, ft.icons.PAYMENTS_ROUNDED, card_color=Config.COLOR_WARNING), col={"xs": 12, "sm": 6, "md": 4}),
         ], spacing=10, run_spacing=10)
 
         self.kpi_ventas_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("Total Ventas (Mes)", self.val_ingresos, ft.icons.TRENDING_UP), col={"xs": 12, "sm": 6, "md": 6}),
-            ft.Container(content=self._build_kpi_card("Ventas (Hoy)", self.val_ventas_hoy, ft.icons.ATTACH_MONEY), col={"xs": 12, "sm": 6, "md": 6}),
+            ft.Container(content=self._build_kpi_card("Total Ventas (Mes)", self.val_ingresos, ft.icons.TRENDING_UP_ROUNDED, card_color=Config.COLOR_SUCCESS), col={"xs": 12, "sm": 6, "md": 6}),
+            ft.Container(content=self._build_kpi_card("Ventas (Hoy)", self.val_ventas_hoy, ft.icons.MONETIZATION_ON_ROUNDED, card_color=Config.COLOR_SUCCESS), col={"xs": 12, "sm": 6, "md": 6}),
         ], spacing=10, run_spacing=10)
         
         # Paso 3: Crear la Barra de Métricas Secundarias
@@ -170,13 +170,13 @@ class DashboardView(ft.Container):
         ], tight=True)
 
         self.kpi_iva_generado_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("IVA Generado (Mes)", self.val_iva_generado_mes, ft.icons.RECEIPT_LONG), col={"xs": 12, "sm": 6}),
-            ft.Container(content=self._build_kpi_card("IVA Generado (Hoy)", self.val_iva_generado_hoy, ft.icons.POINT_OF_SALE), col={"xs": 12, "sm": 6}),
+            ft.Container(content=self._build_kpi_card("IVA Generado (Mes)", self.val_iva_generado_mes, ft.icons.RECEIPT_LONG_ROUNDED, card_color=Config.COLOR_INFO), col={"xs": 12, "sm": 6}),
+            ft.Container(content=self._build_kpi_card("IVA Generado (Hoy)", self.val_iva_generado_hoy, ft.icons.POINT_OF_SALE_ROUNDED, card_color=Config.COLOR_INFO), col={"xs": 12, "sm": 6}),
         ], spacing=10, run_spacing=10)
 
         self.kpi_iva_pagado_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("IVA Pagado (Mes)", self.val_iva_pagado_mes, ft.icons.SHOPPING_CART_CHECKOUT), col={"xs": 12, "sm": 6}),
-            ft.Container(content=self._build_kpi_card("IVA Pagado (Hoy)", self.val_iva_pagado_hoy, ft.icons.SHOPPING_BAG_OUTLINED), col={"xs": 12, "sm": 6}),
+            ft.Container(content=self._build_kpi_card("IVA Pagado (Mes)", self.val_iva_pagado_mes, ft.icons.SHOPPING_CART_CHECKOUT_ROUNDED, card_color=Config.COLOR_WARNING), col={"xs": 12, "sm": 6}),
+            ft.Container(content=self._build_kpi_card("IVA Pagado (Hoy)", self.val_iva_pagado_hoy, ft.icons.SHOPPING_BAG_ROUNDED, card_color=Config.COLOR_WARNING), col={"xs": 12, "sm": 6}),
         ], spacing=10, run_spacing=10)
 
         self.seccion_impuestos = ft.Column([
@@ -699,11 +699,11 @@ class DashboardView(ft.Container):
         
         self.safe_update()
 
-    def _build_kpi_card(self, title, value_control, icon, subtext_control=None):
+    def _build_kpi_card(self, title, value_control, icon, subtext_control=None, card_color=None):
+        accent = card_color or Config.COLOR_ACCENT
         column_controls = [
             ft.Row([
-                ft.Text(title, size=12, color="grey", weight="w500", expand=True),
-                ft.Icon(ft.icons.HELP_OUTLINE, size=12, color="grey")
+                ft.Text(title.upper(), size=11, color=Config.COLOR_TEXT_MUTED, weight="w600", expand=True),
             ], spacing=5),
             value_control,
         ]
@@ -711,22 +711,24 @@ class DashboardView(ft.Container):
             column_controls.append(subtext_control)
             
         value_control.size = 20
+        value_control.weight = "bold"
+        value_control.color = Config.COLOR_PRIMARY
             
         return ft.Container(
             content=ft.Row([
                 ft.Container(
-                    content=ft.Icon(icon, color=Config.COLOR_SECONDARY, size=24),
-                    bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_SECONDARY),
+                    content=ft.Icon(icon, color=accent, size=22),
+                    bgcolor=ft.colors.with_opacity(0.12, accent),
                     padding=10,
-                    border_radius=8
+                    border_radius=10
                 ),
                 ft.Column(column_controls, spacing=2, expand=True)
-            ], alignment=ft.MainAxisAlignment.START),
-            bgcolor="white",
-            padding=15,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor=Config.COLOR_SURFACE,
+            padding=ft.padding.symmetric(horizontal=16, vertical=14),
+            border_radius=12,
+            border=ft.border.all(1, Config.COLOR_BORDER),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=6, color=ft.colors.with_opacity(0.04, "black"), offset=ft.Offset(0, 2))
         )
 
     def _crear_card_categoria(self, cat_data):

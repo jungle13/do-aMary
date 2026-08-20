@@ -1,3 +1,7 @@
+"""
+Barra lateral de navegación (Sidebar) para Sistema Doña Mary.
+Diseño moderno, responsivo por roles, con micro-interacciones y botón de despliegue siempre visible.
+"""
 import flet as ft
 from config import Config
 
@@ -11,20 +15,45 @@ class Sidebar(ft.Container):
         
         self.width = 250
         self.bgcolor = Config.COLOR_PRIMARY
-        self.padding = 15
-        self.border_radius = ft.border_radius.only(top_right=15, bottom_right=15)
-        self.animate = ft.animation.Animation(300, ft.AnimationCurve.DECELERATE)
+        self.padding = ft.padding.all(12)
+        self.border_radius = ft.border_radius.only(top_right=16, bottom_right=16)
+        self.animate = ft.animation.Animation(280, ft.AnimationCurve.EASE_OUT)
 
-        # Botón Toggle
+        # Encabezado de Marca
+        self.logo_icon = ft.Icon(ft.icons.STOREFRONT_ROUNDED, color=Config.COLOR_ACCENT, size=22)
+        self.lbl_brand = ft.Text("Doña Mary", size=16, weight="bold", color="white", no_wrap=True)
+        self.lbl_brand_sub = ft.Text("Inventario & POS", size=10, color="white54", no_wrap=True)
+        
+        self.brand_text_col = ft.Column([self.lbl_brand, self.lbl_brand_sub], spacing=0)
+        
         self.toggle_btn = ft.IconButton(
-            icon=ft.icons.MENU,
+            icon=ft.icons.MENU_OPEN_ROUNDED,
             icon_color="white",
+            icon_size=20,
             on_click=self.toggle_sidebar,
-            tooltip="Ocultar/Mostrar Menú"
+            tooltip="Colapsar menú"
         )
-        self.toggle_row = ft.Row([self.toggle_btn], alignment=ft.MainAxisAlignment.END)
 
-        # Extraer Primer Nombre
+        self.logo_box = ft.Container(
+            content=self.logo_icon,
+            bgcolor=ft.colors.with_opacity(0.15, Config.COLOR_ACCENT),
+            padding=6,
+            border_radius=8,
+            on_click=self.toggle_sidebar,
+            tooltip="Alternar menú"
+        )
+
+        self.brand_header = ft.Container(
+            content=ft.Row([
+                self.logo_box,
+                self.brand_text_col,
+                ft.Container(expand=True),
+                self.toggle_btn
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.padding.only(left=2, right=2, top=4, bottom=8)
+        )
+
+        # Extraer Datos de Usuario
         nombre_completo = self.usuario_data.get("nombre_completo") or self.usuario_data.get("usuario") or "Usuario"
         partes = nombre_completo.split()
         primer_nombre = partes[0] if partes else "Usuario"
@@ -33,9 +62,18 @@ class Sidebar(ft.Container):
             
         rol_txt = str(self.usuario_data.get("rol", "OPERADOR")).capitalize()
 
-        # Componentes Estéticos del Perfil de Usuario (Compacto)
-        self.user_avatar = ft.Icon(ft.icons.ACCOUNT_CIRCLE_ROUNDED, color="white", size=32)
-        self.lbl_saludo = ft.Text(f"Hola, {primer_nombre}", color="white", size=12, weight="bold", no_wrap=True)
+        # Avatar y Badge de Usuario
+        iniciales = primer_nombre[:2].upper()
+        self.user_avatar = ft.Container(
+            content=ft.Text(iniciales, size=12, weight="bold", color="white"),
+            width=32,
+            height=32,
+            bgcolor=Config.COLOR_ACCENT,
+            border_radius=16,
+            alignment=ft.alignment.center
+        )
+
+        self.lbl_saludo = ft.Text(f"{primer_nombre}", color="white", size=12, weight="w600", no_wrap=True)
         self.lbl_rol = ft.Text(rol_txt, color="white54", size=10, no_wrap=True)
 
         self.user_info_col = ft.Column([
@@ -43,7 +81,6 @@ class Sidebar(ft.Container):
             self.lbl_rol
         ], spacing=0, alignment=ft.MainAxisAlignment.CENTER)
 
-        # Botón Cerrar Sesión
         self.btn_logout = ft.IconButton(
             icon=ft.icons.LOGOUT_ROUNDED,
             icon_color="white54",
@@ -60,38 +97,39 @@ class Sidebar(ft.Container):
                 self.btn_logout
             ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             padding=ft.padding.symmetric(horizontal=8, vertical=6),
-            bgcolor=ft.colors.with_opacity(0.12, "white"),
-            border_radius=8,
+            bgcolor=ft.colors.with_opacity(0.08, "white"),
+            border=ft.border.all(1, ft.colors.with_opacity(0.12, "white")),
+            border_radius=10,
             margin=ft.padding.only(bottom=10)
         )
 
         self.menu_items = {}
         self.footer_text = ft.Text(
-            "Elaborado por Eliana Garces 2026\npara Abarrotes y Desechables de Doña Mary SAS",
-            color="white54", size=10, text_align=ft.TextAlign.CENTER
+            "v1.0 • Eliana Garces 2026",
+            color="white38", size=10, text_align=ft.TextAlign.CENTER
         )
 
-        # Permisos
+        # Control de Permisos
         username = str(self.usuario_data.get("usuario", "")).lower()
         rol = str(self.usuario_data.get("rol", "OPERADOR")).upper()
         es_admin = username in ["eliana", "cesar", "mary"] or rol == "ADMINISTRADOR"
 
         menu_controls = [
-            self.toggle_row,
+            self.brand_header,
             self.user_badge
         ]
 
         if es_admin:
-            menu_controls.append(self._create_menu_item("Dashboard", ft.icons.DASHBOARD, "dashboard"))
+            menu_controls.append(self._create_menu_item("Dashboard", ft.icons.DASHBOARD_ROUNDED, "dashboard"))
 
-        menu_controls.append(self._create_menu_item("Inventario", ft.icons.INVENTORY_2, "inventario"))
-        menu_controls.append(self._create_menu_item("Compras", ft.icons.ADD_SHOPPING_CART, "compras"))
-        menu_controls.append(self._create_menu_item("Ventas", ft.icons.POINT_OF_SALE, "ventas"))
-        menu_controls.append(self._create_menu_item("Ajustes de Inventario", ft.icons.TUNE, "ajustes_inventario"))
+        menu_controls.append(self._create_menu_item("Inventario", ft.icons.INVENTORY_2_ROUNDED, "inventario"))
+        menu_controls.append(self._create_menu_item("Compras", ft.icons.ADD_SHOPPING_CART_ROUNDED, "compras"))
+        menu_controls.append(self._create_menu_item("Ventas", ft.icons.POINT_OF_SALE_ROUNDED, "ventas"))
+        menu_controls.append(self._create_menu_item("Ajustes de Stock", ft.icons.TUNE_ROUNDED, "ajustes_inventario"))
 
         if es_admin or rol == "AUDITOR":
-            menu_controls.append(self._create_menu_item("Cierre de Mes", ft.icons.FACT_CHECK, "cierre_mes"))
-            menu_controls.append(self._create_menu_item("Informes", ft.icons.PIE_CHART, "informes"))
+            menu_controls.append(self._create_menu_item("Cierre de Mes", ft.icons.FACT_CHECK_ROUNDED, "cierre_mes"))
+            menu_controls.append(self._create_menu_item("Informes", ft.icons.INSERT_CHART_ROUNDED, "informes"))
 
         menu_controls.extend([
             ft.Container(expand=True),
@@ -100,18 +138,18 @@ class Sidebar(ft.Container):
                 alignment=ft.alignment.center,
                 padding=ft.padding.only(top=5, bottom=5),
                 on_click=self.mostrar_disclaimer,
-                tooltip="Ver Información Legal y Créditos"
+                tooltip="Ver Créditos e Información Legal"
             )
         ])
 
-        self.content = ft.Column(controls=menu_controls, spacing=5)
+        self.content = ft.Column(controls=menu_controls, spacing=4)
 
     def _create_menu_item(self, text, icon, route):
         item = ft.ListTile(
-            leading=ft.Icon(icon, color="white70", size=22),
-            title=ft.Text(text, color="white70", size=13),
-            hover_color=ft.colors.with_opacity(0.1, "white"),
-            content_padding=ft.padding.only(left=12, right=12),
+            leading=ft.Icon(icon, color="white70", size=20),
+            title=ft.Text(text, color="white70", size=13, weight="w500"),
+            hover_color=ft.colors.with_opacity(0.08, "white"),
+            content_padding=ft.padding.only(left=10, right=10),
             on_click=lambda _, r=route: self.on_route_change(r),
             tooltip=text
         )
@@ -121,10 +159,10 @@ class Sidebar(ft.Container):
     def actualizar_estado_activo(self, ruta_actual):
         for route, item in self.menu_items.items():
             is_active = (route == ruta_actual)
-            item.bgcolor = ft.colors.with_opacity(0.2, "white") if is_active else None
-            item.leading.color = "white" if is_active else "white70"
+            item.bgcolor = ft.colors.with_opacity(0.18, Config.COLOR_ACCENT) if is_active else None
+            item.leading.color = Config.COLOR_ACCENT if is_active else "white70"
             item.title.color = "white" if is_active else "white70"
-            item.title.weight = "bold" if is_active else "normal"
+            item.title.weight = "bold" if is_active else "w500"
         try:
             self.update()
         except Exception:
@@ -133,37 +171,59 @@ class Sidebar(ft.Container):
     def toggle_sidebar(self, e):
         self.is_expanded = not self.is_expanded
         self.width = 250 if self.is_expanded else 70
+        self.toggle_btn.icon = ft.icons.MENU_OPEN_ROUNDED if self.is_expanded else ft.icons.MENU_ROUNDED
+        self.toggle_btn.tooltip = "Colapsar menú" if self.is_expanded else "Desplegar menú"
 
-        # Ocultar o mostrar elementos informativos al colapsar
+        self.brand_text_col.visible = self.is_expanded
         self.user_info_col.visible = self.is_expanded
         self.btn_logout.visible = self.is_expanded
         self.footer_text.visible = self.is_expanded
 
-        self.user_avatar.size = 32 if self.is_expanded else 24
+        # Alternar estructura del encabezado según esté colapsado o expandido
+        if self.is_expanded:
+            self.brand_header.content = ft.Row([
+                self.logo_box,
+                self.brand_text_col,
+                ft.Container(expand=True),
+                self.toggle_btn
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            self.brand_header.padding = ft.padding.only(left=2, right=2, top=4, bottom=8)
+        else:
+            # En modo colapsado, centrar el botón de menú para fácil despliegue
+            self.brand_header.content = ft.Row([
+                self.toggle_btn
+            ], alignment=ft.MainAxisAlignment.CENTER)
+            self.brand_header.padding = ft.padding.only(top=4, bottom=8)
+
+        self.user_avatar.width = 32 if self.is_expanded else 26
+        self.user_avatar.height = 32 if self.is_expanded else 26
         self.user_badge.padding = ft.padding.symmetric(horizontal=8, vertical=6) if self.is_expanded else ft.padding.all(4)
 
         for control in self.content.controls:
             if isinstance(control, ft.ListTile):
                 control.title.visible = self.is_expanded
-                control.content_padding = ft.padding.only(left=12 if self.is_expanded else 8, right=12 if self.is_expanded else 8)
+                control.content_padding = ft.padding.only(left=10 if self.is_expanded else 6, right=10 if self.is_expanded else 6)
 
-        self.update()
+        try:
+            self.update()
+        except Exception:
+            pass
 
     def mostrar_disclaimer(self, e):
         dlg = ft.AlertDialog(
             title=ft.Row([
-                ft.Icon(ft.icons.GAVEL_ROUNDED, color=Config.COLOR_PRIMARY),
+                ft.Icon(ft.icons.GAVEL_ROUNDED, color=Config.COLOR_ACCENT),
                 ft.Text("Información Legal y Créditos", size=16, weight="bold", color=Config.COLOR_PRIMARY)
             ]),
             content=ft.Column([
                 ft.Text("Versión del Software: 1.0", size=13, weight="bold"),
-                ft.Divider(height=10, color="transparent"),
+                ft.Divider(height=10, color=Config.COLOR_BORDER),
                 ft.Text("Autoría Intelectual:", size=13, weight="bold", color=Config.COLOR_PRIMARY),
-                ft.Text("Este software fue diseñado, estructurado y desarrollado en su totalidad por Eliana Garces. Todos los derechos sobre el código fuente y la arquitectura de la aplicación están reservados a su autor.", size=12, color="grey700", text_align=ft.TextAlign.JUSTIFY),
-                ft.Divider(height=10, color="transparent"),
-                ft.Text("Descargo de Responsabilidad:", size=13, weight="bold", color="red700"),
-                ft.Text("La veracidad de la información, el manejo de inventarios, la gestión financiera y el uso general de los datos introducidos en esta plataforma, así como las decisiones operativas tomadas en base a los mismos, son responsabilidad única y exclusiva de Abarrotes y Desechables de Doña Mary SAS.", size=12, color="grey700", text_align=ft.TextAlign.JUSTIFY)
-            ], tight=True, spacing=5, width=400),
+                ft.Text("Este software fue diseñado, estructurado y desarrollado en su totalidad por Eliana Garces. Todos los derechos sobre el código fuente y la arquitectura de la aplicación están reservados a su autor.", size=12, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.JUSTIFY),
+                ft.Divider(height=10, color=Config.COLOR_BORDER),
+                ft.Text("Descargo de Responsabilidad:", size=13, weight="bold", color=Config.COLOR_DANGER),
+                ft.Text("La veracidad de la información, el manejo de inventarios, la gestión financiera y el uso general de los datos introducidos en esta plataforma, así como las decisiones operativas tomadas en base a los mismos, son responsabilidad única y exclusiva de Abarrotes y Desechables de Doña Mary SAS.", size=12, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.JUSTIFY)
+            ], tight=True, spacing=5, width=420),
             actions=[
                 ft.TextButton("Cerrar", on_click=lambda e: self._cerrar_dialogo(dlg))
             ],

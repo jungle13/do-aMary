@@ -37,11 +37,13 @@ class InventarioView(ft.Container):
         # Controles de Búsqueda
         def on_select_busqueda_inv(e):
             texto = e.selection.value if hasattr(e, 'selection') and e.selection else str(e.control.value or "")
-            if "[" in texto and "]" in texto:
-                query = texto.split("]")[0].replace("[", "").strip()
+            if not texto or not texto.strip():
+                self.search_input_text.value = ""
+            elif "[" in texto and "]" in texto:
+                self.search_input_text.value = texto.split("]")[0].replace("[", "").strip()
             else:
-                query = texto.strip()
-            self.search_input_text.value = query
+                self.search_input_text.value = texto.strip()
+            self.current_page = 1
             self.on_search(None)
 
         self.search_input_text = ft.TextField(visible=False)
@@ -180,23 +182,27 @@ class InventarioView(ft.Container):
         input_style = {
             "text_size": 13,
             "height": 40,
-            "content_padding": 10,
+            "content_padding": ft.padding.symmetric(horizontal=10, vertical=8),
             "bgcolor": "white",
             "color": "black",
-            "border_color": ft.colors.with_opacity(0.3, "white"),
+            "border_color": Config.COLOR_BORDER,
+            "border_radius": 8,
+            "focused_bgcolor": "white",
+            "focused_border_color": Config.COLOR_ACCENT,
+            "text_style": ft.TextStyle(color="black", size=13, weight="w600"),
         }
         
-        self.edit_stock_minimo = ft.TextField(width=120, **input_style)
-        self.edit_costo = ft.TextField(width=120, **input_style)
+        self.edit_stock_minimo = ft.TextField(width=110, **input_style)
+        self.edit_costo = ft.TextField(width=115, **input_style)
         self.edit_margen = ft.Dropdown(
-            width=100, 
-            options=[ft.dropdown.Option(f"{p}%") for p in [10, 15, 20, 25, 30, 35]],
+            width=105, 
+            options=[ft.dropdown.Option(f"{p}%") for p in [10, 15, 20, 25, 30, 35, 40, 50]],
             **input_style
         )
         self.edit_precio = ft.TextField(width=120, **input_style)
         
         self.edit_categoria = ft.Dropdown(
-            width=200, 
+            width=220, 
             **input_style
         )
         
@@ -603,7 +609,12 @@ class InventarioView(ft.Container):
         threading.Thread(target=self._fetch_data_worker, daemon=True).start()
 
     def _fetch_data_worker(self):
-        search_val = self.search_input_text.value or self.search_autocomplete.value or ""
+        raw_auto = (self.search_autocomplete.value or "").strip()
+        if not raw_auto:
+            search_val = ""
+            self.search_input_text.value = ""
+        else:
+            search_val = self.search_input_text.value or raw_auto
         cat_val = self.category_dropdown.value or "Todas"
         
         data, total = self.db.get_insumos(
@@ -752,22 +763,28 @@ class InventarioView(ft.Container):
         self.edit_costo.value = str(float(item.get('costo_unitario') or 0))
         self.edit_precio.value = str(float(item.get('precio_venta') or 0))
         
-        # Recargar opciones frescas
+        # Recargar opciones frescas de categoría
         categorias_bd = self.db.get_categorias() if hasattr(self.db, 'get_categorias') else []
         opts = [ft.dropdown.Option(c) for c in categorias_bd if c]
-        self.edit_categoria.options = opts
 
-        # Limpiar dropdowns
-        self.edit_margen.value = None
-
-        # Asignar categoría exacta
+        # Asignar categoría exacta asegurando que exista en la lista
         cat_val = str(item.get('categoria') or '').strip()
-        if any(o.key == cat_val for o in opts):
-            self.edit_categoria.value = cat_val
-        elif opts:
-            self.edit_categoria.value = opts[0].key
+        if cat_val and not any(o.key == cat_val for o in opts):
+            opts.insert(0, ft.dropdown.Option(cat_val))
+        self.edit_categoria.options = opts
+        self.edit_categoria.value = cat_val if cat_val else (opts[0].key if opts else None)
+
+        # Calcular margen porcentual financiero actual
+        costo_u = float(item.get('costo_unitario') or 0)
+        precio_v = float(item.get('precio_venta') or 0)
+        if costo_u > 0 and precio_v > costo_u:
+            margen_calc = round((1 - (costo_u / precio_v)) * 100)
+            margen_str = f"{margen_calc}%"
+            if not any(o.key == margen_str for o in self.edit_margen.options):
+                self.edit_margen.options.append(ft.dropdown.Option(margen_str))
+            self.edit_margen.value = margen_str
         else:
-            self.edit_categoria.value = None
+            self.edit_margen.value = "20%"
         
         self.btn_guardar_edicion.disabled = True
         self.action_bar.visible = True

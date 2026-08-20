@@ -1,8 +1,15 @@
+﻿"""
+Vista de autenticación / Login para Sistema Doña Mary.
+Diseño moderno, tarjetas con sombras difusas e inputs estilizados.
+"""
 import flet as ft
 from config import Config
 from core.supabase_client import SupabaseClient
+from core.logger import get_logger, log_error
 import time
 import threading
+
+logger = get_logger("LoginView")
 
 class LoginView(ft.Container):
     def __init__(self, on_login_success):
@@ -12,58 +19,58 @@ class LoginView(ft.Container):
         self.expand = True
         self.alignment = ft.alignment.center
         
-        # Fondo Azul Oscuro Institucional
+        # Fondo Slate Profundo
         self.bgcolor = Config.COLOR_PRIMARY
 
-        # Campos de texto estilizados
+        # Campos de texto modernos
         self.txt_usuario = ft.TextField(
             label="Usuario",
-            prefix_icon=ft.icons.PERSON_OUTLINED,
+            prefix_icon=ft.icons.PERSON_ROUNDED,
             border_radius=10,
-            height=45,
+            height=46,
             dense=True,
             text_size=13,
-            bgcolor="#f8f9fa",
-            border_color="#e0e0e0",
-            focused_border_color=Config.COLOR_PRIMARY,
+            bgcolor="#F8FAFC",
+            border_color=Config.COLOR_BORDER,
+            focused_border_color=Config.COLOR_ACCENT,
             focused_bgcolor="white"
         )
         self.txt_clave = ft.TextField(
             label="Contraseña",
-            prefix_icon=ft.icons.LOCK_OUTLINED,
+            prefix_icon=ft.icons.LOCK_ROUNDED,
             password=True,
             can_reveal_password=True,
             border_radius=10,
-            height=45,
+            height=46,
             dense=True,
             text_size=13,
-            bgcolor="#f8f9fa",
-            border_color="#e0e0e0",
-            focused_border_color=Config.COLOR_PRIMARY,
+            bgcolor="#F8FAFC",
+            border_color=Config.COLOR_BORDER,
+            focused_border_color=Config.COLOR_ACCENT,
             focused_bgcolor="white",
             on_submit=self.autenticar
         )
-        self.lbl_error = ft.Text("", color="red700", size=12, visible=False, weight="bold")
-        self.progress = ft.ProgressBar(width=300, color=Config.COLOR_PRIMARY, visible=False)
+        self.lbl_error = ft.Text("", color=Config.COLOR_DANGER, size=12, visible=False, weight="bold")
+        self.progress = ft.ProgressBar(width=300, color=Config.COLOR_ACCENT, visible=False)
 
         self.btn_ingresar = ft.ElevatedButton(
             "Iniciar Sesión",
             icon=ft.icons.LOGIN_ROUNDED,
-            bgcolor=Config.COLOR_PRIMARY,
+            bgcolor=Config.COLOR_ACCENT,
             color="white",
             style=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=10),
-                elevation=2
+                elevation=0
             ),
             width=300,
-            height=45,
+            height=44,
             on_click=self.autenticar
         )
 
         self.lbl_creditos = ft.Text(
             "Elaborado por Eliana Garces 2026",
             size=11,
-            color="grey600",
+            color=Config.COLOR_TEXT_LIGHT,
             italic=True,
             text_align=ft.TextAlign.CENTER
         )
@@ -71,19 +78,19 @@ class LoginView(ft.Container):
         # Formulario de credenciales
         self.form_column = ft.Column([
             ft.Container(
-                content=ft.Icon(ft.icons.STOREFRONT_ROUNDED, size=44, color=Config.COLOR_PRIMARY),
-                padding=12,
-                bgcolor=ft.colors.with_opacity(0.08, Config.COLOR_PRIMARY),
+                content=ft.Icon(ft.icons.STOREFRONT_ROUNDED, size=40, color=Config.COLOR_ACCENT),
+                padding=14,
+                bgcolor=ft.colors.with_opacity(0.12, Config.COLOR_ACCENT),
                 border_radius=50
             ),
             ft.Text("Abarrotes Doña Mary", size=22, weight="bold", color=Config.COLOR_PRIMARY),
-            ft.Text("Ingreso al Sistema", size=13, color="grey600"),
+            ft.Text("Ingreso al Sistema", size=13, color=Config.COLOR_TEXT_MUTED),
             ft.Divider(height=10, color="transparent"),
             self.txt_usuario,
             self.txt_clave,
             self.lbl_error,
             self.progress,
-            ft.Container(height=5),
+            ft.Container(height=4),
             self.btn_ingresar,
             ft.Divider(height=10, color="transparent"),
             self.lbl_creditos
@@ -91,14 +98,15 @@ class LoginView(ft.Container):
 
         # Panel Flotante Blanco Centrado
         self.card_container = ft.Container(
-            width=380,
-            padding=35,
+            width=390,
+            padding=36,
             bgcolor="white",
-            border_radius=16,
+            border_radius=18,
+            border=ft.border.all(1, Config.COLOR_BORDER),
             shadow=ft.BoxShadow(
                 spread_radius=2,
-                blur_radius=20,
-                color=ft.colors.with_opacity(0.3, "black"),
+                blur_radius=24,
+                color=ft.colors.with_opacity(0.25, "black"),
                 offset=ft.Offset(0, 8)
             ),
             content=self.form_column
@@ -127,7 +135,6 @@ class LoginView(ft.Container):
         try:
             datos_usuario = self.db.autenticar_usuario(user, pwd)
             if datos_usuario:
-                # Transformar la tarjeta flotante en el estado de bienvenida
                 self._mostrar_bienvenida_en_tarjeta(datos_usuario)
             else:
                 self.lbl_error.value = "Credenciales incorrectas o usuario inactivo."
@@ -137,6 +144,7 @@ class LoginView(ft.Container):
                 if self.page:
                     self.page.update()
         except Exception as ex:
+            log_error(f"Login de usuario {user}", ex)
             self.lbl_error.value = f"Error al verificar credenciales: {ex}"
             self.lbl_error.visible = True
             self.progress.visible = False
@@ -151,14 +159,13 @@ class LoginView(ft.Container):
         if primer_nombre.lower() in ["doña", "dona"] and len(partes) > 1:
             primer_nombre = f"{partes[0]} {partes[1]}"
 
-        # Cambiar el contenido de la tarjeta blanca al mensaje de bienvenida de forma limpia
         self.card_container.content = ft.Column([
             ft.Container(height=10),
-            ft.Icon(ft.icons.WAVING_HAND_ROUNDED, size=48, color="orange700"),
+            ft.Icon(ft.icons.WAVING_HAND_ROUNDED, size=48, color=Config.COLOR_WARNING),
             ft.Text(f"¡Bienvenido, {primer_nombre}!", size=20, weight="bold", color=Config.COLOR_PRIMARY, text_align=ft.TextAlign.CENTER),
-            ft.Text("Accediendo al sistema...", size=13, color="grey600"),
+            ft.Text("Accediendo al sistema...", size=13, color=Config.COLOR_TEXT_MUTED),
             ft.Divider(height=10, color="transparent"),
-            ft.ProgressRing(width=28, height=28, color=Config.COLOR_PRIMARY, stroke_width=3),
+            ft.ProgressRing(width=28, height=28, color=Config.COLOR_ACCENT, stroke_width=3),
             ft.Divider(height=15, color="transparent"),
             self.lbl_creditos
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12)
@@ -166,8 +173,5 @@ class LoginView(ft.Container):
         if self.page:
             self.page.update()
 
-        # Tiempo para mostrar el saludo
-        time.sleep(2.0)
-
-        # Cargar aplicación principal
+        time.sleep(1.2)
         self.on_login_success(datos_usuario)

@@ -49,21 +49,23 @@ class AjustesInventarioView(ft.Container):
 
         def on_select_filtro_ajustes(e):
             texto = e.selection.value if hasattr(e, 'selection') and e.selection else str(e.control.value or "")
-            if "[" in texto and "]" in texto:
-                query = texto.split("]")[0].replace("[", "").strip()
+            if not texto or not texto.strip():
+                self.search_input_text.value = ""
+            elif "[" in texto and "]" in texto:
+                self.search_input_text.value = texto.split("]")[0].replace("[", "").strip()
             else:
-                query = texto.strip()
-            self.search_input_text.value = query
+                self.search_input_text.value = texto.strip()
+            self.current_page = 1
             self._on_filter_change()
 
         self.search_input_text = ft.TextField(visible=False)
 
         self.search_filter_autocomplete = CustomAutoComplete(
-            hint_text="Buscar código o nombre...",
+            hint_text="Buscar por código o nombre...",
             on_select=on_select_filtro_ajustes,
             text_size=12,
-            height=38,
-            expand=2
+            height=40,
+            expand=True
         )
         
         self.date_picker = ft.DatePicker(on_change=lambda e: self._on_filter_change())
@@ -120,14 +122,13 @@ class AjustesInventarioView(ft.Container):
         )
         
         filtros_row = ft.Row([
-            self.search_filter_autocomplete,
+            ft.Container(content=self.search_filter_autocomplete, expand=True),
             self.btn_date,
             self.btn_clear_date,
             self.drop_tipo,
             self.drop_motivo,
-            ft.Container(expand=True),
             self.btn_agregar_ajuste
-        ], spacing=10)
+        ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         
         paginacion_row = ft.Row([
             ft.Container(expand=True),
@@ -458,6 +459,19 @@ class AjustesInventarioView(ft.Container):
         val_inv_base = kpis_inv.get('valor_inventario', 0)
         self.lbl_ent_actual.value = f"${val_inv_base:,.2f}"
 
+        # Cargar catálogo para sugerencias inteligentes en el buscador desde el inicio
+        try:
+            insumos, _ = self.db.get_insumos(page=1, page_size=99999)
+            self.catalogo_cache = {i["codigo_insumo"]: i for i in insumos}
+            suggs = [
+                {"key": i["codigo_insumo"], "value": f"[{i['codigo_insumo']}] {i['nombre']}"}
+                for i in insumos
+            ]
+            self.txt_buscador_insumo.suggestions = suggs
+            self.search_filter_autocomplete.suggestions = suggs
+        except Exception:
+            pass
+
         self.data_completa = self.db.get_ajustes_inventario()
         self.render_table(val_inv_base)
 
@@ -471,7 +485,12 @@ class AjustesInventarioView(ft.Container):
 
         self.lista_ajustes.controls.clear()
         
-        filtro_texto = self.search_input_text.value.lower().strip() if self.search_input_text.value else ""
+        raw_auto = (self.search_filter_autocomplete.value or "").strip()
+        if not raw_auto:
+            filtro_texto = ""
+            self.search_input_text.value = ""
+        else:
+            filtro_texto = (self.search_input_text.value or raw_auto).lower().strip()
         filtro_fecha = self.date_picker.value.strftime("%Y-%m-%d") if self.date_picker.value else None
         filtro_tipo = self.drop_tipo.value
         filtro_motivo = self.drop_motivo.value

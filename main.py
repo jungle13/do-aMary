@@ -16,12 +16,13 @@ def main(page: ft.Page):
     page.theme = ft.Theme(
         font_family="Inter",
         color_scheme=ft.ColorScheme(
-            primary=Config.COLOR_PRIMARY,
-            primary_container=Config.COLOR_SECONDARY,
+            primary=Config.COLOR_ACCENT,
+            primary_container=Config.COLOR_MUTED,
             secondary=Config.COLOR_SECONDARY,
             background=Config.COLOR_BACKGROUND,
-            surface="white",
+            surface=Config.COLOR_SURFACE,
             on_surface=Config.COLOR_TEXT,
+            outline=Config.COLOR_BORDER,
         ),
         visual_density=ft.ThemeVisualDensity.COMFORTABLE,
     )

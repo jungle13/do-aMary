@@ -51,15 +51,17 @@ class ComprasView(ft.Container):
         # Controles de Búsqueda
         def on_select_busqueda_compras(e):
             texto = e.selection.value if hasattr(e, 'selection') and e.selection else str(e.control.value or "")
-            if "[" in texto and "]" in texto:
-                query = texto.split("]")[0].replace("[", "").strip()
+            if not texto or not texto.strip():
+                self.search_input_text.value = ""
+            elif "[" in texto and "]" in texto:
+                self.search_input_text.value = texto.split("]")[0].replace("[", "").strip()
             elif "Factura: " in texto:
-                query = texto.replace("Factura: ", "").strip()
+                self.search_input_text.value = texto.replace("Factura: ", "").strip()
             elif "Proveedor: " in texto:
-                query = texto.replace("Proveedor: ", "").strip()
+                self.search_input_text.value = texto.replace("Proveedor: ", "").strip()
             else:
-                query = texto.strip()
-            self.search_input_text.value = query
+                self.search_input_text.value = texto.strip()
+            self.current_page = 1
             self.on_search(None)
 
         self.search_input_text = ft.TextField(visible=False)
@@ -1430,7 +1432,12 @@ class ComprasView(ft.Container):
         threading.Thread(target=self._fetch_data_worker, daemon=True).start()
 
     def _fetch_data_worker(self):
-        search_val = self.search_input_text.value or self.search_autocomplete.value or ""
+        raw_auto = (self.search_autocomplete.value or "").strip()
+        if not raw_auto:
+            search_val = ""
+            self.search_input_text.value = ""
+        else:
+            search_val = self.search_input_text.value or raw_auto
         
         fact_filtro = getattr(self, 'filtro_factura_activo', None)
         prov_filtro = getattr(self, 'filtro_proveedor_activo', None)
