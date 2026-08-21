@@ -19,6 +19,8 @@ class AppLayout(ft.Row):
         super().__init__()
         self.page = page
         self.usuario_data = usuario_data or {}
+        from core.audit_logger import set_current_user
+        set_current_user(self.usuario_data)
         self.on_logout = on_logout
         self.expand = True
         self.spacing = 0

@@ -38,6 +38,8 @@ def main(page: ft.Page):
     def on_login_success(usuario_data):
         page.overlay.clear()  # Asegura que el modal de bienvenida sea destruido
         page.clean()
+        from core.audit_logger import set_current_user
+        set_current_user(usuario_data)
         # Instanciar el layout e iniciar la carga inmediata
         app_layout = AppLayout(page, usuario_data=usuario_data, on_logout=cerrar_sesion)
         page.add(app_layout)

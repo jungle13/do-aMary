@@ -1,4 +1,4 @@
-﻿"""
+"""
 Repositorio para la gestión de ventas, remisiones y facturas POS.
 """
 import datetime
@@ -148,6 +148,12 @@ class VentasRepository:
             for fact in lista_facturas:
                 endpoint = f"registro_ventas?factura_no=eq.{fact}"
                 self.db.delete(endpoint, timeout=10)
+            from core.audit_logger import registrar_accion
+            registrar_accion(
+                accion=f"Eliminación / Anulación de ventas para facturas: {', '.join(lista_facturas)}",
+                modulo="VENTAS",
+                detalles={"facturas_eliminadas": lista_facturas}
+            )
             return True
         except Exception as ex:
             log_error("eliminar_ventas_por_facturas", ex)
@@ -172,7 +178,18 @@ class VentasRepository:
 
         try:
             res = self.db.post("registro_ventas", json_data=payload, timeout=15)
-            return bool(res and res.status_code in (200, 201, 204))
+            if res and res.status_code in (200, 201, 204):
+                from core.audit_logger import registrar_accion
+                facs = list(set([v.get("factura_no", "") for v in payload if v.get("factura_no")]))
+                fac_txt = f" (Docs: {', '.join(facs[:3])}{'...' if len(facs)>3 else ''})" if facs else ""
+                tot_monto = sum([v.get("total", 0) for v in payload])
+                registrar_accion(
+                    accion=f"Guardado de ventas en BD: {len(payload)} registros{fac_txt} por ${tot_monto:,.0f}",
+                    modulo="VENTAS",
+                    detalles={"registros": len(payload), "total": tot_monto, "facturas": facs}
+                )
+                return True
+            return False
         except Exception as ex:
             log_error("insert_ventas", ex)
             return False
@@ -274,7 +291,15 @@ class VentasRepository:
     def insert_venta_individual(self, datos: dict) -> bool:
         try:
             res = self.db.post("registro_ventas", json_data=datos, timeout=10)
-            return bool(res and res.status_code in (200, 201, 204))
+            if res and res.status_code in (200, 201, 204):
+                from core.audit_logger import registrar_accion
+                registrar_accion(
+                    accion=f"Registro manual de venta Factura #{datos.get('factura_no', 'S/N')} (Insumo: [{datos.get('codigo_insumo')}], {datos.get('cantidad', 0)} unds, ${datos.get('total', 0):,.0f})",
+                    modulo="VENTAS",
+                    detalles=datos
+                )
+                return True
+            return False
         except Exception as ex:
             log_error("insert_venta_individual", ex)
             return False
@@ -283,7 +308,15 @@ class VentasRepository:
         try:
             endpoint = f"registro_ventas?id_venta=eq.{id_venta}"
             res = self.db.patch(endpoint, json_data=datos, timeout=10)
-            return bool(res and res.status_code in (200, 204))
+            if res and res.status_code in (200, 204):
+                from core.audit_logger import registrar_accion
+                registrar_accion(
+                    accion=f"Edición de registro de venta ID {id_venta} (Campos actualizados: {', '.join(datos.keys())})",
+                    modulo="VENTAS",
+                    detalles={"id_venta": id_venta, "cambios": datos}
+                )
+                return True
+            return False
         except Exception as ex:
             log_error(f"update_venta_individual({id_venta})", ex)
             return False
@@ -292,7 +325,15 @@ class VentasRepository:
         try:
             endpoint = f"registro_ventas?id_venta=eq.{id_venta}"
             res = self.db.delete(endpoint, timeout=10)
-            return bool(res and res.status_code in (200, 204))
+            if res and res.status_code in (200, 204):
+                from core.audit_logger import registrar_accion
+                registrar_accion(
+                    accion=f"Eliminación / Anulación de venta individual ID {id_venta}",
+                    modulo="VENTAS",
+                    detalles={"id_venta": id_venta}
+                )
+                return True
+            return False
         except Exception as ex:
             log_error(f"eliminar_venta_individual({id_venta})", ex)
             return False

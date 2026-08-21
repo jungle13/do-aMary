@@ -187,9 +187,13 @@ class MobileCountingService:
                 "hora": datetime.datetime.now().strftime("%H:%M:%S"),
                 "usuario": usuario
             }
-            self.historial_reciente.insert(0, registro_historial)
-            if len(self.historial_reciente) > 50:
-                self.historial_reciente.pop()
+            from core.audit_logger import registrar_accion
+            registrar_accion(
+                accion=f"Registro / Guardado de Conteo Inicial para insumo [{codigo}] {nombre_insumo}: {cant} unds (Costo U: ${costo:,.0f})",
+                modulo="CONTEO",
+                usuario=usuario,
+                detalles={"codigo_insumo": codigo, "nombre": nombre_insumo, "cantidad": cant, "costo": costo}
+            )
 
             logger.info(f"Stock Inicial Agosto guardado: [{codigo}] {nombre_insumo} -> {cant} unds (Costo: ${costo:,.0f})")
             return {

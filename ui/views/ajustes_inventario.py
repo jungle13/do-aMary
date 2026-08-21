@@ -193,28 +193,25 @@ class AjustesInventarioView(ft.Container):
             except ValueError:
                 pass
 
-        def on_seleccionar_insumo_manual(e):
-            texto = e.selection.value if hasattr(e, 'selection') and e.selection else str(e.control.value or "")
-            codigo = e.selection.key if hasattr(e, 'selection') and hasattr(e.selection, 'key') and e.selection.key else ""
-            if not codigo:
-                if "[" in texto and "]" in texto:
-                    codigo = texto.split("]")[0].replace("[", "").strip()
-                else:
-                    codigo = texto.strip()
-            self.form_codigo.value = codigo
-            self.buscar_detalle_insumo(None)
-            self.safe_update()
-
         self.form_tipo_ajuste = ft.Dropdown(label="Tipo de Movimiento", options=[ft.dropdown.Option("ENTRADA"), ft.dropdown.Option("SALIDA")], dense=True, expand=True, border_radius=8, on_change=on_tipo_change)
 
         self.form_codigo = ft.TextField(visible=False) # Guard de código en segundo plano
 
-        self.txt_buscador_insumo = CustomAutoComplete(
-            hint_text="Buscar por Código o Nombre...",
-            on_select=on_seleccionar_insumo_manual,
-            text_size=12,
+        self.txt_buscador_insumo = ft.TextField(
+            hint_text="Escribe código o palabras del insumo (ej: vaso 4 sin)...",
+            prefix_icon=ft.icons.SEARCH_ROUNDED,
+            bgcolor="white",
+            border_radius=8,
             height=40,
-            expand=True
+            content_padding=10,
+            expand=True,
+            on_change=self.on_buscar_sugerencias_modal
+        )
+
+        self.lv_sugerencias_modal = ft.ListView(
+            spacing=2,
+            height=130,
+            visible=False
         )
 
         self.form_nombre = ft.Text("Selecciona o busca un insumo...", color="grey", italic=True, size=13)
@@ -242,12 +239,13 @@ class AjustesInventarioView(ft.Container):
         return ft.AlertDialog(
             title=ft.Text("Registrar Ajuste de Inventario"),
             content=ft.Container(
-                width=520,
+                width=540,
                 content=ft.Column([
                     # Buscador Inteligente
                     ft.Column([
-                        ft.Row([self.txt_buscador_insumo])
-                    ], spacing=0),
+                        ft.Row([self.txt_buscador_insumo]),
+                        self.lv_sugerencias_modal
+                    ], spacing=4),
                     # Tarjeta de Insumo Seleccionado con Input de Nuevo Stock
                     ft.Container(
                         content=ft.Row([
@@ -344,17 +342,105 @@ class AjustesInventarioView(ft.Container):
             self.lbl_valor_inv_modal.value = "Valor del Inv: $0"
         self.safe_update()
 
+    def on_buscar_sugerencias_modal(self, e):
+        """Búsqueda inteligente por múltiples palabras clave (tokens) para el modal de ajustes."""
+        q = (self.txt_buscador_insumo.value or "").strip().lower()
+        if not q or len(q) < 2:
+            self.lv_sugerencias_modal.visible = False
+            self.lv_sugerencias_modal.controls.clear()
+            self.safe_update()
+            return
+
+        catalogo = getattr(self, "catalogo_completo", [])
+        if not catalogo:
+            try:
+                catalogo, _ = self.db.get_insumos(page=1, page_size=99999)
+                self.catalogo_completo = catalogo
+            except Exception:
+                catalogo = []
+
+        tokens = q.split()
+        matches = []
+        for item in catalogo:
+            cod = str(item.get("codigo_insumo") or "").lower()
+            nom = str(item.get("nombre") or "").lower()
+            texto = f"{cod} {nom}"
+            if all(t in texto for t in tokens):
+                matches.append(item)
+                if len(matches) >= 8:
+                    break
+
+        self.lv_sugerencias_modal.controls.clear()
+        for m in matches:
+            cod_m = str(m.get("codigo_insumo"))
+            nom_m = str(m.get("nombre"))
+            costo_m = float(m.get("costo_unitario") or 0)
+            stock_m = float(m.get("stock_actual") or 0)
+            
+            btn = ft.Container(
+                content=ft.Row([
+                    ft.Text(f"[{cod_m}]", size=11, weight="bold", color=Config.COLOR_PRIMARY),
+                    ft.Text(nom_m, size=11, weight="w500", expand=True, color="black87"),
+                    ft.Text(f"Stock: {stock_m:g}", size=10, color=Config.COLOR_ACCENT, weight="bold"),
+                    ft.Text(f"Costo: ${costo_m:,.0f}", size=10, color=Config.COLOR_TEXT_MUTED)
+                ], spacing=6),
+                padding=ft.padding.symmetric(horizontal=8, vertical=5),
+                bgcolor="#f8fafc",
+                border_radius=6,
+                border=ft.border.all(1, "#e2e8f0"),
+                on_click=lambda ev, it=m: self.seleccionar_insumo_modal(it)
+            )
+            self.lv_sugerencias_modal.controls.append(btn)
+
+        self.lv_sugerencias_modal.visible = (len(matches) > 0)
+        self.safe_update()
+
+    def seleccionar_insumo_modal(self, item):
+        """Selecciona el insumo desde la lista de sugerencias y carga sus datos."""
+        self.lv_sugerencias_modal.visible = False
+        cod = str(item.get("codigo_insumo"))
+        nom = item.get("nombre")
+        
+        self.form_codigo.value = cod
+        self.txt_buscador_insumo.value = f"[{cod}] {nom}"
+        self.form_nombre.value = f"[{cod}] {nom}"
+        self.form_nombre.color = "black"
+        
+        self.current_stock_modal = float(item.get("stock_actual") or 0)
+        self.lbl_stock_actual.value = f"Stock Sist: {self.current_stock_modal:g} unds"
+        self.form_nuevo_stock_real.value = ""
+        
+        # 1. Costo unitario
+        costo = float(item.get("costo_unitario") or 0)
+        if costo <= 0:
+            try:
+                res_c = self.db._db.get(f"registro_compras?codigo_insumo=eq.{cod}&order=fecha.desc&limit=1&select=costo_unitario", timeout=4)
+                if res_c and res_c.status_code == 200 and res_c.json():
+                    costo = float(res_c.json()[0].get("costo_unitario") or 0)
+            except Exception:
+                pass
+
+        self.form_costo.value = str(int(costo) if costo.is_integer() else costo)
+        valor_inv = costo * self.current_stock_modal
+        self.lbl_valor_inv_modal.value = f"Valor del Inv: ${valor_inv:,.0f}"
+        
+        self.safe_update()
+
     def abrir_modal_ajuste(self):
         self.modal_ajuste.title.value = "Registrar Ajuste de Inventario"
         
         # Cargar catálogo para sugerencias inteligentes
-        insumos, _ = self.db.get_insumos(page=1, page_size=99999)
-        self.catalogo_cache = {i["codigo_insumo"]: i for i in insumos}
-        self.txt_buscador_insumo.suggestions = [
-            {"key": i["codigo_insumo"], "value": f"[{i['codigo_insumo']}] {i['nombre']}"}
-            for i in insumos
-        ]
-        self.search_filter_autocomplete.suggestions = self.txt_buscador_insumo.suggestions
+        try:
+            insumos, _ = self.db.get_insumos(page=1, page_size=99999)
+            self.catalogo_completo = insumos
+            self.catalogo_cache = {i["codigo_insumo"]: i for i in insumos}
+            suggs = [
+                {"key": i["codigo_insumo"], "value": f"[{i['codigo_insumo']}] {i['nombre']}"}
+                for i in insumos
+            ]
+            self.search_filter_autocomplete.suggestions = suggs
+        except Exception:
+            pass
 
         # Limpiar valores del formulario
         self.form_tipo_ajuste.value = None
@@ -369,17 +455,22 @@ class AjustesInventarioView(ft.Container):
         
         self.form_nombre.value = "Selecciona o busca un insumo..."
         self.form_nombre.color = "grey"
+        self.lbl_stock_actual.value = "Stock Sist: 0 unds"
+        self.form_nuevo_stock_real.value = ""
         
         self.form_cant.value = ""
         self.form_cant.error_text = None
         
         self.form_costo.value = ""
         self.form_costo.error_text = None
+        self.lbl_valor_inv_modal.value = "Valor del Inv: $0"
         
         self.form_obs.value = ""
         self.form_obs.error_text = None
         
         self.txt_buscador_insumo.value = ""
+        self.lv_sugerencias_modal.visible = False
+        self.lv_sugerencias_modal.controls.clear()
         
         self.modal_ajuste.open = True
         if self.page:
@@ -499,12 +590,12 @@ class AjustesInventarioView(ft.Container):
         # Cargar catálogo para sugerencias inteligentes en el buscador desde el inicio
         try:
             insumos, _ = self.db.get_insumos(page=1, page_size=99999)
+            self.catalogo_completo = insumos
             self.catalogo_cache = {i["codigo_insumo"]: i for i in insumos}
             suggs = [
                 {"key": i["codigo_insumo"], "value": f"[{i['codigo_insumo']}] {i['nombre']}"}
                 for i in insumos
             ]
-            self.txt_buscador_insumo.suggestions = suggs
             self.search_filter_autocomplete.suggestions = suggs
         except Exception:
             pass
@@ -536,13 +627,16 @@ class AjustesInventarioView(ft.Container):
         total_ent_pos = 0.0
         total_sal_neg = 0.0
 
+        tokens_filtro = filtro_texto.split()
+
         for aj in self.data_completa:
             es_entrada = aj["tipo_ajuste"] in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
             cat_info = aj.get("catalogo_insumos", {})
             nombre = cat_info.get("nombre", "Desconocido") if isinstance(cat_info, dict) else "Desconocido"
             
-            # Reglas de coincidencia
-            match_texto = filtro_texto in aj["codigo_insumo"].lower() or filtro_texto in nombre.lower()
+            # Reglas de coincidencia multi-token
+            texto_aj = f"{aj['codigo_insumo']} {nombre}".lower()
+            match_texto = all(t in texto_aj for t in tokens_filtro) if tokens_filtro else True
             match_fecha = filtro_fecha is None or aj["fecha_ajuste"][:10] == filtro_fecha
             
             tipo_ajuste_str = "Entrada" if es_entrada else "Salida"

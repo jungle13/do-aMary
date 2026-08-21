@@ -122,6 +122,15 @@ class ComprasRepository:
         try:
             res = self.db.post("registro_compras", json_data=compras_list, timeout=15)
             if res and res.status_code in (200, 201, 204):
+                from core.audit_logger import registrar_accion
+                facs = list(set([str(c.get("numero_factura") or c.get("numero_entrada") or "") for c in compras_list if (c.get("numero_factura") or c.get("numero_entrada"))]))
+                fac_txt = f" (Docs: {', '.join(facs[:3])}{'...' if len(facs)>3 else ''})" if facs else ""
+                tot_monto = sum([float(c.get("costo_total") or 0) for c in compras_list])
+                registrar_accion(
+                    accion=f"Guardado de compras en BD: {len(compras_list)} registros{fac_txt} por ${tot_monto:,.0f}",
+                    modulo="COMPRAS",
+                    detalles={"registros": len(compras_list), "total": tot_monto, "documentos": facs}
+                )
                 return True
             err = res.text if res else "No response"
             logger.error(f"Error en insert_compras: {err}")
@@ -152,6 +161,12 @@ class ComprasRepository:
             for ref in lista_entradas:
                 endpoint = f"registro_compras?or=(numero_entrada.eq.{ref},numero_factura.eq.{ref})"
                 self.db.delete(endpoint, timeout=10)
+            from core.audit_logger import registrar_accion
+            registrar_accion(
+                accion=f"Eliminación / Anulación de compras para documentos: {', '.join(lista_entradas)}",
+                modulo="COMPRAS",
+                detalles={"referencias_eliminadas": lista_entradas}
+            )
             return True
         except Exception as ex:
             log_error("eliminar_compras_por_entradas", ex)

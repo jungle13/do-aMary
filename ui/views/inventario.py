@@ -997,6 +997,27 @@ class InventarioView(ft.Container):
         self.current_page = 1 # Volver a la primera página tras ordenar
         self.load_data()
 
+    def ordenar_por(self, col_name: str):
+        """Permite ordenar directamente al hacer clic en cualquier badge o métrica de las tarjetas."""
+        if self.sort_col_name == col_name:
+            self.sort_is_asc = not self.sort_is_asc
+        else:
+            self.sort_col_name = col_name
+            # Para columnas numéricas, el primer clic ordena descendentemente (mayor a menor)
+            self.sort_is_asc = False if col_name not in ["Insumo", "Código", "Categoría", "Ubicación"] else True
+
+        self.current_page = 1
+        direccion_txt = "Menor a Mayor ↑" if self.sort_is_asc else "Mayor a Menor ↓"
+        if self.page:
+            self.page.snack_bar = ft.SnackBar(
+                ft.Text(f"📊 Ordenando por {col_name} ({direccion_txt})", weight="bold"),
+                bgcolor=Config.COLOR_PRIMARY,
+                duration=1200
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
+        self.load_data()
+
     def on_guardar_global(self, e):
         self.abrir_dialogo_confirmacion()
 
@@ -1054,7 +1075,9 @@ class InventarioView(ft.Container):
             padding=ft.padding.symmetric(horizontal=8, vertical=3),
             bgcolor="#f8fafc",
             border=ft.border.all(1, "#e2e8f0"),
-            border_radius=6
+            border_radius=6,
+            tooltip="Clic para ordenar por Costo antes de IVA",
+            on_click=lambda _: self.ordenar_por("Costo s/IVA")
         )
 
         # 2. Costo Unitario (después)
@@ -1068,7 +1091,9 @@ class InventarioView(ft.Container):
             padding=ft.padding.symmetric(horizontal=8, vertical=3),
             bgcolor="#f1f5f9",
             border=ft.border.all(1, "#e2e8f0"),
-            border_radius=6
+            border_radius=6,
+            tooltip="Clic para ordenar por Costo Unitario",
+            on_click=lambda _: self.ordenar_por("Costo U")
         )
 
         # 3. Precio Venta Dinámico
@@ -1083,7 +1108,9 @@ class InventarioView(ft.Container):
             padding=ft.padding.symmetric(horizontal=8, vertical=3),
             bgcolor="#eff6ff",
             border=ft.border.all(1, "#bfdbfe"),
-            border_radius=6
+            border_radius=6,
+            tooltip="Clic para ordenar por Precio de Venta",
+            on_click=lambda _: self.ordenar_por("P. Venta")
         )
 
         # 4. Checks rápidos de margen (10, 15, 20)
@@ -1174,7 +1201,9 @@ class InventarioView(ft.Container):
             padding=ft.padding.symmetric(horizontal=10, vertical=4),
             bgcolor=bg_stock,
             border=ft.border.all(1.5, border_stock),
-            border_radius=8
+            border_radius=8,
+            tooltip="Clic para ordenar por Stock Actual",
+            on_click=lambda _: self.ordenar_por("Stock Actual")
         )
 
         # 6. Valor Total en Costo
@@ -1188,7 +1217,9 @@ class InventarioView(ft.Container):
             padding=ft.padding.symmetric(horizontal=8, vertical=3),
             bgcolor="#f8fafc",
             border=ft.border.all(1, "#e2e8f0"),
-            border_radius=6
+            border_radius=6,
+            tooltip="Clic para ordenar por Valor Total en Costo",
+            on_click=lambda _: self.ordenar_por("Valor Costo")
         )
 
         # 7. Objetivo de Venta
@@ -1197,7 +1228,9 @@ class InventarioView(ft.Container):
             padding=ft.padding.symmetric(horizontal=8, vertical=3),
             bgcolor="#eff6ff",
             border=ft.border.all(1, "#bfdbfe"),
-            border_radius=6
+            border_radius=6,
+            tooltip="Clic para ordenar por Objetivo de Venta",
+            on_click=lambda _: self.ordenar_por("Objetivo Venta")
         )
 
         # Contenedor dividido: Izquierda (Precios y Margen) y Derecha (Stock y Totales)
@@ -1239,7 +1272,9 @@ class InventarioView(ft.Container):
                     ft.Text(f"{cantidad:g} unds", size=11, weight="bold", color=color_cant, no_wrap=True),
                     ft.Text(f"${valor:,.0f}", size=11, color=color_valor, weight="w500", no_wrap=True)
                 ], spacing=1, alignment=ft.MainAxisAlignment.CENTER),
-                padding=ft.padding.symmetric(horizontal=4)
+                padding=ft.padding.symmetric(horizontal=4),
+                tooltip=f"Clic para ordenar por {titulo}",
+                on_click=lambda _, t=titulo: self.ordenar_por(t)
             )
 
         def crear_separador_vertical():

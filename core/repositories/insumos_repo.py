@@ -1,4 +1,4 @@
-﻿"""
+"""
 Repositorio para el catálogo de insumos, stock y ajustes de inventario.
 """
 import requests
@@ -65,7 +65,21 @@ class InsumosRepository:
             "Stock Mínimo": "stock_minimo",
             "Entradas": "entradas",
             "Salidas": "salidas",
-            "Stock Real": db_col_stock
+            "Stock Real": db_col_stock,
+            # Métricas superiores de tarjetas
+            "Costo s/IVA": "costo_unitario",
+            "Costo U": "costo_unitario",
+            "P. Venta": "precio_venta",
+            "Stock Actual": db_col_stock,
+            "Valor Costo": "costo_total_insumo",
+            "Objetivo Venta": "precio_venta",
+            # Métricas inferiores de tarjetas
+            "INICIAL": "stock_inicial",
+            "COMPRAS": "compras",
+            "VENTAS": "ventas",
+            "AJUSTES (+)": "ajustes_entrantes",
+            "AJUSTES (-)": "ajustes_salientes",
+            "NETO": "neto_ajustes"
         }
 
         db_col = map_columnas.get(sort_col, "nombre")
@@ -101,6 +115,12 @@ class InsumosRepository:
         try:
             res = self.db.post("catalogo_insumos", json_data=data, timeout=10)
             if res and res.status_code in (200, 201):
+                from core.audit_logger import registrar_accion
+                registrar_accion(
+                    accion=f"Creación de nuevo insumo en catálogo: [{data.get('codigo_insumo')}] {data.get('nombre')}",
+                    modulo="INVENTARIO",
+                    detalles=data
+                )
                 return res.json()
             return None
         except Exception as ex:
@@ -112,7 +132,16 @@ class InsumosRepository:
         try:
             endpoint = f"catalogo_insumos?codigo_insumo=eq.{codigo_insumo}"
             res = self.db.patch(endpoint, json_data=datos_actualizados, timeout=10)
-            return bool(res and res.status_code in (200, 204))
+            if res and res.status_code in (200, 204):
+                from core.audit_logger import registrar_accion
+                cambios_str = ", ".join([f"{k}={v}" for k, v in datos_actualizados.items()])
+                registrar_accion(
+                    accion=f"Modificación de insumo [{codigo_insumo}]: {cambios_str}",
+                    modulo="INVENTARIO",
+                    detalles={"codigo_insumo": codigo_insumo, "cambios": datos_actualizados}
+                )
+                return True
+            return False
         except Exception as ex:
             log_error("update_insumo", ex, {"codigo": codigo_insumo})
             return False
@@ -284,7 +313,19 @@ class InsumosRepository:
         """Inserta un nuevo registro de ajuste operativo."""
         try:
             res = self.db.post("registro_ajustes_inventario", json_data=datos, timeout=10)
-            return bool(res and res.status_code in (200, 201, 204))
+            if res and res.status_code in (200, 201, 204):
+                from core.audit_logger import registrar_accion
+                tipo = datos.get("tipo_ajuste", "AJUSTE")
+                cod = datos.get("codigo_insumo", "")
+                cant = datos.get("cantidad", 0)
+                motivo = datos.get("motivo_observacion", "Sin motivo")
+                registrar_accion(
+                    accion=f"Registro de ajuste de inventario ({tipo}) para insumo [{cod}]: {cant} unds (Motivo: {motivo})",
+                    modulo="AJUSTES",
+                    detalles=datos
+                )
+                return True
+            return False
         except Exception as ex:
             log_error("insert_ajuste_individual", ex, {"datos": datos})
             return False
@@ -294,7 +335,15 @@ class InsumosRepository:
         try:
             endpoint = f"registro_ajustes_inventario?id_ajuste=eq.{id_ajuste}"
             res = self.db.patch(endpoint, json_data={"estado_registro": "ANULADO"}, timeout=10)
-            return bool(res and res.status_code in (200, 204))
+            if res and res.status_code in (200, 204):
+                from core.audit_logger import registrar_accion
+                registrar_accion(
+                    accion=f"Anulación de ajuste de inventario ID {id_ajuste}",
+                    modulo="AJUSTES",
+                    detalles={"id_ajuste": id_ajuste}
+                )
+                return True
+            return False
         except Exception as ex:
             log_error("anular_ajuste", ex, {"id_ajuste": id_ajuste})
             return False
