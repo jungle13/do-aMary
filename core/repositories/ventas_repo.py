@@ -179,6 +179,18 @@ class VentasRepository:
         try:
             res = self.db.post("registro_ventas", json_data=payload, timeout=15)
             if res and res.status_code in (200, 201, 204):
+                # Actualizar precio_venta en catalogo_insumos con la última venta
+                for v in payload:
+                    cod = str(v.get("codigo_insumo") or "").zfill(4)
+                    cant = float(v.get("cantidad") or 0)
+                    subt = float(v.get("subtotal") or 0)
+                    if cod and cant > 0 and subt > 0:
+                        p_unit = round(subt / cant, 2)
+                        try:
+                            self.db.patch(f"catalogo_insumos?codigo_insumo=eq.{cod}", json_data={"precio_venta": p_unit}, timeout=5)
+                        except Exception:
+                            pass
+
                 from core.audit_logger import registrar_accion
                 facs = list(set([v.get("factura_no", "") for v in payload if v.get("factura_no")]))
                 fac_txt = f" (Docs: {', '.join(facs[:3])}{'...' if len(facs)>3 else ''})" if facs else ""

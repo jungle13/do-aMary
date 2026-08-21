@@ -122,6 +122,16 @@ class ComprasRepository:
         try:
             res = self.db.post("registro_compras", json_data=compras_list, timeout=15)
             if res and res.status_code in (200, 201, 204):
+                # Actualizar costo_unitario en catalogo_insumos con la última compra
+                for c in compras_list:
+                    cod = str(c.get("codigo_insumo") or "").zfill(4)
+                    costo_u = float(c.get("costo_unitario") or 0)
+                    if cod and costo_u > 0:
+                        try:
+                            self.db.patch(f"catalogo_insumos?codigo_insumo=eq.{cod}", json_data={"costo_unitario": costo_u}, timeout=5)
+                        except Exception:
+                            pass
+
                 from core.audit_logger import registrar_accion
                 facs = list(set([str(c.get("numero_factura") or c.get("numero_entrada") or "") for c in compras_list if (c.get("numero_factura") or c.get("numero_entrada"))]))
                 fac_txt = f" (Docs: {', '.join(facs[:3])}{'...' if len(facs)>3 else ''})" if facs else ""

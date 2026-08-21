@@ -191,7 +191,7 @@ class VentasView(ft.Container):
                 ft.DataColumn(ft.Text("Código Item", weight="bold")),
                 ft.DataColumn(ft.Container(content=ft.Text("Nombre / Descripción", weight="bold"), width=250)),
                 ft.DataColumn(ft.Text("Cantidad", weight="bold"), numeric=True),
-                ft.DataColumn(ft.Text("Precio Unit.", weight="bold"), numeric=True),
+                ft.DataColumn(ft.Text("Subtotal", weight="bold"), numeric=True),
                 ft.DataColumn(ft.Text("IVA", weight="bold")),
                 ft.DataColumn(ft.Text("Total", weight="bold"), numeric=True),
                 ft.DataColumn(ft.Text("Acciones", weight="bold")),
@@ -1827,7 +1827,7 @@ class VentasView(ft.Container):
         self.crud_tipo_doc = ft.Dropdown(label="Tipo Doc.", options=[ft.dropdown.Option("Remisión"), ft.dropdown.Option("Factura POS")], width=150)
         
         self.crud_cantidad = ft.TextField(label="Cantidad", width=120, on_change=self._calc_tot_crud)
-        self.crud_precio_unit = ft.TextField(label="Precio Unit.", width=120, prefix_text="$", on_change=self._calc_tot_crud)
+        self.crud_precio_unit = ft.TextField(label="Subtotal", width=120, prefix_text="$", on_change=self._calc_tot_crud)
         self.crud_descuento = ft.TextField(label="Descuento", width=120, prefix_text="$", on_change=self._calc_tot_crud)
         self.crud_iva = ft.TextField(label="IVA", width=120, prefix_text="$", on_change=self._calc_tot_crud)
         
@@ -1859,11 +1859,10 @@ class VentasView(ft.Container):
 
     def _calc_tot_crud(self, e=None):
         try:
-            cant = float(self.crud_cantidad.value or 0)
-            precio = float(self.crud_precio_unit.value or 0)
+            subt = float(self.crud_precio_unit.value or 0)
             desc = float(self.crud_descuento.value or 0)
             iva = float(self.crud_iva.value or 0)
-            tot = (cant * precio) + iva - desc
+            tot = subt + iva - desc
             self.crud_total_lbl.value = f"$ {tot:,.2f}"
             self.safe_update()
         except ValueError:
