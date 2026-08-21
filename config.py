@@ -4,16 +4,19 @@ from dotenv import load_dotenv
 
 # Determinar la ruta base dependiendo de si se ejecuta como script o como .exe
 if getattr(sys, 'frozen', False):
-    # Si es un ejecutable empaquetado (flet pack / PyInstaller), usar la carpeta temporal _MEIPASS
-    base_path = sys._MEIPASS
+    # Primero cargar el .env interno empaquetado en _MEIPASS
+    internal_env = os.path.join(sys._MEIPASS, '.env')
+    if os.path.exists(internal_env):
+        load_dotenv(dotenv_path=internal_env)
+    # También permitir sobrescribir con un .env externo junto al .exe si existe
+    external_env = os.path.join(os.path.dirname(sys.executable), '.env')
+    if os.path.exists(external_env):
+        load_dotenv(dotenv_path=external_env, override=True)
 else:
     # Si es el código fuente normal, usar la carpeta actual
     base_path = os.path.dirname(os.path.abspath(__file__))
-
-env_path = os.path.join(base_path, '.env')
-
-# Cargar variables de entorno apuntando explícitamente al archivo
-load_dotenv(dotenv_path=env_path)
+    env_path = os.path.join(base_path, '.env')
+    load_dotenv(dotenv_path=env_path)
 class Config:
     SUPABASE_URL = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
