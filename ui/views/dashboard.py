@@ -450,9 +450,9 @@ class DashboardView(ft.Container):
         else:
             ultimo_dia_mes = (datetime.date(hoy_obj.year, hoy_obj.month + 1, 1) - datetime.timedelta(days=1)).day
         dias_restantes = max(1, ultimo_dia_mes - hoy_obj.day + 1)
-        restante_vender = max(0, proyeccion_ventas - ingresos)
-        meta_diaria = restante_vender / dias_restantes
+        meta_diaria = (proyeccion_ventas / dias_restantes) if dias_restantes > 0 and proyeccion_ventas > 0 else 0.0
         self.val_meta_diaria.value = f"$ {meta_diaria:,.0f} / día"
+        self.val_meta_diaria.tooltip = f"Meta calculada para alcanzar la proyección de stock ($ {proyeccion_ventas:,.0f}) en los {dias_restantes} días restantes del mes"
 
         mes_actual = hoy_obj.strftime("%Y-%m")
         ajustes_bd = self.db.get_ajustes_mes(mes_actual, fecha_corte=self.fecha_filtro_dash)

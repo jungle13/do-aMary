@@ -1025,10 +1025,246 @@ class InventarioView(ft.Container):
         self.cancelar_edicion()
 
     def on_gestionar_ajustes(self, e):
-        # Placeholder para enviar el código del insumo seleccionado al futuro módulo de ajustes
-        if self.current_edit_context:
-            codigo = self.current_edit_context['item'].get('codigo_insumo')
-            self.page.snack_bar = ft.SnackBar(ft.Text(f"Redirigiendo a gestión de ajustes para el insumo {codigo}..."), bgcolor="blue")
+        if self.current_edit_context and self.current_edit_context.get('item'):
+            item = self.current_edit_context['item']
+            self.abrir_modal_ajuste_insumo(item)
+        else:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Selecciona un insumo en edición para gestionar su ajuste."), bgcolor="orange")
+            self.page.snack_bar.open = True
+            self.safe_update()
+
+    def _construir_modal_ajuste_inventario(self):
+        self.mapa_motivos_inventario = {
+            "Sobrante de Inventario": "ENTRADA_POR_SOBRANTE",
+            "Donación Entrante": "AJUSTE_ENTRADA",
+            "Devolución Cliente": "AJUSTE_ENTRADA",
+            "Otro (Entrada)": "AJUSTE_ENTRADA",
+            "Daño / Merma": "AJUSTE_SALIDA",
+            "Vencimiento": "BAJA_VENCIMIENTO",
+            "Pérdida": "SALIDA_POR_FALTANTE",
+            "Consumo Familiar": "AJUSTE_SALIDA",
+            "Consumo Cliente (Cortesía)": "AJUSTE_SALIDA",
+            "Donación Saliente": "AJUSTE_SALIDA",
+            "Otro (Salida)": "AJUSTE_SALIDA"
+        }
+        
+        self.ajuste_lbl_insumo = ft.Text("Insumo seleccionado", weight="bold", size=14, color=Config.COLOR_PRIMARY)
+        self.ajuste_lbl_stock_actual = ft.Text("Stock Actual: 0 unds", size=12, color="grey700", weight="w500")
+        
+        self.ajuste_tipo = ft.Dropdown(
+            label="Tipo de Ajuste",
+            options=[ft.dropdown.Option("ENTRADA (+)"), ft.dropdown.Option("SALIDA (-)")],
+            value="SALIDA (-)",
+            width=250,
+            dense=True,
+            on_change=self._on_ajuste_tipo_change
+        )
+        
+        self.ajuste_motivo = ft.Dropdown(
+            label="Motivo del Ajuste",
+            options=[],
+            width=250,
+            dense=True
+        )
+        
+        self.ajuste_cantidad = ft.TextField(
+            label="Cantidad a Ajustar",
+            width=160,
+            dense=True,
+            on_change=self._calc_tot_ajuste_modal
+        )
+        
+        self.ajuste_costo = ft.TextField(
+            label="Costo Unitario",
+            prefix_text="$",
+            width=160,
+            dense=True,
+            on_change=self._calc_tot_ajuste_modal
+        )
+        
+        self.ajuste_lbl_impacto = ft.Text("$ 0", size=14, weight="bold", color=Config.COLOR_PRIMARY)
+        self.ajuste_lbl_nuevo_stock = ft.Text("0 unds", size=14, weight="bold", color="teal700")
+        
+        self.ajuste_obs = ft.TextField(
+            label="Observaciones / Justificación (Opcional)",
+            multiline=True,
+            min_lines=2,
+            max_lines=3,
+            dense=True
+        )
+        
+        self.dlg_ajuste_inventario = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([
+                ft.Icon(ft.icons.TUNE, color=Config.COLOR_ACCENT, size=24),
+                ft.Text("Registrar Ajuste de Inventario", weight="bold", size=18, color=Config.COLOR_PRIMARY)
+            ], spacing=10),
+            content=ft.Container(
+                width=550,
+                content=ft.Column([
+                    ft.Container(
+                        content=ft.Column([
+                            self.ajuste_lbl_insumo,
+                            self.ajuste_lbl_stock_actual
+                        ], spacing=2),
+                        padding=12,
+                        bgcolor="#f1f5f9",
+                        border_radius=8,
+                        border=ft.border.all(1, "#cbd5e1")
+                    ),
+                    ft.Row([self.ajuste_tipo, self.ajuste_motivo], spacing=15),
+                    ft.Row([self.ajuste_cantidad, self.ajuste_costo], spacing=15),
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Column([
+                                ft.Text("Impacto Financiero:", size=11, color="grey"),
+                                self.ajuste_lbl_impacto
+                            ], spacing=2),
+                            ft.Column([
+                                ft.Text("Nuevo Stock Resultante:", size=11, color="grey"),
+                                self.ajuste_lbl_nuevo_stock
+                            ], spacing=2)
+                        ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
+                        padding=10,
+                        bgcolor="#f8fafc",
+                        border_radius=8,
+                        border=ft.border.all(1, "#e2e8f0")
+                    ),
+                    self.ajuste_obs
+                ], tight=True, spacing=14)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: self._cerrar_modal_ajuste()),
+                ft.ElevatedButton(
+                    "Guardar Ajuste",
+                    icon=ft.icons.CHECK,
+                    bgcolor="green700",
+                    color="white",
+                    on_click=self._guardar_ajuste_insumo
+                )
+            ]
+        )
+
+    def _on_ajuste_tipo_change(self, e=None):
+        tipo = self.ajuste_tipo.value or "SALIDA (-)"
+        if "ENTRADA" in tipo:
+            motivos = ["Sobrante de Inventario", "Donación Entrante", "Devolución Cliente", "Otro (Entrada)"]
+        else:
+            motivos = ["Daño / Merma", "Vencimiento", "Pérdida", "Consumo Familiar", "Consumo Cliente (Cortesía)", "Donación Saliente", "Otro (Salida)"]
+        self.ajuste_motivo.options = [ft.dropdown.Option(m) for m in motivos]
+        self.ajuste_motivo.value = motivos[0] if motivos else None
+        self._calc_tot_ajuste_modal()
+        self.safe_update()
+
+    def _calc_tot_ajuste_modal(self, e=None):
+        try:
+            cant_str = (self.ajuste_cantidad.value or "").replace(',', '.').strip()
+            costo_str = (self.ajuste_costo.value or "").replace(',', '.').strip()
+            cant = float(cant_str) if cant_str else 0.0
+            costo = float(costo_str) if costo_str else 0.0
+            tot = cant * costo
+            self.ajuste_lbl_impacto.value = f"$ {tot:,.0f}"
+            
+            tipo = self.ajuste_tipo.value or "SALIDA (-)"
+            stock_act = getattr(self, '_ajuste_stock_base', 0.0)
+            if "ENTRADA" in tipo:
+                nuevo_stock = stock_act + cant
+            else:
+                nuevo_stock = stock_act - cant
+            self.ajuste_lbl_nuevo_stock.value = f"{nuevo_stock:g} unds"
+            self.safe_update()
+        except ValueError:
+            self.ajuste_lbl_impacto.value = "$ 0"
+            self.safe_update()
+
+    def abrir_modal_ajuste_insumo(self, item):
+        if not hasattr(self, 'dlg_ajuste_inventario'):
+            self._construir_modal_ajuste_inventario()
+            
+        cod = str(item.get('codigo_insumo') or '')
+        nom = str(item.get('nombre') or 'Desconocido')
+        cat = str(item.get('categoria') or 'GENERAL')
+        stock = float(item.get('stock_actual') or 0)
+        costo = float(item.get('costo_unitario') or 0)
+        
+        self._ajuste_item_actual = item
+        self._ajuste_stock_base = stock
+        
+        self.ajuste_lbl_insumo.value = f"[{cod}] {nom}"
+        self.ajuste_lbl_stock_actual.value = f"Categoría: {cat}  •  Stock Sistema: {stock:g} unds"
+        self.ajuste_tipo.value = "SALIDA (-)"
+        self._on_ajuste_tipo_change()
+        
+        self.ajuste_cantidad.value = ""
+        self.ajuste_costo.value = str(int(costo) if costo.is_integer() else costo)
+        self.ajuste_obs.value = ""
+        self._calc_tot_ajuste_modal()
+        
+        if self.page and self.dlg_ajuste_inventario not in self.page.overlay:
+            self.page.overlay.append(self.dlg_ajuste_inventario)
+            
+        self.dlg_ajuste_inventario.open = True
+        self.safe_update()
+
+    def _cerrar_modal_ajuste(self):
+        if hasattr(self, 'dlg_ajuste_inventario'):
+            self.dlg_ajuste_inventario.open = False
+            self.safe_update()
+
+    def _guardar_ajuste_insumo(self, e):
+        try:
+            cant_str = (self.ajuste_cantidad.value or "").replace(',', '.').strip()
+            costo_str = (self.ajuste_costo.value or "").replace(',', '.').strip()
+            cant = float(cant_str) if cant_str else 0.0
+            costo = float(costo_str) if costo_str else 0.0
+            motivo_ui = self.ajuste_motivo.value
+            obs = (self.ajuste_obs.value or "").strip()
+            
+            if cant <= 0:
+                self.page.snack_bar = ft.SnackBar(ft.Text("La cantidad a ajustar debe ser mayor a cero."), bgcolor="red")
+                self.page.snack_bar.open = True
+                self.safe_update()
+                return
+                
+            if not motivo_ui:
+                self.page.snack_bar = ft.SnackBar(ft.Text("Debes seleccionar un motivo para el ajuste."), bgcolor="red")
+                self.page.snack_bar.open = True
+                self.safe_update()
+                return
+                
+            item = getattr(self, '_ajuste_item_actual', {})
+            cod = str(item.get('codigo_insumo') or '')
+            tipo_bd = self.mapa_motivos_inventario.get(motivo_ui, "AJUSTE_SALIDA")
+            
+            datos = {
+                "codigo_insumo": cod,
+                "tipo_ajuste": tipo_bd,
+                "cantidad": cant,
+                "costo_unitario_congelado": costo,
+                "costo_total_ajuste": cant * costo,
+                "motivo_observacion": obs if obs else motivo_ui,
+                "estado_registro": "VÁLIDO"
+            }
+            
+            if self.db.insert_ajuste_individual(datos):
+                self._cerrar_modal_ajuste()
+                self.cancelar_edicion()
+                self.load_data()
+                self.page.snack_bar = ft.SnackBar(
+                    ft.Row([
+                        ft.Icon(ft.icons.CHECK_CIRCLE, color="white", size=18),
+                        ft.Text(f"Ajuste ({tipo_bd}) registrado exitosamente para [{cod}]", color="white")
+                    ]),
+                    bgcolor="green700"
+                )
+                self.page.snack_bar.open = True
+                self.safe_update()
+            else:
+                self.page.snack_bar = ft.SnackBar(ft.Text("Error al registrar el ajuste en la base de datos."), bgcolor="red")
+                self.page.snack_bar.open = True
+                self.safe_update()
+        except ValueError:
+            self.page.snack_bar = ft.SnackBar(ft.Text("Formato numérico inválido en cantidad o costo."), bgcolor="red")
             self.page.snack_bar.open = True
             self.safe_update()
 
