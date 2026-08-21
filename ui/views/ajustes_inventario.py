@@ -208,6 +208,13 @@ class AjustesInventarioView(ft.Container):
             on_change=self.on_buscar_sugerencias_modal
         )
 
+        self.lbl_info_seleccionado_modal = ft.Text(
+            "Ningún insumo seleccionado",
+            size=11,
+            color="grey600",
+            weight="w500"
+        )
+
         self.lv_sugerencias_modal = ft.ListView(
             spacing=2,
             height=130,
@@ -241,9 +248,10 @@ class AjustesInventarioView(ft.Container):
             content=ft.Container(
                 width=540,
                 content=ft.Column([
-                    # Buscador Inteligente
+                    # Buscador Inteligente y Panel de Sugerencias
                     ft.Column([
                         ft.Row([self.txt_buscador_insumo]),
+                        self.lbl_info_seleccionado_modal,
                         self.lv_sugerencias_modal
                     ], spacing=4),
                     # Tarjeta de Insumo Seleccionado con Input de Nuevo Stock
@@ -375,15 +383,13 @@ class AjustesInventarioView(ft.Container):
             cod_m = str(m.get("codigo_insumo"))
             nom_m = str(m.get("nombre"))
             costo_m = float(m.get("costo_unitario") or 0)
-            stock_m = float(m.get("stock_actual") or 0)
             
             btn = ft.Container(
                 content=ft.Row([
                     ft.Text(f"[{cod_m}]", size=11, weight="bold", color=Config.COLOR_PRIMARY),
                     ft.Text(nom_m, size=11, weight="w500", expand=True, color="black87"),
-                    ft.Text(f"Stock: {stock_m:g}", size=10, color=Config.COLOR_ACCENT, weight="bold"),
                     ft.Text(f"Costo: ${costo_m:,.0f}", size=10, color=Config.COLOR_TEXT_MUTED)
-                ], spacing=6),
+                ], spacing=6, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 padding=ft.padding.symmetric(horizontal=8, vertical=5),
                 bgcolor="#f8fafc",
                 border_radius=6,
@@ -400,11 +406,15 @@ class AjustesInventarioView(ft.Container):
         self.lv_sugerencias_modal.visible = False
         cod = str(item.get("codigo_insumo"))
         nom = item.get("nombre")
+        cat = item.get("categoria") or "GENERAL"
         
         self.form_codigo.value = cod
         self.txt_buscador_insumo.value = f"[{cod}] {nom}"
         self.form_nombre.value = f"[{cod}] {nom}"
         self.form_nombre.color = "black"
+        self.lbl_info_seleccionado_modal.value = f"Insumo activo: [{cod}] {nom} • Categoría: {cat}"
+        self.lbl_info_seleccionado_modal.color = Config.COLOR_PRIMARY
+        self.lbl_info_seleccionado_modal.weight = "w500"
         
         self.current_stock_modal = float(item.get("stock_actual") or 0)
         self.lbl_stock_actual.value = f"Stock Sist: {self.current_stock_modal:g} unds"
@@ -456,6 +466,9 @@ class AjustesInventarioView(ft.Container):
         self.form_nombre.value = "Selecciona o busca un insumo..."
         self.form_nombre.color = "grey"
         self.lbl_stock_actual.value = "Stock Sist: 0 unds"
+        self.lbl_info_seleccionado_modal.value = "Ningún insumo seleccionado"
+        self.lbl_info_seleccionado_modal.color = "grey600"
+        self.lbl_info_seleccionado_modal.weight = "w500"
         self.form_nuevo_stock_real.value = ""
         
         self.form_cant.value = ""
