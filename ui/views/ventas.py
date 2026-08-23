@@ -239,8 +239,16 @@ class VentasView(ft.Container):
             on_change=lambda e: self._render_tabla_cargas()
         )
         self.drop_filtro_estado_cargas = ft.Dropdown(
-            options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("Nuevo"), ft.dropdown.Option("Procesado con éxito"), ft.dropdown.Option("Falló"), ft.dropdown.Option("Guardado"), ft.dropdown.Option("Sobreescrito")],
-            value="Todos", label="Estado", dense=True, width=170, border_radius=8, text_size=12,
+            options=[
+                ft.dropdown.Option("Todos"),
+                ft.dropdown.Option("EXTRAIDO_POR_AGENTE"),
+                ft.dropdown.Option("Nuevo"),
+                ft.dropdown.Option("Procesado con éxito"),
+                ft.dropdown.Option("Falló"),
+                ft.dropdown.Option("Guardado"),
+                ft.dropdown.Option("Sobreescrito")
+            ],
+            value="Todos", label="Estado", dense=True, width=190, border_radius=8, text_size=12,
             content_padding=ft.padding.symmetric(horizontal=10, vertical=8), height=38,
             on_change=lambda e: self._render_tabla_cargas()
         )
@@ -722,9 +730,18 @@ class VentasView(ft.Container):
             
             txt_crono = ft.Text("⏱️ 20s", color="red", weight="bold", visible=False)
             
-            texto_btn = "Extraer Datos" if estado in ["Nuevo", "Falló", "Sobreescrito"] else "Ver"
-            color_btn = Config.COLOR_PRIMARY if texto_btn == "Extraer Datos" else "grey"
-            icon_btn = ft.icons.DOCUMENT_SCANNER if texto_btn == "Extraer Datos" else ft.icons.VISIBILITY
+            if estado == "EXTRAIDO_POR_AGENTE":
+                texto_btn = "Ver y Guardar"
+                color_btn = Config.COLOR_ACCENT
+                icon_btn = ft.icons.FACT_CHECK_OUTLINED
+            elif estado in ["Nuevo", "Falló", "Sobreescrito"]:
+                texto_btn = "Extraer Datos"
+                color_btn = Config.COLOR_PRIMARY
+                icon_btn = ft.icons.DOCUMENT_SCANNER
+            else:
+                texto_btn = "Ver"
+                color_btn = "grey"
+                icon_btn = ft.icons.VISIBILITY
             
             btn_accion = ft.ElevatedButton(
                 text=texto_btn,
@@ -746,7 +763,8 @@ class VentasView(ft.Container):
             acciones_row = ft.Row([btn_accion, txt_crono, btn_eliminar], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER)
             
             color_estado = "black"
-            if estado == "Procesado con éxito": color_estado = "green"
+            if estado == "EXTRAIDO_POR_AGENTE": color_estado = "#7C3AED"
+            elif estado == "Procesado con éxito": color_estado = "green"
             elif estado == "Falló": color_estado = "red"
             elif estado == "Guardado": color_estado = "blue"
             elif estado == "Sobreescrito": color_estado = "orange"
@@ -921,10 +939,10 @@ class VentasView(ft.Container):
 
     def on_accion_carga(self, e, data, txt_crono):
         btn = e.control
-        if btn.text == "Ver":
+        if btn.text in ["Ver", "Ver y Guardar"]:
             # Cargar los datos extraídos previamente en la memoria de la vista
             self.carga_activa = data
-            self.parsed_data = data.get("datos_extraidos", [])
+            self.parsed_data = data.get("datos_extraidos") or data.get("invoices", [])
             
             # Recuperar nombres_insumos
             codigos_extraidos = set()

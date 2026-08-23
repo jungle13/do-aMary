@@ -21,6 +21,7 @@ class Config:
     SUPABASE_URL = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    API_SECRET_KEY = os.getenv("API_SECRET_KEY", "donamary-secure-agent-key-2026")
     
     # --- SISTEMA DE DISEÑO / PALETA GLOBAL (Modern Slate & Royal Blue) ---
     COLOR_PRIMARY = "#0F172A"       # Slate 900 (Primario Institucional / Títulos)

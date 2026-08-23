@@ -47,6 +47,45 @@ def guardar_stock(req: GuardarStockRequest):
 def get_historial():
     return service.get_historial()
 
+# --- ENDPOINTS SEGUROS DE STAGING Y DEDUPLICACIÓN DE FACTURAS ---
+
+class StagingCargaRequest(BaseModel):
+    tipo: str  # VENTAS_POS, VENTAS_REMISION, COMPRAS
+    fecha: str
+    archivo_origen: str = ""
+    invoices: list[dict] = []
+
+@app.get("/api/v1/documentos_existentes")
+def get_documentos_existentes(tipo: str, fecha: str | None = None, req: Request = None):
+    api_key = req.headers.get("X-API-KEY") if req else None
+    from config import Config
+    if api_key != Config.API_SECRET_KEY:
+        return JSONResponse(status_code=401, content={"detail": "No autorizado: API Key inválida"})
+    
+    from core.supabase_client import get_client
+    from core.invoice_classifier import obtener_documentos_registrados
+    db = get_client()
+    docs = list(obtener_documentos_registrados(db, tipo, fecha))
+    return {"tipo": tipo, "fecha": fecha, "total": len(docs), "documentos": docs}
+
+@app.post("/api/v1/cargas/staging")
+def recibir_carga_staging(data: StagingCargaRequest, req: Request):
+    api_key = req.headers.get("X-API-KEY")
+    from config import Config
+    if api_key != Config.API_SECRET_KEY:
+        return JSONResponse(status_code=401, content={"detail": "No autorizado: API Key inválida"})
+    
+    from core.invoice_classifier import guardar_lote_en_staging
+    ok = guardar_lote_en_staging({
+        "tipo": data.tipo,
+        "fecha": data.fecha,
+        "archivo_origen": data.archivo_origen,
+        "invoices": data.invoices
+    })
+    if ok:
+        return {"status": "success", "message": "Carga registrada en Staging", "total_facturas": len(data.invoices)}
+    return JSONResponse(status_code=500, content={"detail": "Error al guardar en Staging"})
+
 @app.get("/", response_class=HTMLResponse)
 def index_mobile():
     html_content = """<!DOCTYPE html>
