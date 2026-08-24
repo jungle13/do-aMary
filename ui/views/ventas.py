@@ -7,6 +7,8 @@ from pypdf import PdfReader, PdfWriter
 from config import Config
 from core.supabase_client import SupabaseClient
 from core.gemini_parser import GeminiParser
+from core.pdf_native_parser import detectar_y_parsear_pdf
+from ui.components.cargas_consolidada import CargasConsolidadaView
 import math
 import datetime
 from ui.components.autocomplete import CustomAutoComplete
@@ -102,19 +104,88 @@ class VentasView(ft.Container):
             icon_color="red"
         )
         
-        # Dashboard Resumen
-        self.lbl_ventas_hist = ft.Text("$0", size=20, weight="bold", color=Config.COLOR_PRIMARY)
-        self.lbl_ventas_hoy = ft.Text("$0", size=20, weight="bold", color="green")
-        self.lbl_iva_hist = ft.Text("$0", size=20, weight="bold")
-        self.lbl_iva_hoy = ft.Text("$0", size=20, weight="bold")
+        # Dashboard Resumen Financiero Compacto y Detallado
+        self.lbl_ventas_hist = ft.Text("$0", size=16, weight="bold", color=Config.COLOR_PRIMARY)
+        self.lbl_ventas_pos = ft.Text("$0", size=12, weight="bold", color="blue700")
+        self.lbl_ventas_remi = ft.Text("$0", size=12, weight="bold", color="teal800")
+        self.lbl_ventas_hoy = ft.Text("$0", size=15, weight="bold", color="green700")
+        self.lbl_ventas_hoy_sub = ft.Text("POS: $0  •  Remi: $0", size=10, color="grey600")
+        self.lbl_iva_hist = ft.Text("$0", size=15, weight="bold", color="purple700")
+        self.lbl_iva_hoy_sub = ft.Text("Hoy: $0", size=10, color="grey600")
         
         self.summary_container = ft.Container(
+            bgcolor="white",
+            padding=ft.padding.symmetric(horizontal=16, vertical=10),
+            border_radius=10,
+            border=ft.border.all(1, "#e2e8f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=6, color=ft.colors.with_opacity(0.04, "black")),
             content=ft.Row([
-                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Ventas hasta la fecha"), self.lbl_ventas_hist]), padding=5), expand=True),
-                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Ventas realizadas hoy"), self.lbl_ventas_hoy]), padding=5), expand=True),
-                ft.Card(content=ft.Container(content=ft.Column([ft.Text("IVA Total Cobrado"), self.lbl_iva_hist]), padding=5), expand=True),
-                ft.Card(content=ft.Container(content=ft.Column([ft.Text("IVA Total en el día"), self.lbl_iva_hoy]), padding=5), expand=True),
-            ])
+                # Bloque 1: TOTAL VENTAS ACUMULADO
+                ft.Container(
+                    expand=2,
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.icons.POINT_OF_SALE, size=15, color=Config.COLOR_PRIMARY),
+                            ft.Text("TOTAL VENTAS", size=10, weight="bold", color="grey700")
+                        ], spacing=4),
+                        self.lbl_ventas_hist,
+                        ft.Text("Acumulado en Sistema", size=10, color="grey500")
+                    ], spacing=2)
+                ),
+                ft.VerticalDivider(width=1, color="#e2e8f0"),
+                # Bloque 2: DESGLOSE POR CANAL
+                ft.Container(
+                    expand=3,
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.icons.PIE_CHART_OUTLINE, size=15, color="blue700"),
+                            ft.Text("VENTAS POR CANAL", size=10, weight="bold", color="grey700")
+                        ], spacing=4),
+                        ft.Row([
+                            ft.Container(
+                                content=ft.Row([
+                                    ft.Text("🧾 POS:", size=10, color="grey700", weight="w500"),
+                                    self.lbl_ventas_pos
+                                ], spacing=3),
+                                bgcolor="#eff6ff", padding=ft.padding.symmetric(horizontal=6, vertical=3), border_radius=5
+                            ),
+                            ft.Container(
+                                content=ft.Row([
+                                    ft.Text("📋 Remi:", size=10, color="grey700", weight="w500"),
+                                    self.lbl_ventas_remi
+                                ], spacing=3),
+                                bgcolor="#f0fdf4", padding=ft.padding.symmetric(horizontal=6, vertical=3), border_radius=5
+                            )
+                        ], spacing=6)
+                    ], spacing=3)
+                ),
+                ft.VerticalDivider(width=1, color="#e2e8f0"),
+                # Bloque 3: VENTAS DE HOY
+                ft.Container(
+                    expand=2,
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.icons.TODAY, size=15, color="green700"),
+                            ft.Text("VENTAS DE HOY", size=10, weight="bold", color="grey700")
+                        ], spacing=4),
+                        self.lbl_ventas_hoy,
+                        self.lbl_ventas_hoy_sub
+                    ], spacing=2)
+                ),
+                ft.VerticalDivider(width=1, color="#e2e8f0"),
+                # Bloque 4: IVA RECAUDADO
+                ft.Container(
+                    expand=2,
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.icons.ACCOUNT_BALANCE_WALLET_OUTLINED, size=15, color="purple700"),
+                            ft.Text("IVA TOTAL", size=10, weight="bold", color="grey700")
+                        ], spacing=4),
+                        self.lbl_iva_hist,
+                        self.lbl_iva_hoy_sub
+                    ], spacing=2)
+                )
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         )
         
         self.btn_agregar = ft.ElevatedButton(
@@ -126,6 +197,24 @@ class VentasView(ft.Container):
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
         )
         
+        # Filtro de Tipo de Documento para la tabla principal
+        self.drop_filtro_tipo_doc_tabla = ft.Dropdown(
+            options=[
+                ft.dropdown.Option("TODOS", "Todos los Tipos"),
+                ft.dropdown.Option("Factura POS", "Facturas POS"),
+                ft.dropdown.Option("Remisión", "Remisiones")
+            ],
+            value="TODOS",
+            label="Tipo Doc.",
+            dense=True,
+            width=150,
+            border_radius=8,
+            text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+            height=38,
+            on_change=lambda e: self.on_filtro_tipo_doc_change(e)
+        )
+
         # File Picker
         self.file_picker = ft.FilePicker(on_result=self.on_file_picked)
         
@@ -133,75 +222,45 @@ class VentasView(ft.Container):
         self.lbl_loading_text = ft.Text("Preparando archivo...", text_align=ft.TextAlign.CENTER)
         self.dlg_loading = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Procesando con Inteligencia Artificial"),
+            title=ft.Text("Procesando Documento PDF (Motor Local)"),
             content=ft.Column([
                 ft.ProgressRing(),
                 self.lbl_loading_text
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True)
         )
         
-        # Nuevo Diálogo de División PDF
+        # Diálogo de Procesamiento Nativo
         self.dlg_procesando_pdf = ft.AlertDialog(
             modal=True,
             content=ft.Row([
                 ft.ProgressRing(),
-                ft.Text("Dividiendo PDF en páginas locales...")
+                ft.Text("Extrayendo ventas con motor local...")
             ], alignment=ft.MainAxisAlignment.CENTER)
-        )
-        
-        # Modal de Metadatos
-        self.fecha_carga_actual = datetime.date.today().strftime("%Y-%m-%d")
-        self.date_picker_cargas = ft.DatePicker(on_change=self.on_date_cargas_change)
-        
-        self.fecha_carga_btn = ft.OutlinedButton(
-            text=self.fecha_carga_actual,
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=lambda e: self.date_picker_cargas.pick_date(),
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=40,
-            width=250
-        )
-        self.tipo_carga_dropdown = ft.Dropdown(label="Tipo", options=[ft.dropdown.Option("Remisión"), ft.dropdown.Option("Factura POS")], dense=True, width=250)
-        self.dlg_metadatos_pdf = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("Metadatos del PDF"),
-            content=ft.Column([
-                ft.Text("Fecha de Documento:", size=12, color="grey", weight="bold"),
-                self.fecha_carga_btn, 
-                self.tipo_carga_dropdown
-            ], tight=True),
-            actions=[
-                ft.TextButton("Cancelar", on_click=self._cerrar_modal_metadatos),
-                ft.ElevatedButton("Seleccionar Archivo", on_click=self._abrir_file_picker_desde_modal)
-            ]
         )
         
         # Diálogo de Confirmación
         self.dlg_confirm = ft.AlertDialog(modal=True)
         
-        # Tabla de Datos
+        # Tabla de Datos Optimizada (Sin scroll horizontal y con acciones siempre a la vista)
         self.data_table = ft.DataTable(
-            data_row_min_height=30,
-            data_row_max_height=30,
-            heading_row_height=40,
+            data_row_min_height=36,
+            data_row_max_height=42,
+            heading_row_height=38,
             columns=[
-                ft.DataColumn(ft.Text("Fecha", weight="bold")),
-                ft.DataColumn(ft.Text("No. Factura", weight="bold")),
-                ft.DataColumn(ft.Text("Tipo Doc.", weight="bold")),
-                ft.DataColumn(ft.Text("Código Item", weight="bold")),
-                ft.DataColumn(ft.Container(content=ft.Text("Nombre / Descripción", weight="bold"), width=250)),
-                ft.DataColumn(ft.Text("Cantidad", weight="bold"), numeric=True),
-                ft.DataColumn(ft.Text("Subtotal", weight="bold"), numeric=True),
-                ft.DataColumn(ft.Text("IVA", weight="bold")),
-                ft.DataColumn(ft.Text("Total", weight="bold"), numeric=True),
-                ft.DataColumn(ft.Text("Acciones", weight="bold")),
+                ft.DataColumn(ft.Text("Documento & Fecha", weight="bold", size=12)),
+                ft.DataColumn(ft.Container(content=ft.Text("Insumo / Descripción", weight="bold", size=12), width=320)),
+                ft.DataColumn(ft.Text("Cant.", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Subtotal", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("IVA", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Total", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Acciones", weight="bold", size=12)),
             ],
             rows=[],
-            heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
-            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
+            heading_row_color="#f8fafc",
+            border=ft.border.all(1, "#e2e8f0"),
             border_radius=8,
-            vertical_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
+            vertical_lines=ft.border.BorderSide(1, "#f1f5f9"),
+            horizontal_lines=ft.border.BorderSide(1, "#e2e8f0"),
         )
         
         # Controles Paginación
@@ -279,11 +338,12 @@ class VentasView(ft.Container):
         
         row_filtros_ventas = ft.Row([
             self.search_autocomplete,
+            self.drop_filtro_tipo_doc_tabla,
             self.btn_date,
             self.btn_clear_date,
             ft.Container(expand=True),
             self.btn_crear_manual
-        ])
+        ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
         contenedor_tabla_ventas = ft.Container(
             content=ft.Row([ft.Column([self.data_table], scroll=ft.ScrollMode.ALWAYS)], scroll=ft.ScrollMode.ALWAYS, expand=True, vertical_alignment=ft.CrossAxisAlignment.START),
@@ -311,35 +371,12 @@ class VentasView(ft.Container):
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
         )
 
-        # 2. Contenido del Tab 2: Gestión de Cargas
-        layout_tab_cargas = ft.Container(
-            content=ft.Column([
-                ft.Row([
-                    self.btn_filtro_fecha_cargas,
-                    self.btn_clear_filtro_cargas,
-                    self.drop_filtro_tipo_cargas,
-                    self.drop_filtro_estado_cargas,
-                    ft.Container(expand=True),
-                    self.btn_extraer_todo,
-                    ft.ElevatedButton(
-                        text="Subir PDF de Ventas",
-                        icon=ft.icons.UPLOAD_FILE,
-                        bgcolor=Config.COLOR_PRIMARY,
-                        color="white",
-                        height=45,
-                        on_click=self._abrir_modal_metadatos,
-                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-                    )
-                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                ft.Container(
-                    content=ft.Column([self.table_cargas], scroll=ft.ScrollMode.ALWAYS),
-                    expand=True,
-                    border_radius=8,
-                    border=ft.border.all(1, ft.colors.with_opacity(0.1, "black"))
-                )
-            ], expand=True, spacing=10),
-            padding=ft.padding.only(top=15),
-            expand=True
+        # 2. Contenido del Tab 2: Gestión de Cargas Consolidada
+        self.vista_cargas_consolidada = CargasConsolidadaView(
+            modulo="VENTAS",
+            on_upload_click=self.on_agregar_click,
+            on_save_callback=self._guardar_ventas_lote,
+            on_discard_callback=lambda: self.load_data()
         )
 
         # 3. Definición del Contenedor de Tabs
@@ -348,7 +385,7 @@ class VentasView(ft.Container):
             animation_duration=300,
             tabs=[
                 ft.Tab(text="Registro Ventas", icon=ft.icons.LIST_ALT, content=layout_tab_ventas),
-                ft.Tab(text="Gestión de Cargas", icon=ft.icons.DRIVE_FOLDER_UPLOAD, content=layout_tab_cargas)
+                ft.Tab(text="Gestión de Cargas", icon=ft.icons.DRIVE_FOLDER_UPLOAD, content=self.vista_cargas_consolidada)
             ],
             expand=True
         )
@@ -356,12 +393,16 @@ class VentasView(ft.Container):
         # --- DISEÑO DEL PANEL HISTÓRICO ---
         self.lbl_tot_ventas_panel = ft.Text("$0 COP", size=14, weight="bold", color="blue800")
         self.lbl_cant_ventas_panel = ft.Text("0 unds", size=10, color="grey")
+        self.panel_page = 1
+        self.panel_page_size = 10
+        self.panel_total_pages = 1
+        self.panel_items_cache = []
 
         kpi_ventas_panel = ft.Container(
             content=ft.Row([
                 ft.Icon(ft.icons.POINT_OF_SALE, color="blue700", size=20),
                 ft.Column([
-                    ft.Text("TOTAL VENTAS DEL DÍA", size=9, weight="bold", color="grey"),
+                    ft.Text("TOTAL VENTAS FILTRO", size=9, weight="bold", color="grey"),
                     self.lbl_tot_ventas_panel
                 ], spacing=0, expand=True),
                 self.lbl_cant_ventas_panel
@@ -371,23 +412,61 @@ class VentasView(ft.Container):
 
         self.segment_agrupacion_ventas = ft.SegmentedButton(
             segments=[
-                ft.Segment(value="CATEGORIA", label=ft.Text("Por Categoría", size=10)),
-                ft.Segment(value="FACTURA", label=ft.Text("Por Factura", size=10)),
+                ft.Segment(value="CATEGORIA", label=ft.Text("Categoría", size=10)),
+                ft.Segment(value="FACTURA", label=ft.Text("Factura", size=10)),
             ],
             selected={"CATEGORIA"},
             on_change=self.on_agrupacion_ventas_change,
             show_selected_icon=False
         )
 
+        self.drop_filtro_panel_tipo = ft.Dropdown(
+            options=[
+                ft.dropdown.Option("TODOS", "Todos"),
+                ft.dropdown.Option("Factura POS", "POS"),
+                ft.dropdown.Option("Remisión", "Remi")
+            ],
+            value="TODOS",
+            label="Tipo",
+            dense=True,
+            width=110,
+            border_radius=8,
+            text_size=11,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
+            height=32,
+            on_change=lambda e: self.cargar_historial_panel()
+        )
+
         self.btn_fecha_ventas_panel = ft.OutlinedButton(
-            self.fecha_historial_activa,
+            self.fecha_historial_activa or "Ver Todo",
             icon=ft.icons.CALENDAR_TODAY,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), padding=5),
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), padding=4),
             height=30,
             on_click=lambda e: self.date_picker_ventas_timeline.pick_date()
         )
 
+        self.btn_ver_todo_panel = ft.TextButton(
+            "Ver Todo",
+            icon=ft.icons.ALL_INCLUSIVE,
+            style=ft.ButtonStyle(padding=2),
+            height=28,
+            on_click=self.limpiar_fecha_panel
+        )
+
         self.panel_ventas_list = ft.ListView(expand=True, spacing=6)
+
+        # Controles de paginación del panel
+        self.lbl_panel_page_info = ft.Text("Pág 1/1", size=10, color="grey700")
+        self.btn_panel_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, icon_size=16, tooltip="Anterior", on_click=self.on_panel_prev_page, disabled=True)
+        self.btn_panel_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, icon_size=16, tooltip="Siguiente", on_click=self.on_panel_next_page, disabled=True)
+
+        footer_panel = ft.Row([
+            self.btn_ver_todo_panel,
+            ft.Container(expand=True),
+            self.btn_panel_prev,
+            self.lbl_panel_page_info,
+            self.btn_panel_next
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
         # Botón para copiar histórico de ventas
         self.btn_copiar_ventas_panel = ft.IconButton(
@@ -415,10 +494,17 @@ class VentasView(ft.Container):
                     padding=10, bgcolor="#f4f6f8", border_radius=ft.border_radius.only(top_left=8, top_right=8)
                 ),
                 ft.Container(content=kpi_ventas_panel, padding=ft.padding.symmetric(horizontal=10)),
-                ft.Container(content=self.segment_agrupacion_ventas, padding=ft.padding.symmetric(horizontal=10), alignment=ft.alignment.center),
+                ft.Container(
+                    content=ft.Row([
+                        self.segment_agrupacion_ventas,
+                        self.drop_filtro_panel_tipo
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    padding=ft.padding.symmetric(horizontal=10)
+                ),
                 ft.Divider(height=1, color="#e0e0e0"),
-                ft.Container(content=self.panel_ventas_list, expand=True, padding=10)
-            ], spacing=8)
+                ft.Container(content=self.panel_ventas_list, expand=True, padding=10),
+                ft.Container(content=footer_panel, padding=ft.padding.symmetric(horizontal=10, vertical=4), bgcolor="#f8fafc")
+            ], spacing=6)
         )
 
         self.filtro_badge_ventas = ft.Container(
@@ -459,7 +545,7 @@ class VentasView(ft.Container):
 
     def toggle_right_panel(self, e):
         self.panel_abierto = not self.panel_abierto
-        self.right_panel.width = 330 if self.panel_abierto else 0
+        self.right_panel.width = 380 if self.panel_abierto else 0
         self.right_panel.visible = self.panel_abierto
         self.right_panel.padding = 0
         self.btn_toggle_panel.icon = ft.icons.HISTORY if self.panel_abierto else ft.icons.HISTORY_TOGGLE_OFF
@@ -474,18 +560,47 @@ class VentasView(ft.Container):
         if self.date_picker_ventas_timeline.value:
             self.fecha_historial_activa = self.date_picker_ventas_timeline.value.strftime("%Y-%m-%d")
             self.btn_fecha_ventas_panel.text = self.fecha_historial_activa
+            self.panel_page = 1
             self.cargar_historial_panel()
+
+    def limpiar_fecha_panel(self, e):
+        self.fecha_historial_activa = None
+        self.date_picker_ventas_timeline.value = None
+        self.btn_fecha_ventas_panel.text = "Ver Todo"
+        self.panel_page = 1
+        self.cargar_historial_panel()
+
+    def on_panel_prev_page(self, e):
+        if self.panel_page > 1:
+            self.panel_page -= 1
+            self._render_panel_items()
+
+    def on_panel_next_page(self, e):
+        if self.panel_page < self.panel_total_pages:
+            self.panel_page += 1
+            self._render_panel_items()
 
     def on_agrupacion_ventas_change(self, e):
         if e.control.selected:
             self.modo_agrupacion_ventas = list(e.control.selected)[0]
+            self.panel_page = 1
             self.cargar_historial_panel()
 
     def cargar_historial_panel(self):
         if not self.page: return
 
         def worker():
-            items = self.db.get_historial_ventas_dia(self.fecha_historial_activa, self.modo_agrupacion_ventas)
+            tipo_filtro = getattr(self.drop_filtro_panel_tipo, "value", "TODOS")
+            items = self.db.get_historial_ventas_dia(
+                fecha_dia=self.fecha_historial_activa,
+                agrupar_por=self.modo_agrupacion_ventas,
+                tipo_documento=tipo_filtro
+            )
+
+            self.panel_items_cache = items
+            self.panel_total_pages = max(1, math.ceil(len(items) / self.panel_page_size))
+            if self.panel_page > self.panel_total_pages:
+                self.panel_page = 1
 
             tot_pesos = sum([item["total"] for item in items])
             tot_unds = sum([item["unidades"] for item in items])
@@ -493,60 +608,74 @@ class VentasView(ft.Container):
             self.lbl_tot_ventas_panel.value = f"${tot_pesos:,.0f} COP"
             self.lbl_cant_ventas_panel.value = f"{tot_unds:g} unds"
 
-            self.panel_ventas_list.controls.clear()
-
-            for item in items:
-                self.panel_ventas_list.controls.append(self._crear_card_item_ventas(item))
-
-            if not self.panel_ventas_list.controls:
-                self.panel_ventas_list.controls.append(
-                    ft.Container(content=ft.Text("Sin ventas registradas en esta fecha.", size=11, color="grey"), padding=20, alignment=ft.alignment.center)
-                )
-
-            if hasattr(self, "safe_update"):
-                self.safe_update()
-            else:
-                self.page.update()
+            self._render_panel_items()
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _render_panel_items(self):
+        self.panel_ventas_list.controls.clear()
+        start = (self.panel_page - 1) * self.panel_page_size
+        end = start + self.panel_page_size
+        page_items = self.panel_items_cache[start:end]
+
+        for item in page_items:
+            self.panel_ventas_list.controls.append(self._crear_card_item_ventas(item))
+
+        if not self.panel_items_cache:
+            self.panel_ventas_list.controls.append(
+                ft.Container(
+                    content=ft.Text("Sin ventas registradas para este filtro.", size=11, color="grey"),
+                    padding=20, alignment=ft.alignment.center
+                )
+            )
+
+        self.lbl_panel_page_info.value = f"Pág {self.panel_page}/{self.panel_total_pages}"
+        self.btn_panel_prev.disabled = (self.panel_page <= 1)
+        self.btn_panel_next.disabled = (self.panel_page >= self.panel_total_pages)
+
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        elif self.page:
+            self.page.update()
 
     def _crear_card_item_ventas(self, item):
         tipo = item["tipo"]
 
         if tipo == "CATEGORIA_RESUMEN":
-            badge_txt = f"CATEGORÍA: {item['categoria']}"
+            badge_txt = f"CAT: {item['categoria']}"
             badge_bg, badge_col = "#e8f0fe", "blue800"
             sub_txt = f"{item['items_count']} ítems vendidos"
             icon_mat = ft.icons.CATEGORY
         else:
             # FACTURA_VENTA
             subtipo = item.get("subtipo", "POS")
-            badge_txt = f"DOC: {item['factura']} ({subtipo})"
-            badge_bg, badge_col = "#e6f4ea" if "POS" in subtipo.upper() else "#f3e8fd", "teal800" if "POS" in subtipo.upper() else "purple800"
+            is_pos = "POS" in subtipo.upper()
+            badge_txt = f"#{item['factura']} ({'POS' if is_pos else 'REMI'})"
+            badge_bg, badge_col = ("#eff6ff", "blue800") if is_pos else ("#f0fdf4", "teal800")
             sub_txt = f"Venta {subtipo}"
             icon_mat = ft.icons.RECEIPT_LONG
 
         badge = ft.Container(
             content=ft.Text(badge_txt, size=9, weight="bold", color=badge_col, no_wrap=True),
-            padding=ft.padding.symmetric(horizontal=6, vertical=2), bgcolor=badge_bg, border_radius=10
+            padding=ft.padding.symmetric(horizontal=6, vertical=2), bgcolor=badge_bg, border_radius=6
         )
 
         card = ft.Container(
             content=ft.Row([
-                ft.Icon(icon_mat, size=16, color="blue700"),
+                ft.Icon(icon_mat, size=16, color=Config.COLOR_PRIMARY),
                 ft.Column([
                     badge,
-                    ft.Text(sub_txt, size=11, weight="bold", color="black87", no_wrap=True, tooltip=sub_txt),
+                    ft.Text(sub_txt, size=10, color="grey700", no_wrap=True),
                 ], expand=True, spacing=2),
                 ft.Column([
-                    ft.Text(f"${item['total']:,.0f}", size=11, weight="bold", color="black87"),
+                    ft.Text(f"${item['total']:,.0f}", size=11, weight="bold", color="teal800"),
                     ft.Text(f"{item['unidades']:g} unds", size=9, color="grey", text_align=ft.TextAlign.RIGHT)
                 ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=1)
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
             padding=8,
             border_radius=6,
             bgcolor="#ffffff",
-            border=ft.border.all(1, "#eeeeee"),
+            border=ft.border.all(1, "#e2e8f0"),
             on_click=lambda e, i=item: self.aplicar_filtro_cruzado_ventas(i),
             ink=True
         )
@@ -610,16 +739,10 @@ class VentasView(ft.Container):
             self.page.overlay.append(self.dlg_loading)
         if hasattr(self, "dlg_confirm") and self.dlg_confirm not in self.page.overlay:
             self.page.overlay.append(self.dlg_confirm)
-        if hasattr(self, "dlg_metadatos_pdf") and self.dlg_metadatos_pdf not in self.page.overlay:
-            self.page.overlay.append(self.dlg_metadatos_pdf)
         if hasattr(self, "dlg_procesando_pdf") and self.dlg_procesando_pdf not in self.page.overlay:
             self.page.overlay.append(self.dlg_procesando_pdf)
         if hasattr(self, "date_picker") and self.date_picker not in self.page.overlay:
             self.page.overlay.append(self.date_picker)
-        if hasattr(self, "date_picker_cargas") and self.date_picker_cargas not in self.page.overlay:
-            self.page.overlay.append(self.date_picker_cargas)
-        if hasattr(self, "date_picker_filtro_cargas") and self.date_picker_filtro_cargas not in self.page.overlay:
-            self.page.overlay.append(self.date_picker_filtro_cargas)
             
         self.page.update()
         self.load_summary()
@@ -646,15 +769,12 @@ class VentasView(ft.Container):
             self.safe_update()
         elif self.page:
             self.page.update()
-        self._render_tabla_cargas()
 
     def _abrir_modal_metadatos(self, e):
-        self.dlg_metadatos_pdf.open = True
-        self.page.update()
+        self.on_agregar_click(e)
 
     def _cerrar_modal_metadatos(self, e=None):
-        self.dlg_metadatos_pdf.open = False
-        self.page.update()
+        pass
 
     def on_date_filtro_cargas_change(self, e):
         if self.date_picker_filtro_cargas.value:
@@ -1031,14 +1151,34 @@ class VentasView(ft.Container):
             # Renderizar la tabla reactiva los botones automáticamente según su estado
             self._render_tabla_cargas()
         
+    def on_filtro_tipo_doc_change(self, e):
+        self.current_page = 1
+        self.load_data()
+
     def load_summary(self):
-        res = self.db.get_ventas_summary()
-        self.lbl_ventas_hist.value = f"${res.get('total_historico', 0):,.2f}"
-        self.lbl_ventas_hoy.value = f"${res.get('total_hoy', 0):,.2f}"
-        self.lbl_iva_hist.value = f"${res.get('iva_historico', 0):,.2f}"
-        self.lbl_iva_hoy.value = f"${res.get('iva_hoy', 0):,.2f}"
+        f_corte = getattr(self, "fecha_corte", None)
+        res = self.db.get_ventas_summary(fecha_corte=f_corte)
+        tot_hist = res.get("total_historico", 0.0)
+        tot_pos = res.get("total_pos", 0.0)
+        tot_remi = res.get("total_remi", 0.0)
+        tot_hoy = res.get("total_hoy", 0.0)
+        hoy_pos = res.get("hoy_pos", 0.0)
+        hoy_remi = res.get("hoy_remi", 0.0)
+        iva_hist = res.get("iva_historico", 0.0)
+        iva_hoy = res.get("iva_hoy", 0.0)
+
+        self.lbl_ventas_hist.value = f"${tot_hist:,.2f}"
+        self.lbl_ventas_pos.value = f"${tot_pos:,.2f}"
+        self.lbl_ventas_remi.value = f"${tot_remi:,.2f}"
+        self.lbl_ventas_hoy.value = f"${tot_hoy:,.2f}"
+        self.lbl_ventas_hoy_sub.value = f"POS: ${hoy_pos:,.0f}  •  Remi: ${hoy_remi:,.0f}"
+        self.lbl_iva_hist.value = f"${iva_hist:,.2f}"
+        self.lbl_iva_hoy_sub.value = f"Hoy: ${iva_hoy:,.2f}"
         if self.page:
-            self.update()
+            try:
+                self.summary_container.update()
+            except Exception:
+                pass
             
     def open_date_picker(self, e):
         self.date_picker.pick_date()
@@ -1068,85 +1208,114 @@ class VentasView(ft.Container):
         self.current_page = 1
         self.load_data()
         
+    def on_agregar_click(self, e=None):
+        if self.page:
+            if self.file_picker not in self.page.overlay:
+                self.page.overlay.append(self.file_picker)
+                self.page.update()
+            self.file_picker.pick_files(
+                allow_multiple=False,
+                allowed_extensions=["pdf"],
+                dialog_title="Selecciona el Reporte de Ventas (POS o Remisiones)"
+            )
+
     def _abrir_file_picker_desde_modal(self, e):
-        self.fecha_seleccionada = self.fecha_carga_actual
-        self.tipo_seleccionado = self.tipo_carga_dropdown.value
-        self._cerrar_modal_metadatos()
-        self.file_picker.pick_files(allow_multiple=False, allowed_extensions=["pdf"], dialog_title="Selecciona el Reporte de Ventas")
+        self.on_agregar_click(e)
 
     def on_file_picked(self, e: ft.FilePickerResultEvent):
         if e.files and len(e.files) > 0:
             pdf_path = e.files[0].path
             self.dlg_procesando_pdf.open = True
-            self.page.update()
-            
-            threading.Thread(target=self._dividir_y_guardar_pdf, args=(pdf_path,), daemon=True).start()
-
-    def _dividir_y_guardar_pdf(self, pdf_path):
-        try:
-            reader = PdfReader(pdf_path)
-            total_pages = len(reader.pages)
-            
-            grupo_key = f"{self.fecha_seleccionada}_{self.tipo_seleccionado}"
-            if grupo_key not in self.cargas_data:
-                self.cargas_data[grupo_key] = {}
-                
-            paginas_existentes = [int(p) for p in self.cargas_data[grupo_key].keys()]
-            max_pagina = max(paginas_existentes) if paginas_existentes else 0
-            
-            # Crear carpeta raíz para los PDFs temporales si no existe
-            os.makedirs("pdfs_locales", exist_ok=True)
-            
-            paginas_procesadas = 0
-            for i in range(total_pages):
-                pagina_real = i + 1
-                
-                # Regla de Solapamiento: Ignorar páginas anteriores a la última cargada
-                if max_pagina > 0 and pagina_real < max_pagina:
-                    continue
-                    
-                writer = PdfWriter()
-                writer.add_page(reader.pages[i])
-                
-                nombre_archivo = f"pdfs_locales/ventas_{self.fecha_seleccionada}_{self.tipo_seleccionado.replace(' ', '_')}_Pag_{pagina_real}.pdf"
-                
-                with open(nombre_archivo, "wb") as f:
-                    writer.write(f)
-                    
-                estado = "Sobreescrito" if (max_pagina > 0 and pagina_real == max_pagina) else "Nuevo"
-                
-                # Asignación de ID único consecutivo
-                nuevo_id = 1
-                if self.cargas_data:
-                    todos_ids = [item.get("id", 0) for g in self.cargas_data.values() for item in g.values()]
-                    nuevo_id = max(todos_ids) + 1 if todos_ids else 1
-                
-                if str(pagina_real) in self.cargas_data[grupo_key]:
-                    nuevo_id = self.cargas_data[grupo_key][str(pagina_real)]["id"]
-                
-                self.cargas_data[grupo_key][str(pagina_real)] = {
-                    "id": nuevo_id,
-                    "pagina": pagina_real,
-                    "tipo": self.tipo_seleccionado,
-                    "fecha": self.fecha_seleccionada,
-                    "archivo": nombre_archivo,
-                    "estado": estado
-                }
-                paginas_procesadas += 1
-                
-            self._save_cargas()
-            self._render_tabla_cargas()
-            
             if self.page:
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"Éxito: Se generaron {paginas_procesadas} páginas en local."), bgcolor="green")
-        except Exception as ex:
-            if self.page:
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error fraccionando PDF: {ex}"), bgcolor="red")
-        finally:
-            self.dlg_procesando_pdf.open = False
-            if self.page:
-                self.page.snack_bar.open = True
                 self.page.update()
+            threading.Thread(target=self._procesar_pdf_ventas_nativo, args=(pdf_path,), daemon=True).start()
+
+    def _procesar_pdf_ventas_nativo(self, pdf_path):
+        try:
+            res = detectar_y_parsear_pdf(pdf_path)
+            res['nombre_archivo'] = os.path.basename(pdf_path)
+            
+            # Validar duplicados contra Supabase
+            facturas_nums = [f['factura_no'] for f in res.get('facturas', []) if f.get('factura_no')]
+            existentes = self.db.get_ventas_existentes(facturas_nums)
+            
+            for f in res.get('facturas', []):
+                is_dup = f['factura_no'] in existentes
+                f['ya_registrada'] = is_dup
+                f['seleccionada'] = not is_dup
+                f['expandida'] = False
+                
+            self.vista_cargas_consolidada.set_data(res)
+            self.tabs.selected_index = 1 # Cambiar a la pestaña de Gestión de Cargas
+            
+            self.dlg_procesando_pdf.open = False
+            self.mostrar_alerta(f"✓ PDF de Ventas procesado: {res['total_facturas']} documentos y {res['total_insumos']} insumos detectados.", "green700")
+            
+        except Exception as ex:
+            self.dlg_procesando_pdf.open = False
+            self.mostrar_alerta(f"Error procesando PDF de ventas: {str(ex)}", "red")
+        finally:
+            if self.page:
+                self.page.update()
+
+    def _guardar_ventas_lote(self, facturas_seleccionadas):
+        try:
+            self.dlg_procesando_pdf.open = True
+            if self.page:
+                self.page.update()
+                
+            payload = []
+            for f in facturas_seleccionadas:
+                fecha_doc = f.get('fecha')
+                num_fac = f.get('factura_no')
+                tipo_doc = f.get('tipo_documento', 'Factura POS')
+                pag_orig = f.get('pagina_origen', 1)
+                
+                for it in f.get('items', []):
+                    payload.append({
+                        "fecha": fecha_doc,
+                        "factura_no": num_fac,
+                        "tipo_documento": tipo_doc,
+                        "pagina_origen": pag_orig,
+                        "codigo_insumo": it.get('codigo_insumo'),
+                        "descripcion": it.get('descripcion'),
+                        "cantidad": float(it.get('cantidad', 0)),
+                        "subtotal": float(it.get('subtotal', 0)),
+                        "iva": float(it.get('iva', 0)),
+                        "total": float(it.get('total', 0)),
+                        "estado_registro": "VÁLIDO"
+                    })
+                    
+            exito = self.db.insert_ventas(payload)
+            self.dlg_procesando_pdf.open = False
+            
+            if exito:
+                self.vista_cargas_consolidada.set_data(None)
+                self.tabs.selected_index = 0 # Volver a la tabla principal de ventas
+                self.load_data()
+                self.load_summary()
+                self.mostrar_alerta(f"✓ {len(facturas_seleccionadas)} documentos ({len(payload)} insumos) guardados exitosamente.", "green700")
+            else:
+                self.mostrar_alerta("Error al guardar ventas en la base de datos.", "red")
+        except Exception as ex:
+            self.dlg_procesando_pdf.open = False
+            self.mostrar_alerta(f"Error al guardar lote de ventas: {str(ex)}", "red")
+        finally:
+            if self.page:
+                self.page.update()
+
+    def mostrar_alerta(self, mensaje: str, color: str = "red"):
+        if self.page:
+            self.page.snack_bar = ft.SnackBar(
+                ft.Text(mensaje, weight="bold", color="white"),
+                bgcolor=color,
+                duration=3500
+            )
+            self.page.snack_bar.open = True
+            try:
+                self.page.update()
+            except Exception:
+                pass
 
     def animate_loading(self, base_msg):
         messages = [
@@ -1725,6 +1894,7 @@ class VentasView(ft.Container):
         cat_filtro = getattr(self, 'filtro_categoria_activo', None)
         fact_filtro = getattr(self, 'filtro_factura_activo', None)
         f_corte = getattr(self, 'fecha_corte', None)
+        tipo_doc_filtro = getattr(self.drop_filtro_tipo_doc_tabla, "value", "TODOS")
 
         data, total = self.db.get_ventas(
             page=self.current_page, 
@@ -1732,7 +1902,8 @@ class VentasView(ft.Container):
             search=search_val,
             fecha_corte=f_corte,
             categoria_filtro=cat_filtro,
-            factura_filtro=fact_filtro
+            factura_filtro=fact_filtro,
+            tipo_documento_filtro=tipo_doc_filtro
         )
         
         self.total_records = total
@@ -1761,31 +1932,56 @@ class VentasView(ft.Container):
             str_precio_unit = f"${precio_unitario:,.2f}"
             str_iva = f"${iva:,.2f}"
             str_total = f"${costo_total:,.2f}"
+            str_cant = f"{int(cantidad)} unds" if cantidad.is_integer() else f"{cantidad:g} unds"
             
-            str_cant = str(int(cantidad)) if cantidad.is_integer() else str(cantidad)
+            is_pos = "POS" in str_tipo_doc.upper()
+            badge_color = "blue700" if is_pos else "teal800"
+            badge_bg = "#eff6ff" if is_pos else "#f0fdf4"
+            badge_txt = "POS" if is_pos else "REMI"
             
+            cell_doc = ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.Container(
+                            content=ft.Text(badge_txt, size=9, weight="bold", color=badge_color),
+                            bgcolor=badge_bg, padding=ft.padding.symmetric(horizontal=4, vertical=1), border_radius=3
+                        ),
+                        ft.Text(f"#{str_factura}", size=11, weight="bold", color=Config.COLOR_PRIMARY)
+                    ], spacing=4),
+                    ft.Text(str_fecha, size=10, color="grey600")
+                ], spacing=1, alignment=ft.MainAxisAlignment.CENTER),
+                padding=ft.padding.symmetric(vertical=2)
+            )
+
+            cell_item = ft.Container(
+                content=ft.Row([
+                    ft.Text(f"[{str_codigo}]", size=11, weight="bold", color=Config.COLOR_PRIMARY),
+                    ft.Text(str_nombre, size=11, weight="w500", overflow=ft.TextOverflow.ELLIPSIS, expand=True)
+                ], spacing=5),
+                width=320
+            )
+
             row = ft.DataRow(
                 cells=[
-                    ft.DataCell(ft.Text(str_fecha)),
-                    ft.DataCell(ft.Text(str_factura)),
-                    ft.DataCell(ft.Text(str_tipo_doc)),
-                    ft.DataCell(ft.Text(str_codigo)),
-                    ft.DataCell(ft.Container(content=ft.Text(str_nombre), width=250)),
-                    ft.DataCell(ft.Text(str_cant)),
-                    ft.DataCell(ft.Text(str_precio_unit)),
-                    ft.DataCell(ft.Text(str_iva, color="grey")),
-                    ft.DataCell(ft.Text(str_total, color="green", weight="bold")),
+                    ft.DataCell(cell_doc),
+                    ft.DataCell(cell_item),
+                    ft.DataCell(ft.Text(str_cant, size=11)),
+                    ft.DataCell(ft.Text(str_precio_unit, size=11)),
+                    ft.DataCell(ft.Text(str_iva, size=11, color="grey700")),
+                    ft.DataCell(ft.Text(str_total, size=11, color="teal800", weight="bold")),
                     ft.DataCell(
                         ft.Row([
                             ft.IconButton(
                                 icon=ft.icons.EDIT_OUTLINED, 
                                 icon_color="blue", 
+                                icon_size=18,
                                 tooltip="Editar Venta", 
                                 on_click=lambda e, i=item: self.abrir_modal_editar_venta(i)
                             ),
                             ft.IconButton(
                                 icon=ft.icons.DELETE_OUTLINED, 
                                 icon_color="red", 
+                                icon_size=18,
                                 tooltip="Eliminar Venta", 
                                 on_click=lambda e, i=item: self.confirmar_eliminar_venta(i)
                             )

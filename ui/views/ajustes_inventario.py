@@ -584,8 +584,13 @@ class AjustesInventarioView(ft.Container):
             self.mostrar_alerta("Error al anular.", "red")
 
     def mostrar_alerta(self, msj, color):
-        self.page.snack_bar = ft.SnackBar(ft.Text(msj), bgcolor=color)
-        self.page.snack_bar.open = True
+        if self.page:
+            self.page.snack_bar = ft.SnackBar(ft.Text(msj, weight="bold", color="white"), bgcolor=color, duration=3000)
+            self.page.snack_bar.open = True
+            try:
+                self.page.update()
+            except Exception:
+                pass
 
     def _clear_date(self, e):
         self.date_picker.value = None

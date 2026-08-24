@@ -116,53 +116,134 @@ class ComprasRepository:
             log_error(f"get_historial_compras_dia({fecha_dia})", ex)
             return []
 
+    def _asegurar_insumos_existen(self, items_list: list):
+        if not items_list:
+            return
+        codigos_entrantes = {str(x.get("codigo_insumo") or "").strip() for x in items_list if str(x.get("codigo_insumo") or "").strip()}
+        if not codigos_entrantes:
+            return
+        existentes = set()
+        chunk_size = 50
+        codigos_arr = list(codigos_entrantes)
+        for i in range(0, len(codigos_arr), chunk_size):
+            chk = codigos_arr[i:i+chunk_size]
+            c_str = ",".join(chk)
+            try:
+                res = self.db.get(f"catalogo_insumos?select=codigo_insumo&codigo_insumo=in.({c_str})", timeout=5)
+                if res and res.status_code == 200:
+                    for row in res.json():
+                        existentes.add(str(row["codigo_insumo"]).strip())
+            except Exception:
+                pass
+        
+        faltantes = codigos_entrantes - existentes
+        if faltantes:
+            nuevos = []
+            for cod in faltantes:
+                nom = "INSUMO AUTO-REGISTRADO"
+                for item in items_list:
+                    if str(item.get("codigo_insumo") or "").strip() == cod:
+                        nom = item.get("descripcion") or nom
+                        break
+                nuevos.append({
+                    "codigo_insumo": cod,
+                    "nombre": nom[:100],
+                    "categoria": "DESECHABLES",
+                    "costo_unitario": 0.0,
+                    "precio_venta": 0.0,
+                    "stock_actual": 0.0,
+                    "stock_minimo": 5.0,
+                    "estado": True,
+                    "zona": "NO UBICADO",
+                    "ubicacion": "BODEGA",
+                    "tipo_unidad": "und"
+                })
+            try:
+                self.db.post("catalogo_insumos", json_data=nuevos, timeout=10)
+            except Exception:
+                pass
+
     def insert_compras(self, compras_list: list) -> bool:
         if not compras_list:
             return True
         try:
-            res = self.db.post("registro_compras", json_data=compras_list, timeout=15)
-            if res and res.status_code in (200, 201, 204):
-                # Actualizar costo_unitario en catalogo_insumos con la última compra
-                for c in compras_list:
-                    cod = str(c.get("codigo_insumo") or "").zfill(4)
-                    costo_u = float(c.get("costo_unitario") or 0)
-                    if cod and costo_u > 0:
-                        try:
-                            self.db.patch(f"catalogo_insumos?codigo_insumo=eq.{cod}", json_data={"costo_unitario": costo_u}, timeout=5)
-                        except Exception:
-                            pass
+            self._asegurar_insumos_existen(compras_list)
+            # Chunking para inserciones grandes
+            chunk_size = 100
+            for i in range(0, len(compras_list), chunk_size):
+                chunk = compras_list[i:i + chunk_size]
+                res = self.db.post("registro_compras", json_data=chunk, timeout=30)
+                if not (res and res.status_code in (200, 201, 204)):
+                    err = res.text if res else "No response"
+                    logger.error(f"Error en insert_compras chunk {i}: {err}")
+                    return False
+            # Desduplicar y actualizar costo_unitario en catalogo_insumos en segundo plano
+            costos_map = {}
+            for c in compras_list:
+                cod = str(c.get("codigo_insumo") or "").strip()
+                costo_u = float(c.get("costo_unitario") or 0)
+                if cod and costo_u > 0:
+                    costos_map[cod] = costo_u
 
-                from core.audit_logger import registrar_accion
-                facs = list(set([str(c.get("numero_factura") or c.get("numero_entrada") or "") for c in compras_list if (c.get("numero_factura") or c.get("numero_entrada"))]))
-                fac_txt = f" (Docs: {', '.join(facs[:3])}{'...' if len(facs)>3 else ''})" if facs else ""
-                tot_monto = sum([float(c.get("costo_total") or 0) for c in compras_list])
-                registrar_accion(
-                    accion=f"Guardado de compras en BD: {len(compras_list)} registros{fac_txt} por ${tot_monto:,.0f}",
-                    modulo="COMPRAS",
-                    detalles={"registros": len(compras_list), "total": tot_monto, "documentos": facs}
-                )
-                return True
-            err = res.text if res else "No response"
-            logger.error(f"Error en insert_compras: {err}")
-            return False
+            def _actualizar_costos_async(c_map):
+                for cod, cost in c_map.items():
+                    try:
+                        self.db.patch(f"catalogo_insumos?codigo_insumo=eq.{cod}", json_data={"costo_unitario": cost}, timeout=5)
+                    except Exception:
+                        pass
+
+            if costos_map:
+                import threading
+                threading.Thread(target=_actualizar_costos_async, args=(costos_map,), daemon=True).start()
+
+            from core.audit_logger import registrar_accion
+            facs = list(set([str(c.get("numero_factura") or c.get("numero_entrada") or "") for c in compras_list if (c.get("numero_factura") or c.get("numero_entrada"))]))
+            fac_txt = f" (Docs: {', '.join(facs[:3])}{'...' if len(facs)>3 else ''})" if facs else ""
+            tot_monto = sum([float(c.get("costo_total") or 0) for c in compras_list])
+            registrar_accion(
+                accion=f"Guardado de compras en BD: {len(compras_list)} registros{fac_txt} por ${tot_monto:,.0f}",
+                modulo="COMPRAS",
+                detalles={"registros": len(compras_list), "total": tot_monto, "documentos": facs}
+            )
+            return True
         except Exception as ex:
             log_error("insert_compras", ex)
             return False
 
-    def get_entradas_existentes(self, lista_eas: list) -> set:
-        if not lista_eas:
-            return set()
-        try:
-            eas_str = ",".join(lista_eas)
-            endpoint = f"registro_compras?select=numero_entrada&numero_entrada=in.({eas_str})"
-            res = self.db.get(endpoint, timeout=10)
-            if res and res.status_code == 200:
-                data = res.json()
-                return {item["numero_entrada"] for item in data if item.get("numero_entrada")}
-            return set()
-        except Exception as ex:
-            log_error("get_entradas_existentes", ex)
-            return set()
+    def get_entradas_existentes(self, lista_eas: list, lista_facturas: list = None) -> set:
+        existentes = set()
+        if lista_eas:
+            chunk_size = 50
+            for i in range(0, len(lista_eas), chunk_size):
+                chunk = lista_eas[i:i + chunk_size]
+                try:
+                    eas_str = ",".join([str(x).strip() for x in chunk if str(x).strip()])
+                    endpoint = f"registro_compras?select=numero_entrada&numero_entrada=in.({eas_str})"
+                    res = self.db.get(endpoint, timeout=10)
+                    if res and res.status_code == 200:
+                        data = res.json()
+                        for item in data:
+                            if item.get("numero_entrada"):
+                                existentes.add(str(item["numero_entrada"]))
+                except Exception as ex:
+                    log_error("get_entradas_existentes", ex)
+
+        if lista_facturas:
+            chunk_size = 50
+            for i in range(0, len(lista_facturas), chunk_size):
+                chunk = lista_facturas[i:i + chunk_size]
+                try:
+                    fac_str = ",".join([str(x).strip() for x in chunk if str(x).strip()])
+                    endpoint = f"registro_compras?select=numero_factura&numero_factura=in.({fac_str})"
+                    res = self.db.get(endpoint, timeout=10)
+                    if res and res.status_code == 200:
+                        data = res.json()
+                        for item in data:
+                            if item.get("numero_factura"):
+                                existentes.add(str(item["numero_factura"]))
+                except Exception as ex:
+                    log_error("get_entradas_existentes_fac", ex)
+        return existentes
 
     def eliminar_compras_por_entradas(self, lista_entradas: list) -> bool:
         if not lista_entradas:
@@ -186,40 +267,52 @@ class ComprasRepository:
         try:
             hoy = datetime.date.today().strftime("%Y-%m-%d")
             mes_actual = hoy[:7]
-            endpoint = "registro_compras?select=fecha,cantidad,costo_total,iva,valor_iva,estado_registro&estado_registro=eq.VÁLIDO"
-            res = self.db.get(endpoint, timeout=10)
-            if res and res.status_code == 200:
-                data = res.json()
-                total_mes = 0.0
-                total_hoy = 0.0
-                cant_tot = 0.0
-                iva_mes = 0.0
-                iva_hoy = 0.0
+            
+            data = []
+            offset = 0
+            limit = 2500
+            while True:
+                headers = {"Range": f"{offset}-{offset + limit - 1}"}
+                res = self.db.get("registro_compras?select=fecha,cantidad,costo_total,iva,valor_iva,estado_registro&estado_registro=eq.VÁLIDO", custom_headers=headers, timeout=15)
+                if not res or res.status_code not in (200, 206):
+                    break
+                chunk = res.json()
+                if not chunk:
+                    break
+                data.extend(chunk)
+                if len(chunk) < limit:
+                    break
+                offset += limit
 
-                for c in data:
-                    f = str(c.get("fecha") or "")[:10]
-                    if fecha_corte and f > fecha_corte:
-                        continue
-                    monto = float(c.get("costo_total") or 0)
-                    cant = float(c.get("cantidad") or 0)
-                    iva_val = float(c.get("iva") or c.get("valor_iva") or 0)
+            total_mes = 0.0
+            total_hoy = 0.0
+            cant_tot = 0.0
+            iva_mes = 0.0
+            iva_hoy = 0.0
 
-                    if f.startswith(mes_actual):
-                        total_mes += monto
-                        iva_mes += iva_val
-                    if f == hoy:
-                        total_hoy += monto
-                        iva_hoy += iva_val
-                    cant_tot += cant
+            for c in data:
+                f = str(c.get("fecha") or "")[:10]
+                if fecha_corte and f > fecha_corte:
+                    continue
+                monto = float(c.get("costo_total") or 0)
+                cant = float(c.get("cantidad") or 0)
+                iva_val = float(c.get("iva") or c.get("valor_iva") or 0)
 
-                return {
-                    "total_mes": total_mes,
-                    "total_hoy": total_hoy,
-                    "cantidad_total": cant_tot,
-                    "iva_mes": iva_mes,
-                    "iva_hoy": iva_hoy
-                }
-            return {"total_mes": 0, "total_hoy": 0, "cantidad_total": 0, "iva_mes": 0, "iva_hoy": 0}
+                if f.startswith(mes_actual):
+                    total_mes += monto
+                    iva_mes += iva_val
+                if f == hoy:
+                    total_hoy += monto
+                    iva_hoy += iva_val
+                cant_tot += cant
+
+            return {
+                "total_mes": total_mes,
+                "total_hoy": total_hoy,
+                "cantidad_total": cant_tot,
+                "iva_mes": iva_mes,
+                "iva_hoy": iva_hoy
+            }
         except Exception as ex:
             log_error("get_compras_summary", ex)
             return {"total_mes": 0, "total_hoy": 0, "cantidad_total": 0, "iva_mes": 0, "iva_hoy": 0}

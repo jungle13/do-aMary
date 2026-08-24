@@ -8,6 +8,8 @@ from pypdf import PdfReader, PdfWriter
 from config import Config
 from core.supabase_client import SupabaseClient
 from core.gemini_parser import GeminiParser
+from core.pdf_native_parser import detectar_y_parsear_pdf
+from ui.components.cargas_consolidada import CargasConsolidadaView
 import math
 from ui.components.autocomplete import CustomAutoComplete
 
@@ -133,7 +135,7 @@ class ComprasView(ft.Container):
         self.lbl_loading_text = ft.Text("Preparando archivo...", text_align=ft.TextAlign.CENTER)
         self.dlg_loading = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Procesando con Inteligencia Artificial"),
+            title=ft.Text("Procesando Documento PDF (Motor Local)"),
             content=ft.Column([
                 ft.ProgressRing(),
                 self.lbl_loading_text
@@ -227,27 +229,6 @@ class ComprasView(ft.Container):
             horizontal_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
         )
         
-        # --- NUEVO MODAL DE METADATOS ---
-        self.fecha_carga_actual = datetime.date.today().strftime("%Y-%m-%d")
-        self.date_picker_cargas = ft.DatePicker(on_change=self.on_date_cargas_change)
-        self.fecha_carga_btn = ft.OutlinedButton(
-            text=self.fecha_carga_actual, icon=ft.icons.CALENDAR_MONTH,
-            on_click=lambda e: self.date_picker_cargas.pick_date(),
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)), height=40, width=250
-        )
-        self.dlg_metadatos_pdf = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("Selecciona la Fecha de la Carga"),
-            content=ft.Column([
-                ft.Text("Fecha asignada a las compras del PDF:", size=12, color="grey", weight="bold"),
-                self.fecha_carga_btn
-            ], tight=True),
-            actions=[
-                ft.TextButton("Cancelar", on_click=self._cerrar_modal_metadatos),
-                ft.ElevatedButton("Seleccionar Archivo PDF", on_click=self._abrir_file_picker_desde_modal)
-            ]
-        )
-        
         # --- PREPARACIÓN DE LAS PESTAÑAS (TABS) ---
         
         # 1. Contenido Tab 1: Registro Compras
@@ -274,37 +255,12 @@ class ComprasView(ft.Container):
             padding=10
         )
         
-        # 2. Contenido Tab 2: Gestión de Cargas
-        self.btn_extraer_todo = ft.ElevatedButton(
-            text="Extraer Todo",
-            icon=ft.icons.AUTO_MODE,
-            bgcolor="purple700",
-            color="white",
-            height=40,
-            on_click=self.on_extraer_todo_masivo,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-        )
-        
-        row_filtros_tab_cargas = ft.Row([
-            self.btn_filtro_fecha_cargas,
-            self.btn_clear_filtro_cargas,
-            self.drop_filtro_estado_cargas,
-            ft.Container(expand=True),
-            self.btn_extraer_todo,
-            ft.ElevatedButton(
-                text="Subir PDF de Compras", icon=ft.icons.CLOUD_UPLOAD, bgcolor=Config.COLOR_SECONDARY, color="white", height=40,
-                on_click=self.on_agregar_click, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
-            )
-        ])
-        
-        contenedor_tabla_cargas = ft.Container(
-            content=ft.Row([ft.Column([self.table_cargas], scroll=ft.ScrollMode.ALWAYS)], scroll=ft.ScrollMode.ALWAYS, expand=True, vertical_alignment=ft.CrossAxisAlignment.START),
-            bgcolor="white", padding=5, border_radius=10, expand=True, shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=ft.colors.with_opacity(0.05, "black"))
-        )
-        
-        layout_tab_cargas = ft.Container(
-            content=ft.Column([row_filtros_tab_cargas, contenedor_tabla_cargas], expand=True, spacing=10),
-            padding=10
+        # 2. Contenido Tab 2: Gestión de Cargas Consolidada
+        self.vista_cargas_consolidada = CargasConsolidadaView(
+            modulo="COMPRAS",
+            on_upload_click=self.on_agregar_click,
+            on_save_callback=self._guardar_compras_lote,
+            on_discard_callback=lambda: self.load_data()
         )
         
         # Integrar las Pestañas
@@ -313,7 +269,7 @@ class ComprasView(ft.Container):
             animation_duration=300,
             tabs=[
                 ft.Tab(text="Registro de Compras", content=layout_tab_compras, icon=ft.icons.SHOPPING_CART),
-                ft.Tab(text="Gestión de Cargas", content=layout_tab_cargas, icon=ft.icons.FILE_UPLOAD),
+                ft.Tab(text="Gestión de Cargas", content=self.vista_cargas_consolidada, icon=ft.icons.FILE_UPLOAD),
             ],
             expand=True
         )
@@ -931,14 +887,8 @@ class ComprasView(ft.Container):
             self.page.overlay.append(self.date_picker)
         if hasattr(self, "date_picker_compras_timeline") and self.date_picker_compras_timeline not in self.page.overlay:
             self.page.overlay.append(self.date_picker_compras_timeline)
-            
-        # Nuevos overlays para Cargas
-        if hasattr(self, "dlg_metadatos_pdf") and self.dlg_metadatos_pdf not in self.page.overlay:
-            self.page.overlay.append(self.dlg_metadatos_pdf)
-        if hasattr(self, "date_picker_cargas") and self.date_picker_cargas not in self.page.overlay:
-            self.page.overlay.append(self.date_picker_cargas)
-        if hasattr(self, "date_picker_filtro_cargas") and self.date_picker_filtro_cargas not in self.page.overlay:
-            self.page.overlay.append(self.date_picker_filtro_cargas)
+        if hasattr(self, "file_picker") and self.file_picker not in self.page.overlay:
+            self.page.overlay.append(self.file_picker)
             
         self.page.update()
         self.load_summary()
@@ -1004,88 +954,114 @@ class ComprasView(ft.Container):
         self.current_page = 1
         self.load_data()
         
-    def on_agregar_click(self, e):
-        # En lugar de abrir file_picker, abrimos el modal de metadatos
-        self.dlg_metadatos_pdf.open = True
+    def on_agregar_click(self, e=None):
         if self.page:
-            self.page.update()
-
-    def _cerrar_modal_metadatos(self, e=None):
-        self.dlg_metadatos_pdf.open = False
-        if self.page:
-            self.page.update()
-
-    def _abrir_file_picker_desde_modal(self, e):
-        self.fecha_seleccionada = self.fecha_carga_actual
-        self._cerrar_modal_metadatos()
-        self.file_picker.pick_files(allow_multiple=False, allowed_extensions=["pdf"], dialog_title="Selecciona el Reporte de Compras")
+            if self.file_picker not in self.page.overlay:
+                self.page.overlay.append(self.file_picker)
+                self.page.update()
+            self.file_picker.pick_files(
+                allow_multiple=False,
+                allowed_extensions=["pdf"],
+                dialog_title="Selecciona el Reporte de Compras"
+            )
 
     def on_file_picked(self, e: ft.FilePickerResultEvent):
         if e.files and len(e.files) > 0:
             pdf_path = e.files[0].path
-            
-            self.lbl_loading_text.value = "Dividiendo PDF en páginas..."
+            self.lbl_loading_text.value = "Extrayendo compras y validando duplicados en Base de Datos..."
             self.dlg_loading.open = True
-            self.page.update()
-            
-            threading.Thread(target=self._dividir_y_guardar_pdf, args=(pdf_path,), daemon=True).start()
+            if self.page:
+                self.page.update()
+            threading.Thread(target=self._procesar_pdf_compras_nativo, args=(pdf_path,), daemon=True).start()
 
-    def _dividir_y_guardar_pdf(self, pdf_path):
+    def _procesar_pdf_compras_nativo(self, pdf_path):
         try:
-            reader = PdfReader(pdf_path)
-            total_pages = len(reader.pages)
+            res = detectar_y_parsear_pdf(pdf_path)
+            res['nombre_archivo'] = os.path.basename(pdf_path)
             
-            grupo_key = self.fecha_seleccionada
-            if grupo_key not in self.cargas_data:
-                self.cargas_data[grupo_key] = {}
-                
-            paginas_existentes = [int(p) for p in self.cargas_data[grupo_key].keys()]
-            max_pagina = max(paginas_existentes) if paginas_existentes else 0
+            # Validar duplicados contra Supabase
+            eas = [f['numero_entrada'] for f in res.get('facturas', [])]
+            facs = [f['numero_factura'] for f in res.get('facturas', []) if f.get('numero_factura')]
+            existentes = self.db.get_entradas_existentes(eas, facs)
             
-            max_id = 0
-            for k, pags in self.cargas_data.items():
-                for p_num, d in pags.items():
-                    if d.get("id", 0) > max_id:
-                        max_id = d["id"]
+            for f in res.get('facturas', []):
+                is_dup = (f['numero_entrada'] in existentes) or (f.get('numero_factura') and f['numero_factura'] in existentes)
+                f['ya_registrada'] = is_dup
+                f['seleccionada'] = not is_dup
+                f['expandida'] = False
+                
+            self.vista_cargas_consolidada.set_data(res)
+            self.tabs.selected_index = 1 # Cambiar a la pestaña de Gestión de Cargas
             
-            os.makedirs("pdfs_locales", exist_ok=True)
-            
-            for p_idx in range(total_pages):
-                num_pag = max_pagina + p_idx + 1
-                id_carga = max_id + p_idx + 1
-                
-                writer = PdfWriter()
-                writer.add_page(reader.pages[p_idx])
-                
-                nombre_archivo = f"compra_{grupo_key}_pag_{num_pag}.pdf"
-                ruta_local = os.path.join("pdfs_locales", nombre_archivo)
-                
-                with open(ruta_local, "wb") as f:
-                    writer.write(f)
-                    
-                self.cargas_data[grupo_key][str(num_pag)] = {
-                    "id": id_carga,
-                    "fecha": grupo_key,
-                    "pagina": num_pag,
-                    "archivo_original": pdf_path,
-                    "archivo": ruta_local,
-                    "estado": "Nuevo"
-                }
-                
-            self._save_cargas()
             self.dlg_loading.open = False
-            self.page.snack_bar = ft.SnackBar(ft.Text(f"Se dividió el PDF en {total_pages} páginas exitosamente."), bgcolor="green")
-            self.page.snack_bar.open = True
+            self.mostrar_alerta(f"✓ PDF procesado: {res['total_facturas']} documentos y {res['total_insumos']} insumos detectados.", "green700")
             
-        except Exception as e:
+        except Exception as ex:
             self.dlg_loading.open = False
-            self.page.snack_bar = ft.SnackBar(ft.Text(f"Error procesando PDF: {e}"), bgcolor="red")
-            self.page.snack_bar.open = True
-            
+            self.mostrar_alerta(f"Error procesando PDF: {str(ex)}", "red")
         finally:
             if self.page:
                 self.page.update()
-                self._render_tabla_cargas()
+
+    def _guardar_compras_lote(self, facturas_seleccionadas):
+        try:
+            self.lbl_loading_text.value = f"Guardando {len(facturas_seleccionadas)} facturas en Base de Datos..."
+            self.dlg_loading.open = True
+            if self.page:
+                self.page.update()
+                
+            payload = []
+            for f in facturas_seleccionadas:
+                fecha_doc = f.get('fecha')
+                num_ea = f.get('numero_entrada')
+                num_fac = f.get('numero_factura')
+                prov = f.get('proveedor')
+                for it in f.get('items', []):
+                    payload.append({
+                        "fecha": fecha_doc,
+                        "numero_entrada": num_ea,
+                        "numero_factura": num_fac,
+                        "proveedor": prov,
+                        "codigo_insumo": it.get('codigo_insumo'),
+                        "descripcion": it.get('descripcion'),
+                        "bodega": it.get('bodega', 'Bodega 1'),
+                        "cantidad": float(it.get('cantidad', 0)),
+                        "costo_unitario": float(it.get('costo_unitario', 0)),
+                        "valor_iva": float(it.get('valor_iva', 0)),
+                        "costo_total": float(it.get('costo_total', 0)),
+                        "estado_registro": "VÁLIDO"
+                    })
+                    
+            exito = self.db.insert_compras(payload)
+            self.dlg_loading.open = False
+            
+            if exito:
+                self.vista_cargas_consolidada.set_data(None)
+                self.tabs.selected_index = 0 # Volver a la tabla principal de compras
+                self.load_data()
+                self.load_summary()
+                self.mostrar_alerta(f"✓ {len(facturas_seleccionadas)} documentos ({len(payload)} insumos) guardados exitosamente.", "green700")
+            else:
+                self.mostrar_alerta("Error al guardar compras en la base de datos.", "red")
+        except Exception as ex:
+            self.dlg_loading.open = False
+            self.mostrar_alerta(f"Error al guardar lote: {str(ex)}", "red")
+        finally:
+            if self.page:
+                self.page.update()
+
+    def mostrar_alerta(self, mensaje: str, color: str = "red"):
+        if self.page:
+            self.page.snack_bar = ft.SnackBar(
+                ft.Text(mensaje, weight="bold", color="white"),
+                bgcolor=color,
+                duration=3500
+            )
+            self.page.snack_bar.open = True
+            try:
+                self.page.update()
+            except Exception:
+                pass
 
     def animate_loading(self, base_msg):
         messages = [

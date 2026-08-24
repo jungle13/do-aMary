@@ -19,7 +19,8 @@ class VentasRepository:
         search: str = "",
         fecha_corte: str | None = None,
         categoria_filtro: str | None = None,
-        factura_filtro: str | None = None
+        factura_filtro: str | None = None,
+        tipo_documento_filtro: str | None = None
     ) -> tuple[list, int]:
         if categoria_filtro:
             endpoint = "registro_ventas?select=*,catalogo_insumos!inner(nombre,categoria)"
@@ -41,6 +42,10 @@ class VentasRepository:
         if factura_filtro:
             fact_enc = urllib.parse.quote(str(factura_filtro).strip())
             filtros.append(f"factura_no.ilike.*{fact_enc}*")
+
+        if tipo_documento_filtro and tipo_documento_filtro != "TODOS":
+            doc_enc = urllib.parse.quote(str(tipo_documento_filtro).strip())
+            filtros.append(f"tipo_documento=eq.{doc_enc}")
 
         if filtros:
             endpoint += "&" + "&".join(filtros)
@@ -66,50 +71,76 @@ class VentasRepository:
             log_error("get_ventas", ex)
             return [], 0
 
-    def get_historial_ventas_dia(self, fecha_dia: str, agrupar_por: str = "CATEGORIA") -> list:
+    def get_historial_ventas_dia(
+        self,
+        fecha_dia: str | None = None,
+        agrupar_por: str = "CATEGORIA",
+        tipo_documento: str | None = None
+    ) -> list:
         items_resultado = []
         try:
-            endpoint = f"registro_ventas?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=factura_no,tipo_documento,descripcion,total,cantidad,codigo_insumo,fecha,catalogo_insumos(categoria,nombre)&order=fecha.desc"
-            res_v = self.db.get(endpoint, timeout=10)
-            if res_v and res_v.status_code == 200:
-                data_v = res_v.json()
-                if agrupar_por == "CATEGORIA":
-                    agrupado = {}
-                    for r in data_v:
-                        cat = r.get("catalogo_insumos", {}).get("categoria") if r.get("catalogo_insumos") else None
-                        if not cat:
-                            cat = "SIN CATEGORÍA"
-                        if cat not in agrupado:
-                            agrupado[cat] = {
-                                "tipo": "CATEGORIA_RESUMEN",
-                                "ref": cat,
-                                "categoria": cat,
-                                "total": 0.0,
-                                "unidades": 0.0,
-                                "items_count": 0
-                            }
-                        agrupado[cat]["total"] += float(r.get("total") or 0)
-                        agrupado[cat]["unidades"] += float(r.get("cantidad") or 0)
-                        agrupado[cat]["items_count"] += 1
-                    items_resultado.extend(list(agrupado.values()))
+            filtros = []
+            if fecha_dia:
+                filtros.append(f"fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59")
+            if tipo_documento and tipo_documento != "TODOS":
+                filtros.append(f"tipo_documento=eq.{urllib.parse.quote(tipo_documento.strip())}")
 
-                elif agrupar_por == "FACTURA":
-                    agrupado = {}
-                    for r in data_v:
-                        ref = r.get("factura_no") or "S/N"
-                        tipo_doc = r.get("tipo_documento") or "Factura POS"
-                        if ref not in agrupado:
-                            agrupado[ref] = {
-                                "tipo": "FACTURA_VENTA",
-                                "ref": ref,
-                                "factura": ref,
-                                "subtipo": tipo_doc,
-                                "total": 0.0,
-                                "unidades": 0.0
-                            }
-                        agrupado[ref]["total"] += float(r.get("total") or 0)
-                        agrupado[ref]["unidades"] += float(r.get("cantidad") or 0)
-                    items_resultado.extend(list(agrupado.values()))
+            query_filtros = ("&" + "&".join(filtros)) if filtros else ""
+            endpoint = f"registro_ventas?select=factura_no,tipo_documento,descripcion,total,cantidad,codigo_insumo,fecha,catalogo_insumos(categoria,nombre){query_filtros}&order=fecha.desc"
+            
+            data_v = []
+            offset = 0
+            limit = 2500
+            while True:
+                headers = {"Range": f"{offset}-{offset + limit - 1}"}
+                res_v = self.db.get(endpoint, custom_headers=headers, timeout=10)
+                if not res_v or res_v.status_code not in (200, 206):
+                    break
+                chunk = res_v.json()
+                if not chunk:
+                    break
+                data_v.extend(chunk)
+                if len(chunk) < limit:
+                    break
+                offset += limit
+
+            if agrupar_por == "CATEGORIA":
+                agrupado = {}
+                for r in data_v:
+                    cat = r.get("catalogo_insumos", {}).get("categoria") if r.get("catalogo_insumos") else None
+                    if not cat:
+                        cat = "SIN CATEGORÍA"
+                    if cat not in agrupado:
+                        agrupado[cat] = {
+                            "tipo": "CATEGORIA_RESUMEN",
+                            "ref": cat,
+                            "categoria": cat,
+                            "total": 0.0,
+                            "unidades": 0.0,
+                            "items_count": 0
+                        }
+                    agrupado[cat]["total"] += float(r.get("total") or 0)
+                    agrupado[cat]["unidades"] += float(r.get("cantidad") or 0)
+                    agrupado[cat]["items_count"] += 1
+                items_resultado.extend(list(agrupado.values()))
+
+            elif agrupar_por == "FACTURA":
+                agrupado = {}
+                for r in data_v:
+                    ref = r.get("factura_no") or "S/N"
+                    tipo_doc = r.get("tipo_documento") or "Factura POS"
+                    if ref not in agrupado:
+                        agrupado[ref] = {
+                            "tipo": "FACTURA_VENTA",
+                            "ref": ref,
+                            "factura": ref,
+                            "subtipo": tipo_doc,
+                            "total": 0.0,
+                            "unidades": 0.0
+                        }
+                    agrupado[ref]["total"] += float(r.get("total") or 0)
+                    agrupado[ref]["unidades"] += float(r.get("cantidad") or 0)
+                items_resultado.extend(list(agrupado.values()))
 
             items_resultado.sort(key=lambda x: x["total"], reverse=True)
             return items_resultado
@@ -120,17 +151,22 @@ class VentasRepository:
     def get_ventas_existentes(self, lista_facturas: list) -> set:
         if not lista_facturas:
             return set()
-        try:
-            facturas_str = ",".join(lista_facturas)
-            endpoint = f"registro_ventas?select=factura_no&factura_no=in.({facturas_str})"
-            res = self.db.get(endpoint, timeout=10)
-            if res and res.status_code == 200:
-                data = res.json()
-                return {item["factura_no"] for item in data if item.get("factura_no")}
-            return set()
-        except Exception as ex:
-            log_error("get_ventas_existentes", ex)
-            return set()
+        existentes = set()
+        chunk_size = 50
+        for i in range(0, len(lista_facturas), chunk_size):
+            chunk = lista_facturas[i:i + chunk_size]
+            try:
+                facturas_str = ",".join([str(x).strip() for x in chunk if str(x).strip()])
+                endpoint = f"registro_ventas?select=factura_no&factura_no=in.({facturas_str})"
+                res = self.db.get(endpoint, timeout=10)
+                if res and res.status_code == 200:
+                    data = res.json()
+                    for item in data:
+                        if item.get("factura_no"):
+                            existentes.add(str(item["factura_no"]))
+            except Exception as ex:
+                log_error("get_ventas_existentes", ex)
+        return existentes
 
     def eliminar_ventas_origen(self, fecha: str, tipo_documento: str, pagina_origen: int) -> bool:
         try:
@@ -159,49 +195,113 @@ class VentasRepository:
             log_error("eliminar_ventas_por_facturas", ex)
             return False
 
+    def _asegurar_insumos_existen(self, items_list: list):
+        if not items_list:
+            return
+        codigos_entrantes = {str(x.get("codigo_insumo") or "").strip() for x in items_list if str(x.get("codigo_insumo") or "").strip()}
+        if not codigos_entrantes:
+            return
+        existentes = set()
+        chunk_size = 50
+        codigos_arr = list(codigos_entrantes)
+        for i in range(0, len(codigos_arr), chunk_size):
+            chk = codigos_arr[i:i+chunk_size]
+            c_str = ",".join(chk)
+            try:
+                res = self.db.get(f"catalogo_insumos?select=codigo_insumo&codigo_insumo=in.({c_str})", timeout=5)
+                if res and res.status_code == 200:
+                    for row in res.json():
+                        existentes.add(str(row["codigo_insumo"]).strip())
+            except Exception:
+                pass
+        
+        faltantes = codigos_entrantes - existentes
+        if faltantes:
+            nuevos = []
+            for cod in faltantes:
+                nom = "INSUMO AUTO-REGISTRADO"
+                for item in items_list:
+                    if str(item.get("codigo_insumo") or "").strip() == cod:
+                        nom = item.get("descripcion") or nom
+                        break
+                nuevos.append({
+                    "codigo_insumo": cod,
+                    "nombre": nom[:100],
+                    "categoria": "DESECHABLES",
+                    "costo_unitario": 0.0,
+                    "precio_venta": 0.0,
+                    "stock_actual": 0.0,
+                    "stock_minimo": 5.0,
+                    "estado": True,
+                    "zona": "NO UBICADO",
+                    "ubicacion": "BODEGA",
+                    "tipo_unidad": "und"
+                })
+            try:
+                self.db.post("catalogo_insumos", json_data=nuevos, timeout=10)
+            except Exception:
+                pass
+
     def insert_ventas(self, ventas_list: list) -> bool:
+        if not ventas_list:
+            return True
         payload = []
         for v in ventas_list:
             venta = {
                 "fecha": v.get("fecha"),
-                "factura_no": str(v.get("numero_factura", "")),
-                "codigo_insumo": str(v.get("codigo_item", "")),
+                "factura_no": str(v.get("factura_no") or v.get("numero_factura", "")),
+                "codigo_insumo": str(v.get("codigo_insumo") or v.get("codigo_item", "")),
                 "descripcion": str(v.get("descripcion", "")),
                 "cantidad": float(v.get("cantidad", 0) or 0),
-                "subtotal": float(v.get("precio_unitario", 0) or 0),
+                "subtotal": float(v.get("subtotal") if v.get("subtotal") is not None else (v.get("precio_unitario", 0) or 0)),
                 "iva": float(v.get("iva", 0) or 0),
-                "total": float(v.get("costo_total", 0) or 0),
+                "total": float(v.get("total") if v.get("total") is not None else (v.get("costo_total", 0) or 0)),
                 "tipo_documento": str(v.get("tipo_documento", "Factura POS")),
                 "pagina_origen": int(v.get("pagina_origen", 1))
             }
             payload.append(venta)
 
         try:
-            res = self.db.post("registro_ventas", json_data=payload, timeout=15)
-            if res and res.status_code in (200, 201, 204):
-                # Actualizar precio_venta en catalogo_insumos con la última venta
-                for v in payload:
-                    cod = str(v.get("codigo_insumo") or "").zfill(4)
-                    cant = float(v.get("cantidad") or 0)
-                    subt = float(v.get("subtotal") or 0)
-                    if cod and cant > 0 and subt > 0:
-                        p_unit = round(subt / cant, 2)
-                        try:
-                            self.db.patch(f"catalogo_insumos?codigo_insumo=eq.{cod}", json_data={"precio_venta": p_unit}, timeout=5)
-                        except Exception:
-                            pass
+            self._asegurar_insumos_existen(payload)
+            chunk_size = 100
+            for i in range(0, len(payload), chunk_size):
+                chunk = payload[i:i + chunk_size]
+                res = self.db.post("registro_ventas", json_data=chunk, timeout=30)
+                if not (res and res.status_code in (200, 201, 204)):
+                    err = res.text if res else "No response"
+                    logger.error(f"Error en insert_ventas chunk {i}: {err}")
+                    return False
 
-                from core.audit_logger import registrar_accion
-                facs = list(set([v.get("factura_no", "") for v in payload if v.get("factura_no")]))
-                fac_txt = f" (Docs: {', '.join(facs[:3])}{'...' if len(facs)>3 else ''})" if facs else ""
-                tot_monto = sum([v.get("total", 0) for v in payload])
-                registrar_accion(
-                    accion=f"Guardado de ventas en BD: {len(payload)} registros{fac_txt} por ${tot_monto:,.0f}",
-                    modulo="VENTAS",
-                    detalles={"registros": len(payload), "total": tot_monto, "facturas": facs}
-                )
-                return True
-            return False
+            # Desduplicar y actualizar precio_venta en catalogo_insumos en segundo plano
+            precios_map = {}
+            for v in payload:
+                cod = str(v.get("codigo_insumo") or "").strip()
+                cant = float(v.get("cantidad") or 0)
+                subt = float(v.get("subtotal") or 0)
+                if cod and cant > 0 and subt > 0:
+                    precios_map[cod] = round(subt / cant, 2)
+
+            def _actualizar_precios_async(p_map):
+                for cod, p_unit in p_map.items():
+                    try:
+                        self.db.patch(f"catalogo_insumos?codigo_insumo=eq.{cod}", json_data={"precio_venta": p_unit}, timeout=5)
+                    except Exception:
+                        pass
+
+            if precios_map:
+                import threading
+                threading.Thread(target=_actualizar_precios_async, args=(precios_map,), daemon=True).start()
+
+            from core.audit_logger import registrar_accion
+            facs = list(set([v.get("factura_no", "") for v in payload if v.get("factura_no")]))
+            fac_txt = f" (Docs: {', '.join(facs[:3])}{'...' if len(facs)>3 else ''})" if facs else ""
+            tot_monto = sum([v.get("total", 0) for v in payload])
+            registrar_accion(
+                accion=f"Guardado de ventas en BD: {len(payload)} registros{fac_txt} por ${tot_monto:,.0f}",
+                modulo="VENTAS",
+                detalles={"registros": len(payload), "total": tot_monto, "documentos": facs}
+            )
+            return True
         except Exception as ex:
             log_error("insert_ventas", ex)
             return False
@@ -210,45 +310,87 @@ class VentasRepository:
         try:
             hoy = datetime.date.today().strftime("%Y-%m-%d")
             mes_actual = hoy[:7]
-            endpoint = "registro_ventas?select=fecha,total,subtotal,iva,estado_registro&estado_registro=eq.VÁLIDO"
-            res = self.db.get(endpoint, timeout=10)
-            if res and res.status_code == 200:
-                data = res.json()
-                tot_hist = 0.0
-                tot_mes = 0.0
-                tot_hoy = 0.0
-                iva_hist = 0.0
-                iva_mes = 0.0
-                iva_hoy = 0.0
+            
+            data = []
+            offset = 0
+            limit = 2500
+            while True:
+                headers = {"Range": f"{offset}-{offset + limit - 1}"}
+                res = self.db.get("registro_ventas?select=fecha,total,subtotal,iva,tipo_documento,estado_registro&estado_registro=eq.VÁLIDO", custom_headers=headers, timeout=15)
+                if not res or res.status_code not in (200, 206):
+                    break
+                chunk = res.json()
+                if not chunk:
+                    break
+                data.extend(chunk)
+                if len(chunk) < limit:
+                    break
+                offset += limit
 
-                for v in data:
-                    f = str(v.get("fecha") or "")[:10]
-                    if fecha_corte and f > fecha_corte:
-                        continue
-                    monto = float(v.get("total") or 0)
-                    iva_val = float(v.get("iva") or 0)
+            tot_hist = 0.0
+            tot_pos = 0.0
+            tot_remi = 0.0
+            tot_mes = 0.0
+            
+            tot_hoy = 0.0
+            hoy_pos = 0.0
+            hoy_remi = 0.0
+            
+            iva_hist = 0.0
+            iva_mes = 0.0
+            iva_hoy = 0.0
 
-                    tot_hist += monto
-                    iva_hist += iva_val
-                    if f.startswith(mes_actual):
-                        tot_mes += monto
-                        iva_mes += iva_val
-                    if f == hoy:
-                        tot_hoy += monto
-                        iva_hoy += iva_val
+            for v in data:
+                f = str(v.get("fecha") or "")[:10]
+                if fecha_corte and f > fecha_corte:
+                    continue
+                monto = float(v.get("total") or 0)
+                iva_val = float(v.get("iva") or 0)
+                tipo_doc = str(v.get("tipo_documento") or "").strip()
 
-                return {
-                    "total_historico": tot_hist,
-                    "total_mes": tot_mes,
-                    "total_hoy": tot_hoy,
-                    "iva_historico": iva_hist,
-                    "iva_mes": iva_mes,
-                    "iva_hoy": iva_hoy
-                }
-            return {"total_historico": 0, "total_mes": 0, "total_hoy": 0, "iva_historico": 0, "iva_mes": 0, "iva_hoy": 0}
+                tot_hist += monto
+                iva_hist += iva_val
+
+                if "POS" in tipo_doc.upper():
+                    tot_pos += monto
+                elif "REMI" in tipo_doc.upper():
+                    tot_remi += monto
+                else:
+                    tot_pos += monto
+
+                if f.startswith(mes_actual):
+                    tot_mes += monto
+                    iva_mes += iva_val
+
+                if f == hoy:
+                    tot_hoy += monto
+                    iva_hoy += iva_val
+                    if "POS" in tipo_doc.upper():
+                        hoy_pos += monto
+                    elif "REMI" in tipo_doc.upper():
+                        hoy_remi += monto
+                    else:
+                        hoy_pos += monto
+
+            return {
+                "total_historico": tot_hist,
+                "total_pos": tot_pos,
+                "total_remi": tot_remi,
+                "total_mes": tot_mes,
+                "total_hoy": tot_hoy,
+                "hoy_pos": hoy_pos,
+                "hoy_remi": hoy_remi,
+                "iva_historico": iva_hist,
+                "iva_mes": iva_mes,
+                "iva_hoy": iva_hoy
+            }
         except Exception as ex:
             log_error("get_ventas_summary", ex)
-            return {"total_historico": 0, "total_mes": 0, "total_hoy": 0, "iva_historico": 0, "iva_mes": 0, "iva_hoy": 0}
+            return {
+                "total_historico": 0, "total_pos": 0, "total_remi": 0,
+                "total_mes": 0, "total_hoy": 0, "hoy_pos": 0, "hoy_remi": 0,
+                "iva_historico": 0, "iva_mes": 0, "iva_hoy": 0
+            }
 
     def get_top_ventas_mes(self, limit: int = 10, fecha_corte=None) -> list:
         hoy = fecha_corte if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")

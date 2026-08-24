@@ -1,4 +1,4 @@
-﻿"""
+"""
 Fachada centralizada de base de datos (Supabase) para Sistema Doña Mary.
 Delega las operaciones en repositorios especializados manteniendo total compatibilidad hacia atrás.
 """
@@ -103,8 +103,8 @@ class SupabaseClient:
     def insert_compras(self, compras_list: list):
         return self.compras_repo.insert_compras(compras_list)
 
-    def get_entradas_existentes(self, lista_eas: list) -> set:
-        return self.compras_repo.get_entradas_existentes(lista_eas)
+    def get_entradas_existentes(self, lista_eas: list, lista_facturas: list = None) -> set:
+        return self.compras_repo.get_entradas_existentes(lista_eas, lista_facturas)
 
     def eliminar_compras_por_entradas(self, lista_entradas: list):
         return self.compras_repo.eliminar_compras_por_entradas(lista_entradas)
@@ -119,11 +119,11 @@ class SupabaseClient:
         return self.compras_repo.eliminar_compra_individual(id_compra)
 
     # --- VENTAS ---
-    def get_ventas(self, page=1, page_size=20, search="", fecha_corte=None, categoria_filtro=None, factura_filtro=None):
-        return self.ventas_repo.get_ventas(page, page_size, search, fecha_corte, categoria_filtro, factura_filtro)
+    def get_ventas(self, page=1, page_size=20, search="", fecha_corte=None, categoria_filtro=None, factura_filtro=None, tipo_documento_filtro=None):
+        return self.ventas_repo.get_ventas(page, page_size, search, fecha_corte, categoria_filtro, factura_filtro, tipo_documento_filtro)
 
-    def get_historial_ventas_dia(self, fecha_dia: str, agrupar_por: str = "CATEGORIA") -> list:
-        return self.ventas_repo.get_historial_ventas_dia(fecha_dia, agrupar_por)
+    def get_historial_ventas_dia(self, fecha_dia=None, agrupar_por="CATEGORIA", tipo_documento=None) -> list:
+        return self.ventas_repo.get_historial_ventas_dia(fecha_dia, agrupar_por, tipo_documento)
 
     def get_ventas_existentes(self, lista_facturas: list) -> set:
         return self.ventas_repo.get_ventas_existentes(lista_facturas)

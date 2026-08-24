@@ -79,7 +79,7 @@ class InventarioView(ft.Container):
         self.btn_date_icon = ft.IconButton(
             icon=ft.icons.CALENDAR_MONTH_OUTLINED,
             tooltip="Filtrar por Fecha de Corte",
-            on_click=self.abrir_modal_info_fecha
+            on_click=self.open_date_picker
         )
 
         self.dlg_filtro_fecha_info = ft.AlertDialog(
@@ -401,7 +401,7 @@ class InventarioView(ft.Container):
             icon=ft.icons.CALENDAR_TODAY,
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), padding=5),
             height=30,
-            on_click=lambda e: self.date_picker_timeline.pick_date()
+            on_click=self.abrir_date_picker_timeline
         )
 
         self.panel_timeline_list = ft.ListView(expand=True, spacing=6)
@@ -514,34 +514,34 @@ class InventarioView(ft.Container):
 
     def did_mount(self):
         """Se ejecuta cuando la vista se agrega a la pantalla."""
-        if self.date_picker not in self.page.overlay:
-            self.page.overlay.append(self.date_picker)
-        if hasattr(self, "date_picker_timeline") and self.date_picker_timeline not in self.page.overlay:
-            self.page.overlay.append(self.date_picker_timeline)
-        if hasattr(self, "dlg_filtro_fecha_info") and self.dlg_filtro_fecha_info not in self.page.overlay:
-            self.page.overlay.append(self.dlg_filtro_fecha_info)
-        self.safe_update()
-            
-        # Lógica responsiva para la tabla
-        def handle_resize(e):
-            if getattr(self, "page", None) and getattr(self, "table_container", None):
-                available = self.page.width - 320
-                self.table_container.width = max(1300, available)
-                try:
-                    self.table_container.update()
-                except Exception:
-                    pass
+        if self.page:
+            if self.date_picker not in self.page.overlay:
+                self.page.overlay.append(self.date_picker)
+            if hasattr(self, "date_picker_timeline") and self.date_picker_timeline not in self.page.overlay:
+                self.page.overlay.append(self.date_picker_timeline)
+            if hasattr(self, "dlg_filtro_fecha_info") and self.dlg_filtro_fecha_info not in self.page.overlay:
+                self.page.overlay.append(self.dlg_filtro_fecha_info)
                 
-        self.handle_resize = handle_resize
-        
-        # Suscribir de manera segura según la versión de Flet
-        if hasattr(self.page.on_resize, "subscribe"):
-            self.page.on_resize.subscribe(self.handle_resize)
-        else:
-            self.original_on_resize = self.page.on_resize
-            self.page.on_resize = self.handle_resize
+            # Lógica responsiva para la tabla
+            def handle_resize(e):
+                if getattr(self, "page", None) and getattr(self, "table_container", None):
+                    available = self.page.width - 320
+                    self.table_container.width = max(1300, available)
+                    try:
+                        self.table_container.update()
+                    except Exception:
+                        pass
+                    
+            self.handle_resize = handle_resize
             
-        handle_resize(None) # Ejecutar una vez para inicializar tamaño
+            # Suscribir de manera segura según la versión de Flet
+            if hasattr(self.page.on_resize, "subscribe"):
+                self.page.on_resize.subscribe(self.handle_resize)
+            else:
+                self.original_on_resize = self.page.on_resize
+                self.page.on_resize = self.handle_resize
+                
+            handle_resize(None) # Ejecutar una vez para inicializar tamaño
             
         self.load_categories()
         self.load_summary()
@@ -558,12 +558,32 @@ class InventarioView(ft.Container):
         
 
     def safe_update(self):
-        """Actualiza la UI solo si el control sigue montado en la página."""
+        """Actualiza la UI local solo si el control sigue montado en la página."""
         try:
             if self.page and self.uid:
+                self.update()
+        except Exception:
+            pass
+
+    def safe_page_update(self):
+        """Actualiza la página principal para reflejar overlays, modales y snackbars."""
+        try:
+            if self.page:
                 self.page.update()
         except Exception:
             pass
+
+    def mostrar_alerta(self, mensaje: str, color: str = "red"):
+        """Muestra un mensaje SnackBar flotante asegurando actualización de pantalla."""
+        if self.page:
+            self.page.snack_bar = ft.SnackBar(
+                ft.Text(mensaje, weight="bold", color="white"),
+                bgcolor=color,
+                duration=3000
+            )
+            self.page.snack_bar.open = True
+            self.safe_page_update()
+
     def load_summary(self):
         res_v = self.db.get_ventas_summary()
         res_i = self.db.get_inventario_kpis()
@@ -802,58 +822,87 @@ class InventarioView(ft.Container):
         self.safe_update()
 
     def abrir_dialogo_confirmacion(self):
-        if not self.current_edit_context: return
+        if not self.current_edit_context:
+            self.mostrar_alerta("No hay ningún insumo en edición.", "orange")
+            return
         item = self.current_edit_context['item']
         
         cambios = []
         try:
-            nuevo_stock_min = int(self.edit_stock_minimo.value)
-            if nuevo_stock_min != int(item.get('stock_minimo', 5) or 5):
-                cambios.append(f"Stock Mínimo: {int(item.get('stock_minimo', 5) or 5)} -> {nuevo_stock_min}")
+            nuevo_stock_min = int(float(self.edit_stock_minimo.value or 0))
+            if nuevo_stock_min != int(float(item.get('stock_minimo', 5) or 5)):
+                cambios.append(f"• Stock Mínimo: {int(item.get('stock_minimo', 5) or 5)} -> {nuevo_stock_min}")
                 
-            nuevo_costo = float(self.edit_costo.value)
-            if nuevo_costo != float(item.get('costo_unitario') or 0):
-                cambios.append(f"Costo Unitario: ${float(item.get('costo_unitario') or 0):.2f} -> ${nuevo_costo:.2f}")
+            nuevo_costo = float(str(self.edit_costo.value or 0).replace(',', '.'))
+            if abs(nuevo_costo - float(item.get('costo_unitario') or 0)) > 0.001:
+                cambios.append(f"• Costo Unitario: ${float(item.get('costo_unitario') or 0):,.2f} -> ${nuevo_costo:,.2f}")
                 
-            nuevo_precio = float(self.edit_precio.value)
-            if nuevo_precio != float(item.get('precio_venta') or 0):
-                cambios.append(f"Precio Venta: ${float(item.get('precio_venta') or 0):.2f} -> ${nuevo_precio:.2f}")
+            nuevo_precio = float(str(self.edit_precio.value or 0).replace(',', '.'))
+            if abs(nuevo_precio - float(item.get('precio_venta') or 0)) > 0.001:
+                cambios.append(f"• Precio Venta: ${float(item.get('precio_venta') or 0):,.2f} -> ${nuevo_precio:,.2f}")
                 
-            nueva_cat = self.edit_categoria.value
-            if nueva_cat != str(item.get('categoria', '')):
-                cambios.append(f"Categoría: {item.get('categoria', '')} -> {nueva_cat}")
+            nueva_cat = (self.edit_categoria.value or '').strip()
+            if nueva_cat != str(item.get('categoria', '')).strip():
+                cambios.append(f"• Categoría: {item.get('categoria', '')} -> {nueva_cat}")
         except ValueError:
-            self.page.snack_bar = ft.SnackBar(ft.Text("Error: Asegúrate de ingresar números válidos."), bgcolor="red")
-            self.page.snack_bar.open = True
-            self.safe_update()
+            self.mostrar_alerta("Error: Asegúrate de ingresar números válidos.", "red")
             return
 
         if not cambios:
+            self.mostrar_alerta("No se detectaron cambios en los valores del insumo.", "orange")
             self.cancelar_edicion()
             return
 
         resumen = "\n".join(cambios)
+        codigo = item.get('codigo_insumo')
+        nombre = item.get('nombre')
         
         dlg = ft.AlertDialog(
-            title=ft.Text("Confirmar Actualización"),
-            content=ft.Text(f"Estás a punto de modificar el insumo: {item.get('codigo_insumo')} - {item.get('nombre')}.\n\nCambios detectados:\n{resumen}"),
+            title=ft.Row([
+                ft.Icon(ft.icons.EDIT_NOTE_ROUNDED, color=Config.COLOR_PRIMARY, size=24),
+                ft.Text("Confirmar Actualización", weight="bold", size=16, color=Config.COLOR_PRIMARY)
+            ], spacing=8),
+            content=ft.Container(
+                width=450,
+                content=ft.Column([
+                    ft.Text("Estás a punto de modificar el insumo:", size=13),
+                    ft.Container(
+                        content=ft.Text(f"[{codigo}] {nombre}", weight="bold", size=13, color=Config.COLOR_PRIMARY),
+                        padding=8,
+                        bgcolor="#f1f5f9",
+                        border_radius=6
+                    ),
+                    ft.Text("Cambios detectados:", size=12, weight="bold", color="grey700"),
+                    ft.Container(
+                        content=ft.Text(resumen, size=12, color="black87"),
+                        padding=8,
+                        bgcolor="#f8fafc",
+                        border=ft.border.all(1, "#e2e8f0"),
+                        border_radius=6
+                    )
+                ], tight=True, spacing=8)
+            )
         )
         
         def on_cancel(e):
             dlg.open = False
-            self.safe_update()
+            self.safe_page_update()
             
         def on_save(e):
+            dlg.open = False
+            self.safe_page_update()
             self.ejecutar_guardado(dlg)
             
         dlg.actions = [
             ft.TextButton("Cancelar", on_click=on_cancel),
-            ft.ElevatedButton("Guardar", bgcolor="green", color="white", on_click=on_save)
+            ft.ElevatedButton("✓ Guardar Cambios", bgcolor="green700", color="white", on_click=on_save)
         ]
         
-        self.page.overlay.append(dlg)
-        dlg.open = True
-        self.safe_update()
+        if self.page:
+            if dlg not in self.page.overlay:
+                self.page.overlay.append(dlg)
+            dlg.open = True
+            self.safe_page_update()
 
     def ejecutar_guardado(self, dialog=None):
         if dialog:
@@ -862,7 +911,7 @@ class InventarioView(ft.Container):
         if hasattr(self, 'progress_bar'):
             self.progress_bar.visible = True
             
-        self.safe_update()
+        self.safe_page_update()
             
         threading.Thread(target=self._ejecutar_guardado_worker, daemon=True).start()
 
@@ -873,15 +922,13 @@ class InventarioView(ft.Container):
             
             try:
                 datos_actualizados = {
-                    "stock_minimo": int(self.edit_stock_minimo.value),
-                    "costo_unitario": float(self.edit_costo.value),
-                    "precio_venta": float(self.edit_precio.value),
+                    "stock_minimo": int(float(self.edit_stock_minimo.value or 0)),
+                    "costo_unitario": float(str(self.edit_costo.value or 0).replace(',', '.')),
+                    "precio_venta": float(str(self.edit_precio.value or 0).replace(',', '.')),
                     "categoria": self.edit_categoria.value
                 }
             except ValueError:
-                self.page.snack_bar = ft.SnackBar(ft.Text("Error numérico al guardar."), bgcolor="red")
-                self.page.snack_bar.open = True
-                self.safe_update()
+                self.mostrar_alerta("Error numérico al guardar.", "red")
                 return
                 
             codigo = item.get('codigo_insumo')
@@ -889,28 +936,20 @@ class InventarioView(ft.Container):
             
             if exito:
                 self.cancelar_edicion()
-                
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"Insumo {codigo} actualizado exitosamente."), bgcolor="green")
-                self.page.snack_bar.open = True
-                self.safe_update()
-                
+                self.mostrar_alerta(f"✓ Insumo [{codigo}] actualizado exitosamente.", "green700")
                 self.load_data()
                 self.load_summary()
             else:
-                self.page.snack_bar = ft.SnackBar(ft.Text("Error al actualizar en Base de Datos."), bgcolor="red")
-                self.page.snack_bar.open = True
-                self.safe_update()
+                self.mostrar_alerta("Error al actualizar en Base de Datos.", "red")
                 
             self.update_pagination_ui()
 
         except Exception as ex:
-            if self.page:
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"Error interno: {str(ex)}"), bgcolor="red")
-                self.page.snack_bar.open = True
+            self.mostrar_alerta(f"Error interno: {str(ex)}", "red")
         finally:
             if hasattr(self, 'progress_bar'):
                 self.progress_bar.visible = False
-            self.safe_update()
+            self.safe_page_update()
         
     def update_pagination_ui(self):
         self.lbl_page_info.value = f"Página {self.current_page} de {self.total_pages}"
@@ -941,8 +980,42 @@ class InventarioView(ft.Container):
         self.notification_banner.visible = False
         self.safe_update()
         
-    def open_date_picker(self, e):
-        self.date_picker.pick_date()
+    def open_date_picker(self, e=None):
+        if not self.page:
+            return
+        if self.date_picker not in self.page.overlay:
+            self.page.overlay.append(self.date_picker)
+            try:
+                self.page.update()
+            except Exception:
+                pass
+        try:
+            self.date_picker.pick_date()
+        except AssertionError:
+            try:
+                self.page.update()
+                self.date_picker.pick_date()
+            except Exception:
+                pass
+
+    def abrir_date_picker_timeline(self, e=None):
+        if not self.page:
+            return
+        if hasattr(self, "date_picker_timeline"):
+            if self.date_picker_timeline not in self.page.overlay:
+                self.page.overlay.append(self.date_picker_timeline)
+                try:
+                    self.page.update()
+                except Exception:
+                    pass
+            try:
+                self.date_picker_timeline.pick_date()
+            except AssertionError:
+                try:
+                    self.page.update()
+                    self.date_picker_timeline.pick_date()
+                except Exception:
+                    pass
         
     def on_date_change(self, e):
         if self.date_picker.value:
@@ -967,17 +1040,20 @@ class InventarioView(ft.Container):
         self.load_data()
         self.safe_update()
 
-    def abrir_modal_info_fecha(self, e):
-        self.dlg_filtro_fecha_info.open = True
-        self.safe_update()
+    def abrir_modal_info_fecha(self, e=None):
+        if self.page:
+            if self.dlg_filtro_fecha_info not in self.page.overlay:
+                self.page.overlay.append(self.dlg_filtro_fecha_info)
+            self.dlg_filtro_fecha_info.open = True
+            self.safe_page_update()
 
     def cerrar_modal_info_fecha(self, e=None):
         self.dlg_filtro_fecha_info.open = False
-        self.safe_update()
+        self.safe_page_update()
 
-    def lanzar_date_picker(self, e):
+    def lanzar_date_picker(self, e=None):
         self.cerrar_modal_info_fecha()
-        self.date_picker.pick_date()
+        self.open_date_picker()
 
     def on_sort_table(self, e: ft.DataColumnSortEvent):
         """Delega el ordenamiento a la base de datos solicitando una nueva carga de datos."""
@@ -1029,9 +1105,7 @@ class InventarioView(ft.Container):
             item = self.current_edit_context['item']
             self.abrir_modal_ajuste_insumo(item)
         else:
-            self.page.snack_bar = ft.SnackBar(ft.Text("Selecciona un insumo en edición para gestionar su ajuste."), bgcolor="orange")
-            self.page.snack_bar.open = True
-            self.safe_update()
+            self.mostrar_alerta("Selecciona un insumo en edición para gestionar su ajuste.", "orange")
 
     def _construir_modal_ajuste_inventario(self):
         self.mapa_motivos_inventario = {
@@ -1154,7 +1228,7 @@ class InventarioView(ft.Container):
         self.ajuste_motivo.options = [ft.dropdown.Option(m) for m in motivos]
         self.ajuste_motivo.value = motivos[0] if motivos else None
         self._calc_tot_ajuste_modal()
-        self.safe_update()
+        self.safe_page_update()
 
     def _calc_tot_ajuste_modal(self, e=None):
         try:
@@ -1172,10 +1246,10 @@ class InventarioView(ft.Container):
             else:
                 nuevo_stock = stock_act - cant
             self.ajuste_lbl_nuevo_stock.value = f"{nuevo_stock:g} unds"
-            self.safe_update()
+            self.safe_page_update()
         except ValueError:
             self.ajuste_lbl_impacto.value = "$ 0"
-            self.safe_update()
+            self.safe_page_update()
 
     def abrir_modal_ajuste_insumo(self, item):
         if not hasattr(self, 'dlg_ajuste_inventario'):
@@ -1184,7 +1258,7 @@ class InventarioView(ft.Container):
         cod = str(item.get('codigo_insumo') or '')
         nom = str(item.get('nombre') or 'Desconocido')
         cat = str(item.get('categoria') or 'GENERAL')
-        stock = float(item.get('stock_actual') or 0)
+        stock = float(item.get('stock_actual') or item.get('stock_real') or 0)
         costo = float(item.get('costo_unitario') or 0)
         
         self._ajuste_item_actual = item
@@ -1200,16 +1274,16 @@ class InventarioView(ft.Container):
         self.ajuste_obs.value = ""
         self._calc_tot_ajuste_modal()
         
-        if self.page and self.dlg_ajuste_inventario not in self.page.overlay:
-            self.page.overlay.append(self.dlg_ajuste_inventario)
-            
-        self.dlg_ajuste_inventario.open = True
-        self.safe_update()
+        if self.page:
+            if self.dlg_ajuste_inventario not in self.page.overlay:
+                self.page.overlay.append(self.dlg_ajuste_inventario)
+            self.dlg_ajuste_inventario.open = True
+            self.safe_page_update()
 
     def _cerrar_modal_ajuste(self):
         if hasattr(self, 'dlg_ajuste_inventario'):
             self.dlg_ajuste_inventario.open = False
-            self.safe_update()
+            self.safe_page_update()
 
     def _guardar_ajuste_insumo(self, e):
         try:
@@ -1221,15 +1295,11 @@ class InventarioView(ft.Container):
             obs = (self.ajuste_obs.value or "").strip()
             
             if cant <= 0:
-                self.page.snack_bar = ft.SnackBar(ft.Text("La cantidad a ajustar debe ser mayor a cero."), bgcolor="red")
-                self.page.snack_bar.open = True
-                self.safe_update()
+                self.mostrar_alerta("La cantidad a ajustar debe ser mayor a cero.", "red")
                 return
                 
             if not motivo_ui:
-                self.page.snack_bar = ft.SnackBar(ft.Text("Debes seleccionar un motivo para el ajuste."), bgcolor="red")
-                self.page.snack_bar.open = True
-                self.safe_update()
+                self.mostrar_alerta("Debes seleccionar un motivo para el ajuste.", "red")
                 return
                 
             item = getattr(self, '_ajuste_item_actual', {})
@@ -1250,23 +1320,14 @@ class InventarioView(ft.Container):
                 self._cerrar_modal_ajuste()
                 self.cancelar_edicion()
                 self.load_data()
-                self.page.snack_bar = ft.SnackBar(
-                    ft.Row([
-                        ft.Icon(ft.icons.CHECK_CIRCLE, color="white", size=18),
-                        ft.Text(f"Ajuste ({tipo_bd}) registrado exitosamente para [{cod}]", color="white")
-                    ]),
-                    bgcolor="green700"
-                )
-                self.page.snack_bar.open = True
-                self.safe_update()
+                self.load_summary()
+                self.mostrar_alerta(f"✓ Ajuste ({tipo_bd}) registrado exitosamente para [{cod}]", "green700")
             else:
-                self.page.snack_bar = ft.SnackBar(ft.Text("Error al registrar el ajuste en la base de datos."), bgcolor="red")
-                self.page.snack_bar.open = True
-                self.safe_update()
+                self.mostrar_alerta("Error al registrar el ajuste en la base de datos.", "red")
         except ValueError:
-            self.page.snack_bar = ft.SnackBar(ft.Text("Formato numérico inválido en cantidad o costo."), bgcolor="red")
-            self.page.snack_bar.open = True
-            self.safe_update()
+            self.mostrar_alerta("Formato numérico inválido en cantidad o costo.", "red")
+        except Exception as ex:
+            self.mostrar_alerta(f"Error al guardar ajuste: {str(ex)}", "red")
 
     def _crear_fila_inventario(self, item):
         row = ft.DataRow(cells=[])
@@ -1555,6 +1616,7 @@ class InventarioView(ft.Container):
                         bgcolor="#f5f5f5", padding=ft.padding.symmetric(horizontal=6, vertical=2), border_radius=4
                     ),
                     ft.Text(f"[{codigo}] {nombre}", size=13, weight="bold", color="black87", expand=True),
+                    ft.IconButton(icon=ft.icons.TUNE, icon_size=16, icon_color=Config.COLOR_PRIMARY, tooltip="Ajustar Stock", on_click=lambda e, i=item: self.abrir_modal_ajuste_insumo(i)),
                     ft.IconButton(icon=ft.icons.EDIT, icon_size=16, tooltip="Editar Insumo", on_click=lambda e, i=item, r=row: self.abrir_edicion_desde_tarjeta(i, r))
                 ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 contenedor_badges,

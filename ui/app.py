@@ -99,16 +99,13 @@ class AppLayout(ft.Row):
             vista = self.views[route_name]
             self.active_view.content = vista
             try:
-                if self.page:
-                    self.page.update()
-                else:
-                    self.active_view.update()
-            except Exception as e:
-                log_error(f"Error en page.update() al navegar a {route_name}", e)
+                self.active_view.update()
+            except Exception:
                 try:
-                    self.active_view.update()
-                except Exception:
-                    pass
+                    if self.page:
+                        self.page.update()
+                except Exception as e:
+                    log_error(f"Error actualizando vista al navegar a {route_name}", e)
             
             # Resaltar la ruta activa en el menú lateral
             if hasattr(self.sidebar, "actualizar_estado_activo"):
