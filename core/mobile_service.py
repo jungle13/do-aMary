@@ -1,6 +1,7 @@
 """
 Servicio central para el módulo de conteo móvil y servidor Web local.
-Maneja detección de IP, generación de QR, búsqueda difusa y sincronización con Supabase.
+Maneja detección de IP, generación de QR, búsqueda difusa, autenticación de operarios,
+registro multi-usuario (reemplazo o suma colaborativa) y sincronización de auditoría.
 """
 import socket
 import io
@@ -55,159 +56,295 @@ class MobileCountingService:
         img.save(buf)
         return base64.b64encode(buf.getvalue()).decode('utf-8')
 
-    def refrescar_catalogo(self, forzar: bool = False):
-        """Mantiene en memoria el catálogo con nombres, códigos y stock para búsqueda ultra-rápida."""
+    def autenticar_operario(self, usuario: str, clave: str) -> dict | None:
+        """Verifica credenciales del usuario para acceso a la Web Móvil."""
+        try:
+            from core.repositories.usuarios_repo import UsuariosRepository
+            repo = UsuariosRepository(self.db)
+            u = repo.autenticar(usuario.strip().lower(), clave.strip())
+            if not u:
+                return None
+
+            raw_rol = (u.get("rol") or "OPERADOR").upper()
+            user_str = (u.get("usuario") or "").lower()
+
+            # Normalizar rol para la UI Móvil:
+            # Si es admin o aux -> AUXILIAR (ve stock sistema y diferencias)
+            # Si es bodeguero o operador -> BODEGUERO (conteo ciego)
+            if "ADMIN" in raw_rol or user_str.startswith("admin") or user_str.startswith("aux") or user_str in ("mary", "eliana"):
+                rol_ui = "AUXILIAR" if not "ADMIN" in raw_rol else "ADMINISTRADOR"
+            else:
+                rol_ui = "BODEGUERO"
+
+            return {
+                "id_usuario": u.get("id_usuario"),
+                "usuario": u.get("usuario"),
+                "nombre_completo": u.get("nombre_completo") or u.get("usuario"),
+                "rol": rol_ui
+            }
+        except Exception as ex:
+            log_error(f"MobileService.autenticar_operario({usuario})", ex)
+            return None
+
+    def refrescar_catalogo(self, forzar: bool = False, mes_periodo: str = "2026-08"):
+        """Mantiene en memoria el catálogo completo (2700+ insumos) enriquecido con datos de auditoría."""
         ahora = datetime.datetime.now()
         if not forzar and self.catalogo_cache and self.last_cache_update:
-            if (ahora - self.last_cache_update).total_seconds() < 300: # 5 minutos
+            if (ahora - self.last_cache_update).total_seconds() < 60:
                 return
 
         try:
-            res = self.db.get("catalogo_insumos?select=codigo_insumo,nombre,categoria,costo_unitario,precio_venta,stock_actual,tipo_unidad&estado=eq.true&order=nombre.asc", timeout=15)
-            if res and res.status_code == 200:
-                self.catalogo_cache = res.json()
-                self.last_cache_update = ahora
-                logger.info(f"Catálogo móvil actualizado con {len(self.catalogo_cache)} insumos.")
+            # 1. Obtener catálogo completo (hasta 3500 insumos)
+            res = self.db.get("catalogo_insumos?select=codigo_insumo,nombre,categoria,costo_unitario,precio_venta,stock_actual,tipo_unidad&estado=eq.true&order=nombre.asc&limit=3500", timeout=20)
+            if not (res and res.status_code == 200):
+                return
+
+            items = res.json()
+
+            # 2. Obtener conteos de auditoría de cierre del periodo
+            aud_map = {}
+            try:
+                res_aud = self.db.get("registro_auditorias_cierres?select=codigo_insumo,cantidad_fisica,cantidad_sistema,costo_unitario_snapshot,observacion,fecha_cierre&limit=3500", timeout=15)
+                if res_aud and res_aud.status_code == 200:
+                    for a in res_aud.json():
+                        cod = str(a.get("codigo_insumo"))
+                        aud_map[cod] = a
+            except Exception as e_aud:
+                log_error("refrescar_catalogo (auditorias)", e_aud)
+
+            # 3. Enriquecer cada insumo
+            for it in items:
+                cod = str(it.get("codigo_insumo"))
+                aud = aud_map.get(cod)
+                if aud:
+                    it["cantidad_fisica"] = aud.get("cantidad_fisica")
+                    it["cantidad_sistema"] = aud.get("cantidad_sistema") or it.get("stock_actual") or 0.0
+                    it["observacion_conteo"] = aud.get("observacion") or ""
+                    it["fecha_conteo"] = aud.get("fecha_cierre") or ""
+                else:
+                    it["cantidad_fisica"] = None
+                    it["cantidad_sistema"] = float(it.get("stock_actual") or 0.0)
+                    it["observacion_conteo"] = ""
+                    it["fecha_conteo"] = ""
+
+            self.catalogo_cache = items
+            self.last_cache_update = ahora
+            logger.info(f"Catálogo móvil actualizado con {len(self.catalogo_cache)} insumos y {len(aud_map)} conteos vinculados.")
         except Exception as ex:
             log_error("refrescar_catalogo", ex)
 
-    def buscar_insumos(self, query: str, limit: int = 30) -> list:
-        """Búsqueda multi-palabra (multi-token fuzzy) sobre el catálogo de insumos."""
-        self.refrescar_catalogo()
+    def buscar_insumos(self, query: str, mes_periodo: str = "2026-08", limit: int = 0) -> list:
+        """Búsqueda multi-palabra sobre el catálogo completo enriquecido."""
+        self.refrescar_catalogo(mes_periodo=mes_periodo)
         if not query or not query.strip():
-            return self.catalogo_cache[:limit]
+            if limit and limit > 0:
+                return self.catalogo_cache[:limit]
+            return self.catalogo_cache
 
         tokens = [t.lower().strip() for t in query.strip().split() if t.strip()]
-        resultados = []
-
+        candidatos = []
         for item in self.catalogo_cache:
             codigo = str(item.get("codigo_insumo") or "").lower()
             nombre = str(item.get("nombre") or "").lower()
             categoria = str(item.get("categoria") or "").lower()
             texto_completo = f"{codigo} {nombre} {categoria}"
-
-            # Debe contener todos los tokens buscados
             if all(t in texto_completo for t in tokens):
-                resultados.append(item)
-                if len(resultados) >= limit:
+                candidatos.append(item)
+                if limit and limit > 0 and len(candidatos) >= limit:
                     break
 
-        return resultados
+        return candidatos
 
-    def obtener_periodo_agosto(self) -> str:
-        """Obtiene o asegura la existencia del periodo 2026-08."""
-        try:
-            res = self.db.get("periodos_inventario?mes_periodo=eq.2026-08&select=id_periodo", timeout=10)
-            if res and res.status_code == 200 and res.json():
-                return res.json()[0]["id_periodo"]
-            
-            # Si no existe, crearlo
-            payload = {
-                "mes_periodo": "2026-08",
-                "fecha_inicio": "2026-08-01",
-                "estado": "ABIERTO"
-            }
-            res_post = self.db.post("periodos_inventario", json_data=payload, timeout=10)
-            if res_post and res_post.status_code in (200, 201):
-                data = res_post.json()
-                return data[0]["id_periodo"] if isinstance(data, list) else data.get("id_periodo")
-        except Exception as ex:
-            log_error("obtener_periodo_agosto", ex)
-        
-        return "cf024d27-7a47-4354-9c49-c0c348d7cf5f" # Fallback al ID de Agosto existente en BD
-
-    def guardar_stock_inicial(self, codigo_insumo: str, cantidad: float, costo_unitario: float | None = None, usuario: str = "Móvil Bodega") -> dict:
+    def guardar_conteo_movil(
+        self,
+        codigo_insumo: str,
+        cantidad: float,
+        modo_registro: str = "REEMPLAZAR",  # 'REEMPLAZAR' o 'SUMAR'
+        costo: float | None = None,
+        usuario: str = "Móvil Bodega",
+        rol: str = "BODEGUERO",
+        observacion: str = "",
+        mes_periodo: str = "2026-08"
+    ) -> dict:
         """
-        Registra o actualiza el stock inicial de Agosto en Supabase.
-        Escribe en registro_auditorias_cierres y sincroniza catalogo_insumos.
+        Registra conteo desde la Web Móvil soportando reemplazo o acumulación colaborativa.
+        Actualiza registro_auditorias_cierres, catalogo_insumos y genera traza de auditoría.
         """
         try:
-            id_periodo = self.obtener_periodo_agosto()
             codigo = str(codigo_insumo).strip()
-            cant = float(cantidad)
+            cant_ingresada = float(cantidad)
 
-            # 1. Obtener costo del insumo
-            costo = float(costo_unitario) if costo_unitario is not None and float(costo_unitario) > 0 else 0.0
+            # 1. Obtener datos del insumo
+            costo_final = float(costo) if costo is not None and float(costo) > 0 else 0.0
             nombre_insumo = ""
+            stock_sistema = 0.0
             for item in self.catalogo_cache:
                 if str(item.get("codigo_insumo")) == codigo:
-                    if costo <= 0:
-                        costo = float(item.get("costo_unitario") or 0.0)
+                    if costo_final == 0.0:
+                        costo_final = float(item.get("costo_unitario") or 0.0)
                     nombre_insumo = item.get("nombre") or ""
-                    # Actualizar en caché local
-                    item["stock_actual"] = cant
-                    if costo > 0:
-                        item["costo_unitario"] = costo
+                    stock_sistema = float(item.get("stock_actual") or 0.0)
                     break
 
-            # Si sigue en 0, consultar última compra registrada
-            if costo <= 0:
+            # 2. Obtener periodo
+            endpoint_per = f"periodos_inventario?mes_periodo=eq.{mes_periodo}&select=id_periodo"
+            res_p = self.db.get(endpoint_per, timeout=10)
+            id_periodo = res_p.json()[0]["id_periodo"] if res_p and res_p.status_code == 200 and res_p.json() else None
+
+            # 3. Consultar conteo actual previo
+            endpoint_aud = f"registro_auditorias_cierres?codigo_insumo=eq.{codigo}&select=id_auditoria,cantidad_fisica,costo_unitario_snapshot,observacion"
+            if id_periodo:
+                endpoint_aud += f"&id_periodo=eq.{id_periodo}"
+            
+            res_aud = self.db.get(endpoint_aud, timeout=10)
+            cant_previa = 0.0
+            id_aud = None
+            if res_aud and res_aud.status_code == 200 and res_aud.json():
+                aud_row = res_aud.json()[0]
+                id_aud = aud_row.get("id_auditoria")
+                if aud_row.get("cantidad_fisica") is not None:
+                    cant_previa = float(aud_row.get("cantidad_fisica"))
+                if costo_final == 0.0 and aud_row.get("costo_unitario_snapshot"):
+                    costo_final = float(aud_row.get("costo_unitario_snapshot"))
+
+            # 4. Calcular cantidad final según el modo
+            if modo_registro == "SUMAR":
+                cant_final = cant_previa + cant_ingresada
+                detalle_accion = f"Suma de {cant_ingresada:g} unds (Previa: {cant_previa:g} -> Total: {cant_final:g})"
+            else:
+                cant_final = cant_ingresada
+                detalle_accion = f"Conteo directo establecido en {cant_final:g} unds"
+
+            if observacion:
+                detalle_accion += f" - Nota: {observacion}"
+
+            ahora_iso = datetime.datetime.now().isoformat()
+            payload = {
+                "codigo_insumo": codigo,
+                "cantidad_fisica": cant_final,
+                "costo_unitario_snapshot": costo_final,
+                "estado": "AUDITADO",
+                "fecha_cierre": ahora_iso,
+                "observacion": f"[{usuario} ({rol})] {detalle_accion}"
+            }
+            if id_periodo:
+                payload["id_periodo"] = id_periodo
+                payload["tipo_registro"] = "CIERRE_MENSUAL"
+
+            if id_aud:
+                self.db.patch(f"registro_auditorias_cierres?id_auditoria=eq.{id_aud}", json_data=payload, timeout=10)
+            else:
+                headers = {"Prefer": "resolution=merge-duplicates"}
+                self.db.post("registro_auditorias_cierres", json_data=[payload], custom_headers=headers, timeout=10)
+
+            # Sincronizar catálogo local (cantidad_fisica y costo) y en Supabase (solo costo si aplica)
+            for item in self.catalogo_cache:
+                if str(item.get("codigo_insumo")) == codigo:
+                    item["cantidad_fisica"] = cant_final
+                    if costo_final > 0:
+                        item["costo_unitario"] = costo_final
+                    break
+
+            if costo_final > 0:
                 try:
-                    res_c = self.db.get(f"registro_compras?codigo_insumo=eq.{codigo}&order=fecha.desc&limit=1&select=costo_unitario", timeout=5)
-                    if res_c and res_c.status_code == 200 and res_c.json():
-                        costo = float(res_c.json()[0].get("costo_unitario") or 0.0)
+                    self.db.patch(f"catalogo_insumos?codigo_insumo=eq.{codigo}", json_data={"costo_unitario": costo_final}, timeout=8)
                 except Exception:
                     pass
 
-            # 2. Buscar si ya existe el registro de auditoría para Agosto
-            endpoint_aud = f"registro_auditorias_cierres?id_periodo=eq.{id_periodo}&codigo_insumo=eq.{codigo}&tipo_registro=eq.INVENTARIO_INICIAL&select=id_auditoria"
-            res_aud = self.db.get(endpoint_aud, timeout=10)
-            
-            payload = {
-                "id_periodo": id_periodo,
-                "codigo_insumo": codigo,
-                "tipo_registro": "INVENTARIO_INICIAL",
-                "fecha_cierre": "2026-08-01T00:00:00+00:00",
-                "cantidad_sistema": cant,
-                "cantidad_fisica": cant,
-                "diferencia": 0.0,
-                "costo_unitario_snapshot": costo,
-                "estado": "APROBADO",
-                "observacion": f"Conteo inicial Agosto - Registrado por {usuario} a las {datetime.datetime.now().strftime('%H:%M:%S')}"
-            }
-
-            if res_aud and res_aud.status_code == 200 and res_aud.json():
-                id_aud = res_aud.json()[0]["id_auditoria"]
-                res_save = self.db.patch(f"registro_auditorias_cierres?id_auditoria=eq.{id_aud}", json_data=payload, timeout=10)
-            else:
-                headers = {"Prefer": "resolution=merge-duplicates"}
-                res_save = self.db.post("registro_auditorias_cierres", json_data=payload, custom_headers=headers, timeout=10)
-
-            # 3. Actualizar catalogo_insumos.stock_actual y costo_unitario
-            datos_cat = {"stock_actual": cant}
-            if costo > 0:
-                datos_cat["costo_unitario"] = costo
-            self.db.patch(f"catalogo_insumos?codigo_insumo=eq.{codigo}", json_data=datos_cat, timeout=10)
-
-            registro_historial = {
-                "codigo": codigo,
-                "nombre": nombre_insumo,
-                "cantidad": cant,
-                "costo": costo,
-                "hora": datetime.datetime.now().strftime("%H:%M:%S"),
-                "usuario": usuario
-            }
+            # 5. Registrar en Historial de Auditoría (Traza completa)
             from core.audit_logger import registrar_accion
             registrar_accion(
-                accion=f"Registro / Guardado de Conteo Inicial para insumo [{codigo}] {nombre_insumo}: {cant} unds (Costo U: ${costo:,.0f})",
-                modulo="CONTEO",
+                accion=f"Conteo físico para [{codigo}] {nombre_insumo}: {detalle_accion}",
+                modulo="CONTEO_MOVIL",
                 usuario=usuario,
-                detalles={"codigo_insumo": codigo, "nombre": nombre_insumo, "cantidad": cant, "costo": costo}
+                detalles={
+                    "codigo_insumo": codigo,
+                    "nombre_insumo": nombre_insumo,
+                    "cantidad_ingresada": cant_ingresada,
+                    "cantidad_total": cant_final,
+                    "modo": modo_registro,
+                    "rol": rol,
+                    "dispositivo": "WEB_MOVIL",
+                    "observacion": observacion,
+                    "timestamp": ahora_iso
+                }
             )
 
-            logger.info(f"Stock Inicial Agosto guardado: [{codigo}] {nombre_insumo} -> {cant} unds (Costo: ${costo:,.0f})")
+            logger.info(f"[MOVIL] Conteo guardado: [{codigo}] {nombre_insumo} -> {cant_final:g} unds ({usuario})")
             return {
                 "exito": True,
                 "codigo_insumo": codigo,
                 "nombre": nombre_insumo,
-                "cantidad": cant,
-                "costo_unitario": costo,
-                "mensaje": f"Guardado con éxito: {cant} unidades ($ {costo:,.0f})"
+                "cantidad_ingresada": cant_ingresada,
+                "cantidad_total": cant_final,
+                "modo": modo_registro,
+                "mensaje": f"Guardado: {cant_final:g} unidades totales"
             }
-
         except Exception as ex:
-            log_error(f"guardar_stock_inicial({codigo_insumo}, {cantidad})", ex)
+            log_error(f"guardar_conteo_movil({codigo_insumo})", ex)
             return {"exito": False, "error": str(ex)}
 
-    def get_historial(self) -> list:
-        return self.historial_reciente
+    def obtener_historial_insumo(self, codigo_insumo: str) -> list:
+        """Obtiene la traza histórica de conteos y ediciones de un insumo."""
+        try:
+            from core.audit_logger import obtener_historial_acciones
+            acciones = obtener_historial_acciones(limit=200, modulo="CONTEO_MOVIL")
+            acciones_desktop = obtener_historial_acciones(limit=200, modulo="CONTEO")
+            acciones_todas = obtener_historial_acciones(limit=200)
+            todas = (acciones or []) + (acciones_desktop or []) + (acciones_todas or [])
+
+            # Eliminar duplicados por ID de acción
+            vistas_ids = set()
+            filtradas = []
+            for a in todas:
+                aid = a.get("id_accion") or f"{a.get('fecha')}_{a.get('hora')}_{a.get('accion')}"
+                if aid in vistas_ids:
+                    continue
+                vistas_ids.add(aid)
+
+                det = a.get("detalles") or {}
+                if str(det.get("codigo_insumo")) == str(codigo_insumo) or f"[{codigo_insumo}]" in a.get("accion", ""):
+                    filtradas.append({
+                        "fecha": a.get("fecha"),
+                        "hora": a.get("hora"),
+                        "usuario": a.get("nombre_usuario") or a.get("usuario") or "Operario",
+                        "rol": det.get("rol") or "OPERADOR",
+                        "dispositivo": det.get("dispositivo") or ("WEB_MOVIL" if a.get("modulo") == "CONTEO_MOVIL" else "ESCRITORIO"),
+                        "cantidad_ingresada": det.get("cantidad_ingresada") or det.get("cantidad"),
+                        "cantidad_total": det.get("cantidad_total") or det.get("cantidad"),
+                        "modo": det.get("modo") or "REEMPLAZAR",
+                        "observacion": det.get("observacion") or a.get("accion")
+                    })
+
+            # Si no hay traza en logs pero sí en registro_auditorias_cierres, agregar registro
+            if not filtradas:
+                res_aud = self.db._db.table("registro_auditorias_cierres").select("*").eq("codigo_insumo", str(codigo_insumo)).execute()
+                for r in (res_aud.data or []):
+                    if r.get("cantidad_fisica") is not None:
+                        obs = r.get("observacion") or "Conteo registrado en periodo"
+                        user = "Operario"
+                        rol = "OPERADOR"
+                        if "[" in obs and "]" in obs:
+                            user_part = obs.split("]")[0].replace("[", "")
+                            if "(" in user_part:
+                                user = user_part.split("(")[0].strip()
+                                rol = user_part.split("(")[1].replace(")", "").strip()
+                            else:
+                                user = user_part
+                        filtradas.append({
+                            "fecha": str(r.get("fecha_cierre", ""))[:10],
+                            "hora": str(r.get("fecha_cierre", ""))[11:19],
+                            "usuario": user,
+                            "rol": rol,
+                            "dispositivo": "SISTEMA",
+                            "cantidad_ingresada": r.get("cantidad_fisica"),
+                            "cantidad_total": r.get("cantidad_fisica"),
+                            "modo": "REGISTRO",
+                            "observacion": obs
+                        })
+
+            filtradas.sort(key=lambda x: f"{x.get('fecha')} {x.get('hora')}", reverse=True)
+            return filtradas
+        except Exception as ex:
+            log_error(f"obtener_historial_insumo({codigo_insumo})", ex)
+            return []

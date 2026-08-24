@@ -283,9 +283,9 @@ class InsumosRepository:
         return []
 
     def get_ajustes_inventario(self) -> list:
-        """Obtiene el historial de ajustes cruzado con el catálogo."""
+        """Obtiene el historial de ajustes cruzado con el catálogo y los períodos de cierre."""
         try:
-            endpoint = "registro_ajustes_inventario?select=*,catalogo_insumos(nombre,categoria)&order=fecha_ajuste.desc"
+            endpoint = "registro_ajustes_inventario?select=*,catalogo_insumos(nombre,categoria),periodos_inventario(mes_periodo)&order=fecha_ajuste.desc"
             res = self.db.get(endpoint, timeout=10)
             if res and res.status_code == 200:
                 return res.json()
@@ -309,25 +309,39 @@ class InsumosRepository:
             log_error("get_ajustes_mes", ex)
             return []
 
-    def insert_ajuste_individual(self, datos: dict) -> bool:
+    def insert_ajuste_individual(self, datos: dict | None = None, **kwargs) -> bool:
         """Inserta un nuevo registro de ajuste operativo."""
         try:
-            res = self.db.post("registro_ajustes_inventario", json_data=datos, timeout=10)
+            payload = dict(datos or {})
+            if kwargs:
+                # Mapear posibles nombres de campos alternativos
+                if "tipo_ajuste" in kwargs and "tipo_ajuste" not in payload: payload["tipo_ajuste"] = kwargs["tipo_ajuste"]
+                if "codigo_insumo" in kwargs and "codigo_insumo" not in payload: payload["codigo_insumo"] = kwargs["codigo_insumo"]
+                if "cantidad" in kwargs and "cantidad" not in payload: payload["cantidad"] = kwargs["cantidad"]
+                if "costo_unitario" in kwargs and "costo_unitario_congelado" not in payload: payload["costo_unitario_congelado"] = kwargs["costo_unitario"]
+                if "costo_total" in kwargs and "costo_total_ajuste" not in payload: payload["costo_total_ajuste"] = kwargs["costo_total"]
+                if "motivo" in kwargs and "motivo_observacion" not in payload: payload["motivo_observacion"] = kwargs["motivo"]
+                payload.update(kwargs)
+
+            if "estado_registro" not in payload:
+                payload["estado_registro"] = "VÁLIDO"
+
+            res = self.db.post("registro_ajustes_inventario", json_data=payload, timeout=10)
             if res and res.status_code in (200, 201, 204):
                 from core.audit_logger import registrar_accion
-                tipo = datos.get("tipo_ajuste", "AJUSTE")
-                cod = datos.get("codigo_insumo", "")
-                cant = datos.get("cantidad", 0)
-                motivo = datos.get("motivo_observacion", "Sin motivo")
+                tipo = payload.get("tipo_ajuste", "AJUSTE")
+                cod = payload.get("codigo_insumo", "")
+                cant = payload.get("cantidad", 0)
+                motivo = payload.get("motivo_observacion", "Sin motivo")
                 registrar_accion(
                     accion=f"Registro de ajuste de inventario ({tipo}) para insumo [{cod}]: {cant} unds (Motivo: {motivo})",
                     modulo="AJUSTES",
-                    detalles=datos
+                    detalles=payload
                 )
                 return True
             return False
         except Exception as ex:
-            log_error("insert_ajuste_individual", ex, {"datos": datos})
+            log_error("insert_ajuste_individual", ex, {"datos": datos or kwargs})
             return False
 
     def anular_ajuste(self, id_ajuste: str) -> bool:

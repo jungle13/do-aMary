@@ -400,7 +400,17 @@ def guardar_lote_en_staging(carga_data: dict) -> bool:
     Registra el lote extraído en cargas_locales.json con estado EXTRAIDO_POR_AGENTE
     respetando la estructura de grupos y páginas para la interfaz Flet.
     """
-    cargas_file = "cargas_locales.json"
+    tipo_raw = str(carga_data.get("tipo", "VENTAS_REMISION")).upper()
+    if "COMPRA" in tipo_raw:
+        cargas_file = "cargas_compras_locales.json"
+        tipo_ui = "Compra"
+    elif "POS" in tipo_raw:
+        cargas_file = "cargas_locales.json"
+        tipo_ui = "Factura POS"
+    else:
+        cargas_file = "cargas_locales.json"
+        tipo_ui = "Remisión"
+
     try:
         if os.path.exists(cargas_file):
             with open(cargas_file, "r", encoding="utf-8") as f:
@@ -421,14 +431,6 @@ def guardar_lote_en_staging(carga_data: dict) -> bool:
                 except: pass
 
         nuevo_id = max_id + 1
-        tipo_raw = str(carga_data.get("tipo", "VENTAS_REMISION")).upper()
-        if "POS" in tipo_raw:
-            tipo_ui = "Factura POS"
-        elif "COMPRA" in tipo_raw:
-            tipo_ui = "Compra"
-        else:
-            tipo_ui = "Remisión"
-
         fecha = carga_data.get("fecha", datetime.date.today().strftime("%Y-%m-%d"))
         grupo_key = f"{fecha}_{tipo_ui}"
         if grupo_key not in cargas:
@@ -444,6 +446,7 @@ def guardar_lote_en_staging(carga_data: dict) -> bool:
             "fecha": fecha,
             "estado": "EXTRAIDO_POR_AGENTE",
             "archivo": carga_data.get("archivo_origen", ""),
+            "archivo_original": carga_data.get("archivo_origen", ""),
             "total_facturas": len(invoices),
             "datos_extraidos": invoices,
             "created_at": datetime.datetime.now().isoformat()

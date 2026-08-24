@@ -10,7 +10,7 @@ class GeminiParser:
         self.api_key = Config.GEMINI_API_KEY
         if self.api_key:
             genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel('gemini-3.6-flash')
+            self.model = genai.GenerativeModel('gemini-2.5-flash')
 
             
     def parse_invoice_pdf(self, pdf_path):

@@ -709,6 +709,10 @@ class VentasView(ft.Container):
         lista_cargas.sort(key=lambda x: x["id"], reverse=True)
         
         for data in lista_cargas:
+            # Descartar registros que no correspondan a Ventas (ej. Compras)
+            if str(data.get("tipo", "")).upper() in ["COMPRA", "COMPRAS"]:
+                continue
+
             # --- Filtrado Visual ---
             if self.fecha_filtro_cargas and data.get("fecha") != self.fecha_filtro_cargas:
                 continue
@@ -1275,26 +1279,48 @@ class VentasView(ft.Container):
             self.main_content = self.content
             
         self.productos_rows = []
-        facturas_count = len(self.parsed_data)
+
+        # 1. Consolidar facturas con la misma clave y filtrar facturas vacías sin productos
+        invoices_consolidadas = {}
+        for inv in (self.parsed_data or []):
+            fac = inv.get("numero_factura", "")
+            fec = inv.get("fecha", "")
+            key = (fac, fec)
+            prods = inv.get("productos", [])
+            if key not in invoices_consolidadas:
+                invoices_consolidadas[key] = dict(inv)
+                invoices_consolidadas[key]["productos"] = list(prods)
+            else:
+                invoices_consolidadas[key]["productos"].extend(prods)
+
+        invoices_limpias = [
+            inv for inv in invoices_consolidadas.values()
+            if inv.get("productos") and len(inv["productos"]) > 0
+        ]
+
+        facturas_count = len(invoices_limpias)
         productos_count = 0
         
-        for idx, invoice in enumerate(self.parsed_data):
+        estado_carga = self.carga_activa.get("estado", "") if hasattr(self, "carga_activa") else ""
+        ya_guardado = estado_carga in ["Guardado", "Procesado con éxito"]
+
+        for idx, invoice in enumerate(invoices_limpias):
             fecha = invoice.get("fecha", "")
             factura = invoice.get("numero_factura", "")
             
-            total_factura_ctl = ft.Text("Total Factura: $0.00", weight="bold", color=Config.COLOR_PRIMARY)
+            total_factura_ctl = ft.Text("Total Factura: $0", weight="bold", size=11.5, color=Config.COLOR_PRIMARY)
             self.productos_rows.append({
                 "type": "header",
                 "factura_idx": idx,
                 "total_factura_ctl": total_factura_ctl,
                 "row_ctl": ft.Container(
                     content=ft.Row([
-                        ft.Text(f"Factura No.: {factura} | Fecha: {fecha}", weight="bold", color=Config.COLOR_PRIMARY),
+                        ft.Text(f"Factura No.: {factura} | Fecha: {fecha}", weight="bold", size=11.5, color=Config.COLOR_PRIMARY),
                         ft.Container(expand=True),
                         total_factura_ctl
                     ]),
-                    bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_PRIMARY),
-                    padding=5,
+                    bgcolor=ft.colors.with_opacity(0.08, Config.COLOR_PRIMARY),
+                    padding=ft.padding.symmetric(horizontal=8, vertical=4),
                     border_radius=5
                 )
             })
@@ -1316,21 +1342,36 @@ class VentasView(ft.Container):
                         if self.page: self.page.update()
                     return handler
                 
-                nombre_ctl = ft.Text(nombre[:25], width=180, no_wrap=True, tooltip=nombre)
-                codigo_ctl = ft.TextField(label="Código", value=cod, width=90, dense=True, on_change=get_codigo_change_handler(nombre_ctl))
+                nombre_ctl = ft.Text(nombre[:26], width=200, size=11, no_wrap=True, tooltip=nombre, color="#374151")
+                codigo_ctl = ft.TextField(
+                    value=cod, width=80, height=32, text_size=11, dense=True, read_only=ya_guardado,
+                    content_padding=ft.padding.symmetric(horizontal=8, vertical=2), border_radius=6,
+                    on_change=get_codigo_change_handler(nombre_ctl)
+                )
                 
-                # Calcular precio unitario exacto: subtotal / cantidad
                 cantidad_val = float(p.get("cantidad", 0))
                 subtotal_val = float(p.get("subtotal", 0))
                 precio_unitario = subtotal_val / cantidad_val if cantidad_val > 0 else 0.0
                 
-                cantidad_ctl = ft.TextField(label="Cant.", value=str(p.get("cantidad", 0)), width=70, dense=True, on_change=self.update_totals)
-                subtotal_ctl = ft.TextField(label="Subtotal", value=str(subtotal_val), width=80, dense=True, on_change=self.update_totals)
-                costo_ctl = ft.Text(f"${precio_unitario:,.2f}", width=80)
-                iva_ctl = ft.TextField(label="IVA", value=str(p.get("iva", 0)), width=80, dense=True, on_change=self.update_totals)
-                total_ctl = ft.Text("$0.00", width=100, weight="bold")
+                cantidad_ctl = ft.TextField(
+                    value=str(p.get("cantidad", 0)), width=60, height=32, text_size=11, dense=True, read_only=ya_guardado,
+                    content_padding=ft.padding.symmetric(horizontal=8, vertical=2), border_radius=6,
+                    on_change=self.update_totals
+                )
+                costo_ctl = ft.Text(f"${precio_unitario:,.0f}", width=70, size=11, color="grey")
+                subtotal_ctl = ft.TextField(
+                    value=str(subtotal_val), width=75, height=32, text_size=11, dense=True, read_only=ya_guardado,
+                    content_padding=ft.padding.symmetric(horizontal=8, vertical=2), border_radius=6,
+                    on_change=self.update_totals
+                )
+                iva_ctl = ft.TextField(
+                    value=str(p.get("iva", 0)), width=75, height=32, text_size=11, dense=True, read_only=ya_guardado,
+                    content_padding=ft.padding.symmetric(horizontal=8, vertical=2), border_radius=6,
+                    on_change=self.update_totals
+                )
+                total_ctl = ft.Text("$0", width=90, size=11.5, weight="bold", color="#111827")
                 
-                self.productos_rows.append({
+                prod_row_data = {
                     "type": "product",
                     "factura_idx": idx,
                     "fecha": fecha,
@@ -1341,81 +1382,108 @@ class VentasView(ft.Container):
                     "subtotal_ctl": subtotal_ctl,
                     "costo_ctl": costo_ctl,
                     "iva_ctl": iva_ctl,
-                    "total_ctl": total_ctl,
-                    "row_ctl": ft.Row([codigo_ctl, nombre_ctl, cantidad_ctl, costo_ctl, subtotal_ctl, iva_ctl, total_ctl])
-                })
+                    "total_ctl": total_ctl
+                }
+
+                btn_del = ft.IconButton(
+                    icon=ft.icons.DELETE_OUTLINE_ROUNDED,
+                    icon_color="red400",
+                    icon_size=16,
+                    tooltip="Eliminar este insumo",
+                    visible=not ya_guardado,
+                    on_click=lambda e, item=prod_row_data, f_idx=idx: self._eliminar_insumo_de_factura(e, item, f_idx)
+                )
+
+                prod_row_data["row_ctl"] = ft.Row(
+                    [codigo_ctl, nombre_ctl, cantidad_ctl, costo_ctl, subtotal_ctl, iva_ctl, total_ctl, btn_del],
+                    spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER
+                )
+                self.productos_rows.append(prod_row_data)
             
         if len(self.productos_rows) == 0:
-            list_view = ft.Container(
+            self.list_view_confirm = ft.Container(
                 content=ft.Text(
-                    "Todos los datos de esta página ya están registrados en la base de datos.\nHaz clic en el botón de Confirmar para saltar a la siguiente página.",
+                    "Todos los datos de esta página ya están registrados en la base de datos.",
                     color="orange",
                     weight="bold",
                     text_align=ft.TextAlign.CENTER,
-                    size=16
+                    size=13
                 ),
-                padding=50,
+                padding=30,
                 alignment=ft.alignment.center,
                 expand=True
             )
         else:
-            list_view = ft.ListView(
+            self.list_view_confirm = ft.ListView(
                 controls=[item["row_ctl"] for item in self.productos_rows],
                 expand=True,
-                spacing=10
+                spacing=4
             )
         
-        self.txt_gran_cant = ft.Text("0", weight="bold")
-        self.txt_gran_costo = ft.Text("$0", weight="bold")
-        self.txt_gran_iva = ft.Text("$0", weight="bold")
-        self.txt_gran_total = ft.Text("$0", weight="bold", size=18, color=Config.COLOR_PRIMARY)
+        self.txt_gran_cant = ft.Text("0", weight="bold", size=12)
+        self.txt_gran_costo = ft.Text("$0", weight="bold", size=12)
+        self.txt_gran_iva = ft.Text("$0", weight="bold", size=12)
+        self.txt_gran_total = ft.Text("$0", weight="bold", size=14, color=Config.COLOR_PRIMARY)
         
         # Lógica de Botones Footer
         is_last_page = not (hasattr(self, 'total_pages_pdf') and self.current_page_idx < self.total_pages_pdf - 1)
+        botones_acciones = [ft.TextButton("← Volver", on_click=self.close_confirm_ui)]
         
-        botones_acciones = [ft.TextButton("Volver", on_click=self.close_confirm_ui)]
-        if not is_last_page:
-            botones_acciones.append(ft.ElevatedButton("Confirmar y Guardar", bgcolor="grey", color="white", on_click=self.on_guardar_venta_partial))
-            botones_acciones.append(ft.ElevatedButton("Confirmar y Continuar", bgcolor=Config.COLOR_SECONDARY, color="white", on_click=self.on_guardar_venta))
+        if ya_guardado:
+            botones_acciones.append(
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.icons.CHECK_CIRCLE, color="green700", size=15),
+                        ft.Text("Carga guardada en Base de Datos", color="green800", size=11.5, weight="bold")
+                    ], spacing=6),
+                    padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                    bgcolor="#E8F5E9",
+                    border_radius=6
+                )
+            )
         else:
-            botones_acciones.append(ft.ElevatedButton("Confirmar y Guardar Todo", bgcolor=Config.COLOR_SECONDARY, color="white", on_click=self.on_guardar_venta))
+            if not is_last_page:
+                botones_acciones.append(ft.ElevatedButton("Confirmar y Guardar", height=32, bgcolor="grey", color="white", on_click=self.on_guardar_venta_partial))
+                botones_acciones.append(ft.ElevatedButton("Confirmar y Continuar", height=32, bgcolor=Config.COLOR_SECONDARY, color="white", on_click=self.on_guardar_venta))
+            else:
+                botones_acciones.append(ft.ElevatedButton("Confirmar y Guardar Todo", height=32, bgcolor=Config.COLOR_SECONDARY, color="white", on_click=self.on_guardar_venta))
         
         # --- NUEVO DISEÑO DEL FOOTER ---
         # 1. Fila de Información Financiera (Estilo Dashboard)
         info_row = ft.Row([
-            ft.Text("RESUMEN TOTAL", weight="bold", size=18, color=Config.COLOR_PRIMARY),
-            ft.Container(expand=True), # Empuja los totales hacia la derecha
+            ft.Text("RESUMEN TOTAL", weight="bold", size=13, color=Config.COLOR_PRIMARY),
+            ft.Container(expand=True),
             
-            ft.Column([ft.Text("Cant. Total", size=12, color="grey"), self.txt_gran_cant], spacing=2, horizontal_alignment="end"),
-            ft.Container(width=1, height=30, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=10)),
+            ft.Column([ft.Text("Cant. Total", size=10.5, color="grey"), self.txt_gran_cant], spacing=1, horizontal_alignment="end"),
+            ft.Container(width=1, height=24, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=8)),
             
-            ft.Column([ft.Text("Costo Base", size=12, color="grey"), self.txt_gran_costo], spacing=2, horizontal_alignment="end"),
-            ft.Container(width=1, height=30, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=10)),
+            ft.Column([ft.Text("Costo Base", size=10.5, color="grey"), self.txt_gran_costo], spacing=1, horizontal_alignment="end"),
+            ft.Container(width=1, height=24, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=8)),
             
-            ft.Column([ft.Text("IVA Total", size=12, color="grey"), self.txt_gran_iva], spacing=2, horizontal_alignment="end"),
-            ft.Container(width=1, height=30, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=10)),
+            ft.Column([ft.Text("IVA Total", size=10.5, color="grey"), self.txt_gran_iva], spacing=1, horizontal_alignment="end"),
+            ft.Container(width=1, height=24, bgcolor=ft.colors.with_opacity(0.2, "grey"), margin=ft.padding.symmetric(horizontal=8)),
             
-            ft.Column([ft.Text("GRAN TOTAL", size=12, color="grey", weight="bold"), self.txt_gran_total], spacing=2, horizontal_alignment="end"),
+            ft.Column([ft.Text("GRAN TOTAL", size=10.5, color="grey", weight="bold"), self.txt_gran_total], spacing=1, horizontal_alignment="end"),
         ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
         # 2. Fila de Botones de Acción
         buttons_row = ft.Row([
-            ft.Container(expand=True), # Empuja los botones hacia el extremo derecho
-            *botones_acciones # Desempaqueta la lista de botones dinámicos
-        ], alignment=ft.MainAxisAlignment.END)
+            ft.Container(expand=True),
+            *botones_acciones
+        ], alignment=ft.MainAxisAlignment.END, spacing=10)
 
         # 3. Contenedor Principal del Footer
         footer = ft.Container(
             content=ft.Column([
                 info_row,
-                ft.Divider(height=15, color=ft.colors.with_opacity(0.1, "black")),
+                ft.Divider(height=10, color=ft.colors.with_opacity(0.1, "black")),
                 buttons_row
             ], spacing=0),
             bgcolor=ft.colors.with_opacity(0.03, Config.COLOR_PRIMARY),
-            padding=20,
+            padding=12,
             border_radius=8,
             border=ft.border.all(1, ft.colors.with_opacity(0.1, Config.COLOR_PRIMARY)),
-            margin=ft.padding.only(top=10)
+            margin=ft.padding.only(top=6)
         )
         
         if hasattr(self, 'total_pages_pdf'):
@@ -1424,29 +1492,111 @@ class VentasView(ft.Container):
             titulo = f"Datos Extraídos - Pág. No. {self.carga_activa.get('pagina', 1)} ({self.carga_activa.get('tipo', '')})"
         else:
             titulo = "Revisión de Ventas (Modo Inmersivo)"
+        self.lbl_confirm_subtitle = ft.Text(f"{facturas_count} Facturas extraídas | {productos_count} Productos en total", size=11.5, color="grey")
         header = ft.Row([
-            ft.Text(titulo, size=24, weight="bold"),
-            ft.Text(f"{facturas_count} Facturas extraídas | {productos_count} Productos en total", color="grey")
+            ft.Text(titulo, size=16, weight="bold"),
+            self.lbl_confirm_subtitle
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
         
         self.content = ft.Column([
             header,
-            ft.Divider(),
+            ft.Divider(height=6),
             ft.Row([
-                ft.Container(width=90, content=ft.Text("Código", weight="bold")),
-                ft.Container(width=180, content=ft.Text("Nombre (desde BD)", weight="bold")),
-                ft.Container(width=70, content=ft.Text("Cantidad", weight="bold")),
-                ft.Container(width=80, content=ft.Text("Precio U.", weight="bold")),
-                ft.Container(width=80, content=ft.Text("Subtotal", weight="bold")),
-                ft.Container(width=80, content=ft.Text("IVA", weight="bold")),
-                ft.Container(width=100, content=ft.Text("Costo Total", weight="bold"))
-            ]),
-            list_view,
+                ft.Container(width=80, content=ft.Text("Código", weight="bold", size=11, color="grey")),
+                ft.Container(width=200, content=ft.Text("Nombre (desde BD)", weight="bold", size=11, color="grey")),
+                ft.Container(width=60, content=ft.Text("Cantidad", weight="bold", size=11, color="grey")),
+                ft.Container(width=70, content=ft.Text("Precio U.", weight="bold", size=11, color="grey")),
+                ft.Container(width=75, content=ft.Text("Subtotal", weight="bold", size=11, color="grey")),
+                ft.Container(width=75, content=ft.Text("IVA", weight="bold", size=11, color="grey")),
+                ft.Container(width=90, content=ft.Text("Costo Total", weight="bold", size=11, color="grey")),
+                ft.Container(width=30, content=ft.Text("", size=11))
+            ], spacing=6),
+            self.list_view_confirm,
             footer
-        ], expand=True)
+        ], expand=True, spacing=6)
         
         self.update_totals()
         self.page.update()
+
+    def _eliminar_insumo_de_factura(self, e, item_dict, fac_idx):
+        try:
+            # 1. Remover de self.productos_rows
+            if item_dict in self.productos_rows:
+                self.productos_rows.remove(item_dict)
+
+            # 2. Remover de los controles visuales de ListView
+            if hasattr(self, 'list_view_confirm') and hasattr(self.list_view_confirm, 'controls') and item_dict.get("row_ctl") in self.list_view_confirm.controls:
+                self.list_view_confirm.controls.remove(item_dict["row_ctl"])
+
+            # 3. Si la factura se quedó sin productos, remover también el encabezado de la factura
+            prods_restantes = [it for it in self.productos_rows if it.get("type") == "product" and it.get("factura_idx") == fac_idx]
+            if not prods_restantes:
+                header_item = next((it for it in self.productos_rows if it.get("type") == "header" and it.get("factura_idx") == fac_idx), None)
+                if header_item:
+                    if header_item in self.productos_rows:
+                        self.productos_rows.remove(header_item)
+                    if hasattr(self, 'list_view_confirm') and hasattr(self.list_view_confirm, 'controls') and header_item.get("row_ctl") in self.list_view_confirm.controls:
+                        self.list_view_confirm.controls.remove(header_item["row_ctl"])
+
+            # 4. Actualizar contador en el encabezado
+            prods_tot = sum(1 for it in self.productos_rows if it.get("type") == "product")
+            facs_tot = len(set(it.get("factura_idx") for it in self.productos_rows if it.get("type") == "product"))
+            if hasattr(self, 'lbl_confirm_subtitle'):
+                self.lbl_confirm_subtitle.value = f"{facs_tot} Facturas extraídas | {prods_tot} Productos en total"
+
+            # 5. Actualizar totales y sincronizar en staging
+            self.update_totals()
+            self._sincronizar_productos_rows_a_staging()
+
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(ft.Text("Insumo eliminado de la factura."), bgcolor="orange700", duration=2000)
+                self.page.snack_bar.open = True
+                self.page.update()
+        except Exception as ex:
+            from core.logger import log_error
+            log_error("_eliminar_insumo_de_factura", ex)
+
+    def _sincronizar_productos_rows_a_staging(self):
+        if hasattr(self, "carga_activa") and self.carga_activa:
+            grupo_key = self.carga_activa.get("fecha")
+            pagina_origen = self.carga_activa.get("pagina")
+            
+            # Reconstruir lista de facturas con sus productos actuales
+            facturas_map = {}
+            for it in self.productos_rows:
+                if it.get("type") == "product":
+                    f_idx = it.get("factura_idx")
+                    if f_idx not in facturas_map:
+                        facturas_map[f_idx] = {
+                            "fecha": it.get("fecha", ""),
+                            "numero_factura": it.get("factura", ""),
+                            "productos": []
+                        }
+                    try:
+                        cant = float(str(it["cantidad_ctl"].value).replace(',', '.'))
+                        subtot = float(str(it["subtotal_ctl"].value).replace(',', '.'))
+                        iva = float(str(it["iva_ctl"].value).replace(',', '.'))
+                        tot = subtot + iva
+                    except:
+                        cant, subtot, iva, tot = 0.0, 0.0, 0.0, 0.0
+
+                    facturas_map[f_idx]["productos"].append({
+                        "codigo_item": it["codigo_ctl"].value,
+                        "cantidad": cant,
+                        "subtotal": subtot,
+                        "iva": iva,
+                        "total": tot
+                    })
+
+            nuevos_datos = list(facturas_map.values())
+            self.carga_activa["datos_extraidos"] = nuevos_datos
+            self.carga_activa["total_facturas"] = len(nuevos_datos)
+
+            # Guardar en archivo de staging
+            if grupo_key and str(pagina_origen) in self.cargas_data.get(grupo_key, {}):
+                self.cargas_data[grupo_key][str(pagina_origen)]["datos_extraidos"] = nuevos_datos
+                self.cargas_data[grupo_key][str(pagina_origen)]["total_facturas"] = len(nuevos_datos)
+                self._save_cargas()
         
     def close_confirm_ui(self, e):
         self.content = self.main_content
@@ -1519,12 +1669,21 @@ class VentasView(ft.Container):
                     self.page.snack_bar = ft.SnackBar(ft.Text(f"Página guardada exitosamente en BD."), bgcolor="green")
                     self.page.snack_bar.open = True
                     
-                    # 3. Actualizar el estado local a Guardado
-                    grupo_key = f"{fecha_doc}_{tipo_doc}"
-                    if grupo_key in self.cargas_data and str(pagina_origen) in self.cargas_data[grupo_key]:
-                        self.cargas_data[grupo_key][str(pagina_origen)]["estado"] = "Guardado"
-                        self._save_cargas()
-                    
+                    # 3. Actualizar el estado local a Guardado de forma robusta
+                    if hasattr(self, "carga_activa") and self.carga_activa:
+                        self.carga_activa["estado"] = "Guardado"
+                        carga_id = self.carga_activa.get("id")
+                    else:
+                        carga_id = None
+
+                    for g_k, paginas in self.cargas_data.items():
+                        if isinstance(paginas, dict):
+                            for p_k, p_data in paginas.items():
+                                if isinstance(p_data, dict):
+                                    if (carga_id is not None and p_data.get("id") == carga_id) or (g_k.startswith(str(fecha_doc)) and str(p_k) == str(pagina_origen)):
+                                        p_data["estado"] = "Guardado"
+
+                    self._save_cargas()
                     self.close_confirm_ui(None)
                     self._render_tabla_cargas()
                     self.load_data()

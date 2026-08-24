@@ -83,24 +83,41 @@ class AjustesInventarioView(ft.Container):
 
         self.drop_tipo = ft.Dropdown(
             options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("Entrada"), ft.dropdown.Option("Salida")],
-            value="Todos", label="Tipo", dense=True, width=150, height=38, text_size=12,
-            content_padding=ft.padding.symmetric(horizontal=10, vertical=8), on_change=lambda e: self._on_filter_change()
+            value="Todos", label="Tipo", dense=True, width=110, height=34, text_size=11,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4), on_change=lambda e: self._on_filter_change()
+        )
+
+        self.drop_origen = ft.Dropdown(
+            options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("Cierre de Mes"), ft.dropdown.Option("Manual")],
+            value="Todos", label="Origen", dense=True, width=135, height=34, text_size=11,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4), on_change=lambda e: self._on_filter_change()
         )
         
         motivos_combinados = ["Todos"] + list(self.mapa_motivos.keys())
         self.drop_motivo = ft.Dropdown(
             options=[ft.dropdown.Option(m) for m in motivos_combinados],
-            value="Todos", label="Motivo", dense=True, width=200, height=38, text_size=12,
-            content_padding=ft.padding.symmetric(horizontal=10, vertical=8), on_change=lambda e: self._on_filter_change()
+            value="Todos", label="Motivo", dense=True, width=160, height=34, text_size=11,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4), on_change=lambda e: self._on_filter_change()
         )
 
-        self.btn_prev = ft.IconButton(icon=ft.icons.ARROW_BACK_IOS, on_click=self._prev_page, disabled=True)
-        self.btn_next = ft.IconButton(icon=ft.icons.ARROW_FORWARD_IOS, on_click=self._next_page, disabled=True)
-        self.lbl_page_info = ft.Text("Pág 1 de 1", weight="bold")
+        self.btn_prev = ft.IconButton(icon=ft.icons.ARROW_BACK_IOS, icon_size=14, on_click=self._prev_page, disabled=True)
+        self.btn_next = ft.IconButton(icon=ft.icons.ARROW_FORWARD_IOS, icon_size=14, on_click=self._next_page, disabled=True)
+        self.lbl_page_info = ft.Text("Pág 1 de 1", size=11, weight="bold")
 
         # --- Vista de Tarjetas (Lista) ---
-        self.lista_ajustes = ft.ListView(expand=True, spacing=10, auto_scroll=False)
-        self.btn_agregar_ajuste = ft.ElevatedButton("Registrar Ajuste", icon=ft.icons.ADD, bgcolor=Config.COLOR_PRIMARY, color="white", on_click=lambda e: self.abrir_modal_ajuste())
+        self.lista_ajustes = ft.ListView(expand=True, spacing=6, auto_scroll=False)
+        self.btn_agregar_ajuste = ft.ElevatedButton(
+            "Registrar Ajuste",
+            icon=ft.icons.ADD,
+            bgcolor=Config.COLOR_PRIMARY,
+            color="white",
+            height=32,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=7),
+                padding=ft.padding.symmetric(horizontal=10, vertical=0)
+            ),
+            on_click=lambda e: self.abrir_modal_ajuste()
+        )
 
         # --- Modal ---
         self.modal_ajuste = self._crear_modal_formulario()
@@ -108,17 +125,17 @@ class AjustesInventarioView(ft.Container):
         # --- Layout Principal Unificado ---
         kpi_bar = ft.Container(
             content=ft.Row([
-                ft.Column([ft.Text("Valor Inventario Base:", size=11, color="grey"), self.lbl_ent_actual], spacing=0),
-                ft.Container(width=1, height=30, bgcolor="#eeeeee"),
-                ft.Column([ft.Text("Valor Entradas (+):", size=11, color="grey"), self.lbl_ent_pos], spacing=0),
-                ft.Container(width=1, height=30, bgcolor="#eeeeee"),
-                ft.Column([ft.Text("Valor Salidas (-):", size=11, color="grey"), self.lbl_sal_neg], spacing=0),
-                ft.Container(width=1, height=30, bgcolor="#eeeeee"),
-                ft.Column([ft.Text("Impacto Neto:", size=11, color="grey"), self.lbl_ent_neto], spacing=0),
+                ft.Column([ft.Text("Valor Inventario Base:", size=10, color="grey"), self.lbl_ent_actual], spacing=0),
+                ft.Container(width=1, height=24, bgcolor="#eeeeee"),
+                ft.Column([ft.Text("Valor Entradas (+):", size=10, color="grey"), self.lbl_ent_pos], spacing=0),
+                ft.Container(width=1, height=24, bgcolor="#eeeeee"),
+                ft.Column([ft.Text("Valor Salidas (-):", size=10, color="grey"), self.lbl_sal_neg], spacing=0),
+                ft.Container(width=1, height=24, bgcolor="#eeeeee"),
+                ft.Column([ft.Text("Impacto Neto:", size=10, color="grey"), self.lbl_ent_neto], spacing=0),
                 ft.Container(expand=True),
-                ft.Column([ft.Text("Inventario Proyectado:", size=11, color="grey"), self.lbl_ent_proyectado], spacing=0, horizontal_alignment="end"),
+                ft.Column([ft.Text("Inventario Proyectado:", size=10, color="grey"), self.lbl_ent_proyectado], spacing=0, horizontal_alignment="end"),
             ], alignment=ft.MainAxisAlignment.START),
-            padding=15, bgcolor="#fafafa", border_radius=8, border=ft.border.all(1, "#eeeeee")
+            padding=10, bgcolor="#fafafa", border_radius=8, border=ft.border.all(1, "#eeeeee")
         )
         
         filtros_row = ft.Row([
@@ -126,9 +143,10 @@ class AjustesInventarioView(ft.Container):
             self.btn_date,
             self.btn_clear_date,
             self.drop_tipo,
+            self.drop_origen,
             self.drop_motivo,
             self.btn_agregar_ajuste
-        ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         
         paginacion_row = ft.Row([
             ft.Container(expand=True),
@@ -634,6 +652,7 @@ class AjustesInventarioView(ft.Container):
             filtro_texto = (self.search_input_text.value or raw_auto).lower().strip()
         filtro_fecha = self.date_picker.value.strftime("%Y-%m-%d") if self.date_picker.value else None
         filtro_tipo = self.drop_tipo.value
+        filtro_origen = self.drop_origen.value if hasattr(self, "drop_origen") else "Todos"
         filtro_motivo = self.drop_motivo.value
         
         filtered_data = []
@@ -647,6 +666,18 @@ class AjustesInventarioView(ft.Container):
             cat_info = aj.get("catalogo_insumos", {})
             nombre = cat_info.get("nombre", "Desconocido") if isinstance(cat_info, dict) else "Desconocido"
             
+            periodo_info = aj.get("periodos_inventario")
+            mes_periodo = periodo_info.get("mes_periodo") if isinstance(periodo_info, dict) else None
+            obs_lower = str(aj.get("motivo_observacion", "")).lower()
+            es_cierre_mes = bool(
+                mes_periodo or 
+                aj.get("id_periodo") or 
+                aj.get("id_auditoria_origen") or 
+                "auditoría" in obs_lower or 
+                "conteo físico" in obs_lower or 
+                "cierre" in obs_lower
+            )
+
             # Reglas de coincidencia multi-token
             texto_aj = f"{aj['codigo_insumo']} {nombre}".lower()
             match_texto = all(t in texto_aj for t in tokens_filtro) if tokens_filtro else True
@@ -654,13 +685,19 @@ class AjustesInventarioView(ft.Container):
             
             tipo_ajuste_str = "Entrada" if es_entrada else "Salida"
             match_tipo = filtro_tipo == "Todos" or filtro_tipo == tipo_ajuste_str
+            
+            match_origen = True
+            if filtro_origen == "Cierre de Mes":
+                match_origen = es_cierre_mes
+            elif filtro_origen == "Manual":
+                match_origen = not es_cierre_mes
+
             match_motivo = filtro_motivo == "Todos" or filtro_motivo == aj["motivo_observacion"]
             
-            if match_texto and match_fecha and match_tipo and match_motivo:
+            if match_texto and match_fecha and match_tipo and match_origen and match_motivo:
                 filtered_data.append(aj)
 
             # Acumular KPIs sobre todos los datos VÁLIDOS del historial general, sin importar los filtros visuales.
-            # (El usuario quiere ver el total global de impacto)
             if aj["estado_registro"] == "VÁLIDO":
                 val_total = float(aj["costo_total_ajuste"])
                 if es_entrada: total_ent_pos += val_total
@@ -685,6 +722,45 @@ class AjustesInventarioView(ft.Container):
             cat_info = aj.get("catalogo_insumos", {})
             nombre = cat_info.get("nombre", "Desconocido") if isinstance(cat_info, dict) else "Desconocido"
 
+            periodo_info = aj.get("periodos_inventario")
+            mes_periodo = periodo_info.get("mes_periodo") if isinstance(periodo_info, dict) else None
+            obs_lower = str(aj.get("motivo_observacion", "")).lower()
+            es_cierre_mes = bool(
+                mes_periodo or 
+                aj.get("id_periodo") or 
+                aj.get("id_auditoria_origen") or 
+                "auditoría" in obs_lower or 
+                "conteo físico" in obs_lower or 
+                "cierre" in obs_lower
+            )
+
+            # Badge de Origen (Cierre de Mes vs Ajuste Manual)
+            if es_cierre_mes:
+                lbl_origen = f"Cierre {mes_periodo}" if mes_periodo else "Cierre de Mes"
+                badge_origen = ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.icons.LOCK_CLOCK_ROUNDED, size=13, color="#6D28D9"),
+                        ft.Text(lbl_origen, color="#6D28D9", weight="bold", size=11)
+                    ], spacing=4),
+                    padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                    bgcolor="#EDE9FE",
+                    border_radius=12,
+                    border=ft.border.all(1, "#DDD6FE"),
+                    tooltip="Ajuste originado por auditoría de Cierre de Mes"
+                )
+            else:
+                badge_origen = ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.icons.EDIT_NOTE_ROUNDED, size=13, color="#475569"),
+                        ft.Text("Ajuste Manual", color="#475569", weight="bold", size=11)
+                    ], spacing=4),
+                    padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                    bgcolor="#F1F5F9",
+                    border_radius=12,
+                    border=ft.border.all(1, "#E2E8F0"),
+                    tooltip="Ajuste operativo manual registrado de forma individual"
+                )
+
             # Tarjeta de Ajuste (Card UI)
             tipo_bg = "#e8f5e9" if es_entrada else "#ffebee"
             tipo_color = "green" if es_entrada else "red"
@@ -696,7 +772,11 @@ class AjustesInventarioView(ft.Container):
             )
 
             fila1_cabecera = ft.Row([
-                ft.Row([ft.Icon(ft.icons.CALENDAR_MONTH, size=16, color="grey"), ft.Text(aj["fecha_ajuste"][:10], color="grey")]),
+                ft.Row([
+                    ft.Icon(ft.icons.CALENDAR_MONTH, size=15, color="grey"),
+                    ft.Text(aj["fecha_ajuste"][:10], size=11.5, color="grey"),
+                    badge_origen
+                ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 badge_tipo
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 

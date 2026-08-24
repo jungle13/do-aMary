@@ -1,4 +1,4 @@
-﻿"""
+"""
 Vista de Conteo e Inventario Inicial de Mes.
 Permite registrar y calibrar existencias físicas y costos unitarios,
 lanzar el modal de Conteo Móvil QR, y sincronizar con Supabase en tiempo real.
@@ -60,80 +60,90 @@ class ConteoInicialView(ft.Container):
             icon=ft.icons.QR_CODE_SCANNER_ROUNDED,
             bgcolor=Config.COLOR_PRIMARY,
             color="white",
-            height=40,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            height=32,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=7),
+                padding=ft.padding.symmetric(horizontal=10, vertical=0)
+            ),
             on_click=self.abrir_modal_qr
         )
 
-        # 2. Tarjetas de Resumen KPI
-        self.lbl_insumos_contados = ft.Text("0", size=18, weight="bold", color=Config.COLOR_PRIMARY)
-        self.lbl_total_stock = ft.Text("0 unds", size=18, weight="bold", color=Config.COLOR_ACCENT)
-        self.lbl_valor_total = ft.Text("$0", size=18, weight="bold", color=Config.COLOR_SUCCESS)
+        # 2. Tarjetas de Resumen KPI Compactas
+        self.lbl_insumos_contados = ft.Text("0", size=14, weight="bold", color=Config.COLOR_PRIMARY)
+        self.lbl_total_stock = ft.Text("0 unds", size=14, weight="bold", color=Config.COLOR_ACCENT)
+        self.lbl_valor_total = ft.Text("$0", size=14, weight="bold", color=Config.COLOR_SUCCESS)
 
-        # 3. Formulario de Registro Rápido
+        # 3. Formulario de Registro Rápido Compacto
         self.txt_buscar_insumo = ft.TextField(
             hint_text="Escribe código o nombre del insumo a registrar...",
             prefix_icon=ft.icons.SEARCH_ROUNDED,
             bgcolor="white",
-            border_radius=8,
-            height=42,
-            content_padding=10,
+            border_radius=7,
+            height=34,
+            text_size=11.5,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
             expand=True,
             on_change=self.on_buscar_sugerencias
         )
 
         self.lv_sugerencias = ft.ListView(
             spacing=2,
-            height=130,
+            height=110,
             visible=False
         )
 
-        self.lbl_info_seleccionado = ft.Text("Ningún insumo seleccionado", size=12, color=Config.COLOR_TEXT_MUTED, weight="w500")
+        self.lbl_info_seleccionado = ft.Text("Ningún insumo seleccionado", size=10.5, color=Config.COLOR_TEXT_MUTED, weight="w500")
         
         self.txt_cantidad = ft.TextField(
-            label="Cantidad Físico (Stock Inicial)",
+            label="Cantidad Físico",
             value="0",
             keyboard_type=ft.KeyboardType.NUMBER,
             bgcolor="white",
-            border_radius=8,
-            height=42,
-            width=180,
-            content_padding=10,
+            border_radius=7,
+            height=34,
+            text_size=11.5,
+            width=135,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
             text_align=ft.TextAlign.RIGHT
         )
 
         self.txt_costo = ft.TextField(
-            label="Costo Unitario ($)",
+            label="Costo Unit. ($)",
             value="0",
             keyboard_type=ft.KeyboardType.NUMBER,
             bgcolor="white",
-            border_radius=8,
-            height=42,
-            width=180,
-            content_padding=10,
+            border_radius=7,
+            height=34,
+            text_size=11.5,
+            width=130,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
             text_align=ft.TextAlign.RIGHT
         )
 
-        self.lbl_fuente_costo = ft.Text("", size=10, color=Config.COLOR_ACCENT, weight="w600")
+        self.lbl_fuente_costo = ft.Text("", size=9.5, color=Config.COLOR_ACCENT, weight="w600")
 
         self.btn_guardar_conteo = ft.ElevatedButton(
             "✓ Guardar Conteo",
             bgcolor=Config.COLOR_SUCCESS,
             color="white",
-            height=42,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            height=34,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=7),
+                padding=ft.padding.symmetric(horizontal=12, vertical=0)
+            ),
             on_click=self.guardar_conteo_manual
         )
 
-        # 4. Filtro de Tabla
+        # 4. Filtro de Tabla Compacto
         self.txt_filtro_tabla = ft.TextField(
             hint_text="Filtrar tabla por nombre o código...",
             prefix_icon=ft.icons.FILTER_ALT_ROUNDED,
             bgcolor="white",
-            border_radius=8,
-            height=38,
+            border_radius=7,
+            height=34,
+            text_size=11.5,
             expand=True,
-            content_padding=10,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
             on_change=self.on_filtro_tabla_change
         )
 
@@ -141,22 +151,23 @@ class ConteoInicialView(ft.Container):
             options=[ft.dropdown.Option("Todas")],
             value="Todas",
             label="Categoría",
-            width=180,
-            border_radius=8,
+            width=140,
+            border_radius=7,
             bgcolor="white",
-            height=38,
-            content_padding=8,
+            height=34,
+            text_size=11,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
             on_change=self.on_filtro_tabla_change
         )
 
-        # 5. Tabla de Conteo
+        # 5. Tabla de Conteo Compacta
         self.tabla = ft.DataTable(
-            column_spacing=18,
-            data_row_min_height=42,
-            data_row_max_height=42,
-            heading_row_height=38,
+            column_spacing=10,
+            data_row_min_height=32,
+            data_row_max_height=36,
+            heading_row_height=30,
             heading_row_color="#f1f5f9",
-            border=ft.border.all(1, Config.COLOR_BORDER),
+            border=ft.border.all(1, ft.colors.with_opacity(0.08, "black")),
             border_radius=8,
             columns=[
                 ft.DataColumn(ft.Text("Código", weight="bold", size=11)),
@@ -394,8 +405,24 @@ class ConteoInicialView(ft.Container):
         if not q or len(q) < 2:
             self.lv_sugerencias.visible = False
             self.lv_sugerencias.controls.clear()
+            if self.insumo_seleccionado:
+                self.insumo_seleccionado = None
+                self.txt_cantidad.value = "0"
+                self.txt_costo.value = "0"
+                self.lbl_info_seleccionado.value = "Ningún insumo seleccionado"
+                self.lbl_fuente_costo.value = ""
             if self.page: self.page.update()
             return
+
+        if self.insumo_seleccionado:
+            cod_s = str(self.insumo_seleccionado.get("codigo_insumo") or "").lower()
+            nom_s = str(self.insumo_seleccionado.get("nombre") or "").lower()
+            if q not in cod_s and q not in nom_s:
+                self.insumo_seleccionado = None
+                self.txt_cantidad.value = "0"
+                self.txt_costo.value = "0"
+                self.lbl_info_seleccionado.value = "Buscando insumo..."
+                self.lbl_fuente_costo.value = ""
 
         tokens = q.split()
         matches = []
