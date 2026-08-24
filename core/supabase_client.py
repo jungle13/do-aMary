@@ -112,6 +112,12 @@ class SupabaseClient:
     def get_compras_summary(self, fecha_corte=None):
         return self.compras_repo.get_compras_summary(fecha_corte)
 
+    def get_proveedores_unicos(self):
+        return self.compras_repo.get_proveedores_unicos()
+
+    def get_historial_compras_dia(self, fecha_dia=None, agrupar_por="FACTURA", proveedor_filtro=None) -> list:
+        return self.compras_repo.get_historial_compras_dia(fecha_dia, agrupar_por, proveedor_filtro)
+
     def update_compra_individual(self, id_compra: str, datos: dict):
         return self.compras_repo.update_compra_individual(id_compra, datos)
 
@@ -165,20 +171,37 @@ class SupabaseClient:
         return self.ventas_repo.get_codigos_factura_especifica(tipo, ref)
 
     def get_rendimiento_categorias_periodo(self, fecha_inicio=None, fecha_fin=None) -> list:
-        """Calcula el rendimiento y costo acumulado real por categoría hasta 'fecha_fin'."""
+        """Calcula el rendimiento y costo acumulado real por categoría hasta 'fecha_fin' considerando insumos con stock > 0 y costos reales de compra."""
         categorias_map = {}
         try:
+            # 1. Obtener mapa de últimos costos unitarios reales de compras
+            res_c = self._db.get("registro_compras?select=codigo_insumo,costo_unitario,fecha&estado_registro=eq.VÁLIDO&order=fecha.desc&limit=5000", timeout=10)
+            costos_compras = {}
+            if res_c and res_c.status_code == 200:
+                for r in res_c.json():
+                    cod = str(r.get("codigo_insumo") or "").strip()
+                    cu = float(r.get("costo_unitario") or 0)
+                    if cod and cod not in costos_compras and cu > 0:
+                        costos_compras[cod] = cu
+
+            # 2. Consultar catálogo de insumos / vista de inventario
             insumos, _ = self.insumos_repo.get_insumos(page=1, page_size=99999, fecha_corte=fecha_fin)
             for item in insumos:
                 cat_nombre = (item.get("categoria") or "SIN CATEGORÍA").strip().upper()
                 stock = float(item.get("stock_actual") or item.get("stock_real") or 0)
-                costo_u = float(item.get("costo_unitario") or 0)
+                cod_insumo = str(item.get("codigo_insumo") or "").strip()
+
+                costo_u_real = costos_compras.get(cod_insumo, float(item.get("costo_unitario") or 0))
                 precio_v = float(item.get("precio_venta") or 0)
-                inv_costo_item = float(item.get("costo_total_insumo") or (stock * costo_u))
-                proy_venta_item = stock * precio_v
+
+                # Solo stock positivo suma al costo de inventario actual y proyecciones
+                stock_pos = max(0.0, stock)
+                inv_costo_item = stock_pos * costo_u_real
+                proy_venta_item = stock_pos * precio_v
+
                 ventas_item = float(item.get("valor_ventas") or 0)
                 cant_ventas = float(item.get("ventas") or 0)
-                costo_vendido_item = cant_ventas * costo_u
+                costo_vendido_item = cant_ventas * costo_u_real
 
                 if cat_nombre not in categorias_map:
                     categorias_map[cat_nombre] = {
@@ -203,9 +226,10 @@ class SupabaseClient:
             proy_v = d["proyeccion_venta"]
             c_vend = d["costo_vendido"]
 
-            cumplimiento = (v_real / proy_v * 100) if proy_v > 0 else 0.0
+            meta_cat = v_real + proy_v
+            cumplimiento = (v_real / meta_cat * 100) if meta_cat > 0 else 0.0
             rotacion = (v_real / inv_c) if inv_c > 0 else 0.0
-            rendimiento = ((v_real - c_vend) / v_real * 100) if v_real > 0 else (100.0 if v_real == 0 else 0.0)
+            rendimiento = ((v_real - c_vend) / v_real * 100) if v_real > 0 else 0.0
 
             resultado.append({
                 "categoria": cat_nombre,

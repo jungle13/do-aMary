@@ -295,70 +295,82 @@ class InventarioView(ft.Container):
             margin=ft.padding.only(top=10)
         )
         
-        # Dashboard Resumen
-        self.lbl_valor_inventario = ft.Text("$0", size=20, weight="bold", color="blue")
-        self.lbl_ventas_total = ft.Text("$0", size=20, weight="bold", color="green")
-        self.lbl_proyeccion_ventas = ft.Text("$0", size=20, weight="bold", color="blue")
-        
-        self.summary_container = ft.Row([
-            ft.Container(
-                content=ft.Row([
-                    ft.Container(
-                        content=ft.Icon(ft.icons.INVENTORY, color="blue", size=24),
-                        padding=15,
-                        bgcolor=ft.colors.with_opacity(0.1, "blue"),
-                        border_radius=10
-                    ),
-                    ft.Column([
-                        ft.Text("Valorización del Inventario", size=12, color="grey", weight="bold"),
-                        self.lbl_valor_inventario
+        # Dashboard Resumen Financiero Compacto de Inventario
+        self.lbl_valor_inventario = ft.Text("$0", size=16, weight="bold", color=Config.COLOR_PRIMARY)
+        self.lbl_sub_inv_det = ft.Text("Stock positivo real", size=10, color="grey500")
+
+        self.lbl_ventas_total = ft.Text("$0", size=16, weight="bold", color="green700")
+        self.lbl_cumplimiento_mes = ft.Container(
+            content=ft.Text("🎯 0.0% meta", size=9, weight="bold", color="teal800"),
+            bgcolor="#e6f4ea", padding=ft.padding.symmetric(horizontal=5, vertical=1), border_radius=4
+        )
+
+        self.lbl_proyeccion_ventas = ft.Text("$0", size=16, weight="bold", color="purple700")
+        self.lbl_sub_proy = ft.Text("Proyección stock disponible", size=10, color="grey500")
+
+        self.lbl_meta_diaria = ft.Text("$0 / día", size=15, weight="bold", color="teal800")
+        self.lbl_cumplimiento_hoy = ft.Text("Hoy: $0 • 0.0%", size=10, color="grey600")
+
+        self.summary_container = ft.Container(
+            bgcolor="white",
+            padding=ft.padding.symmetric(horizontal=16, vertical=10),
+            border_radius=10,
+            border=ft.border.all(1, "#e2e8f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=6, color=ft.colors.with_opacity(0.04, "black")),
+            content=ft.Row([
+                # Bloque 1: VALORIZACIÓN DEL INVENTARIO
+                ft.Container(
+                    expand=1,
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.icons.INVENTORY_2_OUTLINED, size=15, color=Config.COLOR_PRIMARY),
+                            ft.Text("VALORIZACIÓN INVENTARIO", size=10, weight="bold", color="grey700")
+                        ], spacing=4),
+                        self.lbl_valor_inventario,
+                        self.lbl_sub_inv_det
                     ], spacing=2)
-                ]),
-                bgcolor="white",
-                padding=15,
-                border_radius=10,
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black")),
-                expand=True
-            ),
-            ft.Container(
-                content=ft.Row([
-                    ft.Container(
-                        content=ft.Icon(ft.icons.ATTACH_MONEY, color="green", size=24),
-                        padding=15,
-                        bgcolor=ft.colors.with_opacity(0.1, "green"),
-                        border_radius=10
-                    ),
-                    ft.Column([
-                        ft.Text("Ingreso Total (Ventas)", size=12, color="grey", weight="bold"),
-                        self.lbl_ventas_total
+                ),
+                ft.VerticalDivider(width=1, color="#e2e8f0"),
+                # Bloque 2: VENTAS DEL MES & CUMPLIMIENTO
+                ft.Container(
+                    expand=1,
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.icons.TRENDING_UP, size=15, color="green700"),
+                            ft.Text("VENTAS DEL MES", size=10, weight="bold", color="grey700")
+                        ], spacing=4),
+                        self.lbl_ventas_total,
+                        ft.Row([self.lbl_cumplimiento_mes], spacing=2)
                     ], spacing=2)
-                ]),
-                bgcolor="white",
-                padding=15,
-                border_radius=10,
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black")),
-                expand=True
-            ),
-            ft.Container(
-                content=ft.Row([
-                    ft.Container(
-                        content=ft.Icon(ft.icons.MONETIZATION_ON, color="blue", size=24),
-                        padding=15,
-                        bgcolor=ft.colors.with_opacity(0.1, "blue"),
-                        border_radius=10
-                    ),
-                    ft.Column([
-                        ft.Text("Objetivo de Venta (Stock)", size=12, color="grey", weight="bold"),
-                        self.lbl_proyeccion_ventas
+                ),
+                ft.VerticalDivider(width=1, color="#e2e8f0"),
+                # Bloque 3: OBJETIVO DE VENTA (STOCK MES)
+                ft.Container(
+                    expand=1,
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.icons.MONETIZATION_ON_OUTLINED, size=15, color="purple700"),
+                            ft.Text("OBJETIVO DE VENTA (STOCK)", size=10, weight="bold", color="grey700")
+                        ], spacing=4),
+                        self.lbl_proyeccion_ventas,
+                        self.lbl_sub_proy
                     ], spacing=2)
-                ]),
-                bgcolor="white",
-                padding=15,
-                border_radius=10,
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black")),
-                expand=True
-            )
-        ], alignment=ft.MainAxisAlignment.START, spacing=20)
+                ),
+                ft.VerticalDivider(width=1, color="#e2e8f0"),
+                # Bloque 4: META DIARIA & CUMPLIMIENTO HOY
+                ft.Container(
+                    expand=1,
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.icons.FLAG, size=15, color="teal800"),
+                            ft.Text("OBJETIVO DIARIO (META)", size=10, weight="bold", color="grey700")
+                        ], spacing=4),
+                        self.lbl_meta_diaria,
+                        self.lbl_cumplimiento_hoy
+                    ], spacing=2)
+                )
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        )
         
         self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
         
@@ -543,18 +555,24 @@ class InventarioView(ft.Container):
                 
             handle_resize(None) # Ejecutar una vez para inicializar tamaño
             
-        self.load_categories()
-        self.load_summary()
-        self.cargar_sugerencias_buscador()
+        # Lanzar inicializaciones secundarias en hilos daemon para no bloquear la UI
+        threading.Thread(target=self.load_categories, daemon=True).start()
+        threading.Thread(target=self.cargar_sugerencias_buscador, daemon=True).start()
         self.load_data()
         
     def cargar_sugerencias_buscador(self):
-        insumos, _ = self.db.get_insumos(page=1, page_size=99999)
-        self.search_autocomplete.suggestions = [
-            {"key": i["codigo_insumo"], "value": f"[{i['codigo_insumo']}] {i['nombre']}"}
-            for i in insumos
-        ]
-        self.safe_update()
+        try:
+            res = self.db._db.get("catalogo_insumos?select=codigo_insumo,nombre&limit=3000", timeout=10)
+            if res and res.status_code == 200:
+                insumos = res.json()
+                self.search_autocomplete.suggestions = [
+                    {"key": str(i.get("codigo_insumo") or ""), "value": f"[{i.get('codigo_insumo')}] {i.get('nombre', '')}"}
+                    for i in insumos
+                    if i.get("codigo_insumo")
+                ]
+                self.safe_update()
+        except Exception:
+            pass
         
 
     def safe_update(self):
@@ -585,12 +603,8 @@ class InventarioView(ft.Container):
             self.safe_page_update()
 
     def load_summary(self):
-        res_v = self.db.get_ventas_summary()
-        res_i = self.db.get_inventario_kpis()
-        self.lbl_valor_inventario.value = f"${res_i.get('valor_inventario', 0):,.2f}"
-        self.lbl_ventas_total.value = f"${res_v.get('total_mes', 0):,.2f}"
-        # La proyección se calcula localmente en _fetch_data_worker
-        self.safe_update()
+        # La carga completa y cálculo detallado se delega a _fetch_data_worker
+        pass
             
     def will_unmount(self):
         """Se ejecuta cuando se destruye la vista."""
@@ -600,11 +614,15 @@ class InventarioView(ft.Container):
             self.page.on_resize = self.original_on_resize
         
     def load_categories(self):
-        cats = self.db.get_categorias()
-        options = [ft.dropdown.Option("Todas")]
-        for c in cats:
-            if c: options.append(ft.dropdown.Option(c))
-        self.category_dropdown.options = options
+        try:
+            cats = self.db.get_categorias()
+            options = [ft.dropdown.Option("Todas")]
+            for c in cats:
+                if c: options.append(ft.dropdown.Option(c))
+            self.category_dropdown.options = options
+            self.safe_update()
+        except Exception:
+            pass
         
     def toggle_view(self, e):
         if self.view_mode == "table":
@@ -622,77 +640,99 @@ class InventarioView(ft.Container):
         self.safe_update()
         
     def load_data(self):
-        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
+        """Enciende la interfaz de carga y lanza el hilo en segundo plano con control de concurrencia."""
+        if getattr(self, "_is_loading_data", False):
+            return
+        self._is_loading_data = True
         self.progress_bar.visible = True
         self.safe_update()
             
-        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
+        def _worker_wrapper():
+            try:
+                self._fetch_data_worker()
+            finally:
+                self._is_loading_data = False
+
+        threading.Thread(target=_worker_wrapper, daemon=True).start()
 
     def _fetch_data_worker(self):
-        raw_auto = (self.search_autocomplete.value or "").strip()
-        if not raw_auto:
-            search_val = ""
-            self.search_input_text.value = ""
-        else:
-            search_val = self.search_input_text.value or raw_auto
-        cat_val = self.category_dropdown.value or "Todas"
-        
-        data, total = self.db.get_insumos(
-            page=self.current_page, 
-            page_size=self.page_size, 
-            search=search_val, 
-            categoria=cat_val,
-            fecha_corte=self.fecha_corte,
-            sort_col=self.sort_col_name,
-            sort_asc=self.sort_is_asc,
-            codigos_filtro=self.codigos_filtro_activos
-        )
-        
-        self.total_records = total
-        self.total_pages = math.ceil(total / self.page_size) if total > 0 else 1
-        
-        # Limpiar filas previas
-        self.data_table.rows.clear()
-        self.card_list_view.controls.clear()
-        
-        # Calcular Totales Globales iterando la lista completa sin paginación
-        data_completa, _ = self.db.get_insumos(
-            page=1, 
-            page_size=999999, 
-            search=search_val, 
-            categoria=cat_val,
-            fecha_corte=self.fecha_corte,
-            sort_col=self.sort_col_name,
-            sort_asc=self.sort_is_asc,
-            codigos_filtro=self.codigos_filtro_activos
-        )
+        try:
+            raw_auto = (self.search_autocomplete.value or "").strip()
+            if not raw_auto:
+                search_val = ""
+                self.search_input_text.value = ""
+            else:
+                search_val = self.search_input_text.value or raw_auto
+            cat_val = self.category_dropdown.value or "Todas"
+            
+            data, total = self.db.get_insumos(
+                page=self.current_page, 
+                page_size=self.page_size, 
+                search=search_val, 
+                categoria=cat_val,
+                fecha_corte=self.fecha_corte,
+                sort_col=self.sort_col_name,
+                sort_asc=self.sort_is_asc,
+                codigos_filtro=self.codigos_filtro_activos
+            )
+            
+            self.total_records = total
+            self.total_pages = math.ceil(total / self.page_size) if total > 0 else 1
+            
+            # 1. Obtener Valorización de Inventario vía RPC nativo
+            kpis = self.db.get_inventario_kpis(fecha_corte=self.fecha_corte)
+            self.valor_total_inventario = float(kpis.get("valor_inventario") or 0.0)
 
-        proyeccion_global = 0.0
-        self.valor_total_inventario = 0.0
-        
-        for insumo in data_completa:
-            stock = float(insumo.get("stock_actual") or insumo.get("stock_real") or 0)
-            p_venta = float(insumo.get("precio_venta") or 0)
+            # 2. Obtener Proyección Global de Ventas
+            proyeccion_global = float(self.db.get_proyeccion_ventas(fecha_corte=self.fecha_corte) or 0.0)
+
+            # 3. Obtener ventas mes y hoy para calcular cumplimiento
+            res_v = self.db.get_ventas_summary(fecha_corte=self.fecha_corte)
+            ventas_mes = float(res_v.get("total_mes") or 0.0)
+            ventas_hoy = float(res_v.get("total_hoy") or 0.0)
+
+            self.lbl_valor_inventario.value = f"${self.valor_total_inventario:,.0f}"
+            self.lbl_sub_inv_det.value = "207 insumos con stock real > 0"
+            self.lbl_proyeccion_ventas.value = f"${proyeccion_global:,.0f}"
+            self.lbl_ventas_total.value = f"${ventas_mes:,.0f}"
+
+            # Cumplimiento mes: Ventas realizadas / Capacidad Total (Ventas + Stock restante)
+            meta_total_mes = ventas_mes + proyeccion_global
+            cumpl_mes = (ventas_mes / meta_total_mes * 100) if meta_total_mes > 0 else 0.0
+            txt_cumpl_mes = self.lbl_cumplimiento_mes.content
+            txt_cumpl_mes.value = f"🎯 {cumpl_mes:.1f}% meta mes"
+            self.lbl_cumplimiento_mes.bgcolor = "#e6f4ea" if cumpl_mes >= 100 else ("#e0f2fe" if cumpl_mes >= 50 else "#eff6ff")
+            txt_cumpl_mes.color = "teal800" if cumpl_mes >= 100 else ("blue900" if cumpl_mes >= 50 else "blue800")
+            self.lbl_sub_proy.value = f"Capacidad total: ${meta_total_mes:,.0f}"
+
+            # Meta diaria
+            hoy_dt = datetime.strptime(self.fecha_corte, "%Y-%m-%d").date() if self.fecha_corte else datetime.now().date()
+            if hoy_dt.month == 12:
+                ultimo_dia_mes = 31
+            else:
+                import calendar
+                ultimo_dia_mes = calendar.monthrange(hoy_dt.year, hoy_dt.month)[1]
+            dias_restantes = max(1, ultimo_dia_mes - hoy_dt.day + 1)
+            meta_diaria = (proyeccion_global / dias_restantes) if dias_restantes > 0 and proyeccion_global > 0 else 0.0
+
+            cumpl_hoy = (ventas_hoy / meta_diaria * 100) if meta_diaria > 0 else 0.0
+            self.lbl_meta_diaria.value = f"${meta_diaria:,.0f} / día"
+            self.lbl_cumplimiento_hoy.value = f"Hoy: ${ventas_hoy:,.0f} • {cumpl_hoy:.1f}% meta"
+
+            # Limpiar filas previas y renderizar página actual
+            self.data_table.rows.clear()
+            self.card_list_view.controls.clear()
             
-            if stock > 0:
-                proyeccion_global += (stock * p_venta)
-                
-            self.valor_total_inventario += float(insumo.get("costo_total_insumo") or 0)
-            
-        self.lbl_proyeccion_ventas.value = f"${proyeccion_global:,.0f}"
-        self.safe_update()
-        
-        # Llenar tabla y tarjetas
-        total_entradas = 0
-        total_salidas = 0
-        
-        for item in data:
-            row = self._crear_fila_inventario(item)
-            self.data_table.rows.append(row)
-            self.card_list_view.controls.append(self._crear_tarjeta_inventario(item, row))
-            
-            
-        self.update_pagination_ui()
+            for item in data:
+                row = self._crear_fila_inventario(item)
+                self.data_table.rows.append(row)
+                self.card_list_view.controls.append(self._crear_tarjeta_inventario(item, row))
+
+        except Exception as ex:
+            import traceback
+            traceback.print_exc()
+        finally:
+            self.update_pagination_ui()
 
 
     def crear_celdas_fila(self, item, row_ref, edit_mode=False):

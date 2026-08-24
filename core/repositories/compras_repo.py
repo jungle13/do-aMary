@@ -2,14 +2,22 @@
 Repositorio para la gestión de compras y entradas de insumos.
 """
 import datetime
+import threading
+import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
+
 from core.database import BaseDatabase
 from core.logger import get_logger, log_error
+from core.audit_logger import registrar_accion
+from core.repositories.insumos_repo import InsumosRepository
 
 logger = get_logger("ComprasRepo")
+
 
 class ComprasRepository:
     def __init__(self, db: BaseDatabase | None = None):
         self.db = db or BaseDatabase()
+        self.insumos_repo = InsumosRepository(self.db)
 
     def get_compras(
         self,
@@ -20,154 +28,168 @@ class ComprasRepository:
         factura_filtro: str | None = None,
         proveedor_filtro: str | None = None
     ) -> tuple[list, int]:
+        """
+        Obtiene las compras paginadas y filtradas directamente en el motor de base de datos.
+        """
         try:
-            offset = (page - 1) * page_size
-            select_query = "id_compra,fecha,numero_entrada,numero_factura,proveedor,codigo_insumo,cantidad,costo_unitario,iva,valor_iva,costo_total,estado_registro,catalogo_insumos(nombre)"
-            endpoint = f"registro_compras?select={select_query}&estado_registro=eq.VÁLIDO&order=fecha.desc"
+            offset = max(0, (page - 1) * page_size)
+            select_query = (
+                "id_compra,fecha,numero_entrada,numero_factura,proveedor,"
+                "codigo_insumo,cantidad,costo_unitario,iva,valor_iva,costo_total,"
+                "estado_registro,catalogo_insumos(nombre)"
+            )
+            filtros = ["estado_registro=eq.VÁLIDO"]
+
+            if fecha_corte:
+                fc_clean = fecha_corte.strip()
+                filtros.append(f"fecha=lte.{fc_clean}T23:59:59")
 
             if factura_filtro:
-                endpoint += f"&or=(numero_entrada.eq.{factura_filtro},numero_factura.eq.{factura_filtro})"
-            if proveedor_filtro:
-                endpoint += f"&proveedor=eq.{proveedor_filtro}"
+                fac_q = urllib.parse.quote(str(factura_filtro).strip())
+                filtros.append(f"or=(numero_entrada.eq.{fac_q},numero_factura.eq.{fac_q})")
 
-            res = self.db.get(endpoint, timeout=10)
-            if res and res.status_code == 200:
+            if proveedor_filtro and proveedor_filtro != "TODOS":
+                prov_q = urllib.parse.quote(str(proveedor_filtro).strip())
+                filtros.append(f"proveedor=eq.{prov_q}")
+
+            if search and search.strip():
+                s_val = search.strip()
+                s_q = urllib.parse.quote(f"*{s_val}*")
+                filtros.append(
+                    f"or=(codigo_insumo.ilike.{s_q},proveedor.ilike.{s_q},"
+                    f"numero_factura.ilike.{s_q},numero_entrada.ilike.{s_q})"
+                )
+
+            query_filtros = "&" + "&".join(filtros)
+            endpoint = f"registro_compras?select={select_query}{query_filtros}&order=fecha.desc"
+            
+            headers = {
+                "Range": f"{offset}-{offset + page_size - 1}",
+                "Prefer": "count=exact"
+            }
+
+            res = self.db.get(endpoint, custom_headers=headers, timeout=12)
+            if res and res.status_code in (200, 206):
                 data = res.json()
-                filtered = []
-                for item in data:
-                    f = str(item.get("fecha") or "")[:10]
-                    if fecha_corte and f > fecha_corte:
-                        continue
+                total_records = len(data)
+                
+                # Extraer total exacto desde header Content-Range (ej. '0-14/1250')
+                cr = res.headers.get("Content-Range") or res.headers.get("content-range")
+                if cr and "/" in cr:
+                    try:
+                        total_records = int(cr.split("/")[-1])
+                    except (ValueError, IndexError):
+                        pass
 
-                    nom = str(item.get("catalogo_insumos", {}).get("nombre", "") if item.get("catalogo_insumos") else "").lower()
-                    cod = str(item.get("codigo_insumo") or "").lower()
-                    prov = str(item.get("proveedor") or "").lower()
-                    fact = str(item.get("numero_factura") or "").lower()
+                return data, total_records
 
-                    if search:
-                        s = search.lower()
-                        if s not in nom and s not in cod and s not in prov and s not in fact:
-                            continue
-
-                    filtered.append(item)
-
-                total_records = len(filtered)
-                page_data = filtered[offset:offset + page_size]
-                return page_data, total_records
             return [], 0
         except Exception as ex:
             log_error("get_compras", ex)
             return [], 0
 
-    def get_historial_compras_dia(self, fecha_dia: str, agrupar_por: str = "FACTURA") -> list:
+    def get_proveedores_unicos(self) -> list:
+        try:
+            res = self.db.get("registro_compras?select=proveedor&estado_registro=eq.VÁLIDO&limit=5000", timeout=10)
+            if res and res.status_code == 200:
+                provs = sorted(list({str(x.get("proveedor")).strip() for x in res.json() if x.get("proveedor") and str(x.get("proveedor")).strip()}))
+                return provs
+            return []
+        except Exception as ex:
+            log_error("get_proveedores_unicos", ex)
+            return []
+
+    def get_historial_compras_dia(
+        self,
+        fecha_dia: str | None = None,
+        agrupar_por: str = "FACTURA",
+        proveedor_filtro: str | None = None
+    ) -> list:
         items_resultado = []
         try:
-            endpoint = f"registro_compras?fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59&select=numero_entrada,numero_factura,proveedor,costo_total,fecha,cantidad&order=fecha.desc"
-            res_c = self.db.get(endpoint, timeout=10)
-            if res_c and res_c.status_code == 200:
-                data_c = res_c.json()
-                if agrupar_por == "FACTURA":
-                    agrupado = {}
-                    for r in data_c:
-                        ref = r.get("numero_entrada") or r.get("numero_factura") or "S/N"
-                        if ref not in agrupado:
-                            agrupado[ref] = {
-                                "tipo": "COMPRA",
-                                "ref": ref,
-                                "factura": r.get("numero_factura") or ref,
-                                "proveedor": r.get("proveedor") or "Clientes Varios",
-                                "total": 0.0,
-                                "unidades": 0.0,
-                                "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
-                            }
-                        agrupado[ref]["total"] += float(r.get("costo_total") or 0)
-                        agrupado[ref]["unidades"] += float(r.get("cantidad") or 0)
-                    items_resultado.extend(list(agrupado.values()))
+            filtros = ["estado_registro=eq.VÁLIDO"]
+            if fecha_dia:
+                filtros.append(f"fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59")
+            if proveedor_filtro and proveedor_filtro != "TODOS":
+                import urllib.parse
+                filtros.append(f"proveedor=eq.{urllib.parse.quote(proveedor_filtro.strip())}")
 
-                elif agrupar_por == "PROVEEDOR":
-                    agrupado = {}
-                    facturas_por_prov = {}
-                    for r in data_c:
-                        prov = r.get("proveedor") or "Clientes Varios"
-                        ref_f = r.get("numero_factura") or r.get("numero_entrada") or "S/N"
-                        if prov not in agrupado:
-                            agrupado[prov] = {
-                                "tipo": "PROVEEDOR_RESUMEN",
-                                "ref": prov,
-                                "proveedor": prov,
-                                "facturas_cant": 0,
-                                "total": 0.0,
-                                "unidades": 0.0,
-                                "hora": r.get("fecha", "") if len(r.get("fecha", "")) >= 16 else "12:00"
-                            }
-                            facturas_por_prov[prov] = set()
-                        facturas_por_prov[prov].add(ref_f)
-                        agrupado[prov]["total"] += float(r.get("costo_total") or 0)
-                        agrupado[prov]["unidades"] += float(r.get("cantidad") or 0)
+            query_filtros = ("&" + "&".join(filtros)) if filtros else ""
+            endpoint = f"registro_compras?select=numero_entrada,numero_factura,proveedor,costo_total,fecha,cantidad{query_filtros}&order=fecha.desc"
+            
+            data_c = []
+            offset = 0
+            limit = 2500
+            while True:
+                headers = {"Range": f"{offset}-{offset + limit - 1}"}
+                res_c = self.db.get(endpoint, custom_headers=headers, timeout=10)
+                if not res_c or res_c.status_code not in (200, 206):
+                    break
+                chunk = res_c.json()
+                if not chunk:
+                    break
+                data_c.extend(chunk)
+                if len(chunk) < limit:
+                    break
+                offset += limit
 
-                    for prov in agrupado:
-                        agrupado[prov]["facturas_cant"] = len(facturas_por_prov[prov])
+            if agrupar_por == "FACTURA":
+                agrupado = {}
+                for r in data_c:
+                    ref = r.get("numero_entrada") or r.get("numero_factura") or "S/N"
+                    if ref not in agrupado:
+                        agrupado[ref] = {
+                            "tipo": "COMPRA",
+                            "ref": ref,
+                            "factura": r.get("numero_factura") or ref,
+                            "proveedor": r.get("proveedor") or "Varios",
+                            "total": 0.0,
+                            "unidades": 0.0,
+                            "hora": r.get("fecha", "")[:10]
+                        }
+                    agrupado[ref]["total"] += float(r.get("costo_total") or 0)
+                    agrupado[ref]["unidades"] += float(r.get("cantidad") or 0)
+                items_resultado.extend(list(agrupado.values()))
 
-                    items_resultado.extend(list(agrupado.values()))
+            elif agrupar_por == "PROVEEDOR":
+                agrupado = {}
+                facturas_por_prov = {}
+                for r in data_c:
+                    prov = r.get("proveedor") or "Varios"
+                    ref_f = r.get("numero_factura") or r.get("numero_entrada") or "S/N"
+                    if prov not in agrupado:
+                        agrupado[prov] = {
+                            "tipo": "PROVEEDOR_RESUMEN",
+                            "ref": prov,
+                            "proveedor": prov,
+                            "facturas_cant": 0,
+                            "total": 0.0,
+                            "unidades": 0.0,
+                            "hora": r.get("fecha", "")[:10]
+                        }
+                        facturas_por_prov[prov] = set()
+                    facturas_por_prov[prov].add(ref_f)
+                    agrupado[prov]["total"] += float(r.get("costo_total") or 0)
+                    agrupado[prov]["unidades"] += float(r.get("cantidad") or 0)
 
-            items_resultado.sort(key=lambda x: x["hora"], reverse=True)
+                for prov in agrupado:
+                    agrupado[prov]["facturas_cant"] = len(facturas_por_prov[prov])
+
+                items_resultado.extend(list(agrupado.values()))
+
+            items_resultado.sort(key=lambda x: x["total"], reverse=True)
             return items_resultado
         except Exception as ex:
             log_error(f"get_historial_compras_dia({fecha_dia})", ex)
             return []
 
-    def _asegurar_insumos_existen(self, items_list: list):
-        if not items_list:
-            return
-        codigos_entrantes = {str(x.get("codigo_insumo") or "").strip() for x in items_list if str(x.get("codigo_insumo") or "").strip()}
-        if not codigos_entrantes:
-            return
-        existentes = set()
-        chunk_size = 50
-        codigos_arr = list(codigos_entrantes)
-        for i in range(0, len(codigos_arr), chunk_size):
-            chk = codigos_arr[i:i+chunk_size]
-            c_str = ",".join(chk)
-            try:
-                res = self.db.get(f"catalogo_insumos?select=codigo_insumo&codigo_insumo=in.({c_str})", timeout=5)
-                if res and res.status_code == 200:
-                    for row in res.json():
-                        existentes.add(str(row["codigo_insumo"]).strip())
-            except Exception:
-                pass
-        
-        faltantes = codigos_entrantes - existentes
-        if faltantes:
-            nuevos = []
-            for cod in faltantes:
-                nom = "INSUMO AUTO-REGISTRADO"
-                for item in items_list:
-                    if str(item.get("codigo_insumo") or "").strip() == cod:
-                        nom = item.get("descripcion") or nom
-                        break
-                nuevos.append({
-                    "codigo_insumo": cod,
-                    "nombre": nom[:100],
-                    "categoria": "DESECHABLES",
-                    "costo_unitario": 0.0,
-                    "precio_venta": 0.0,
-                    "stock_actual": 0.0,
-                    "stock_minimo": 5.0,
-                    "estado": True,
-                    "zona": "NO UBICADO",
-                    "ubicacion": "BODEGA",
-                    "tipo_unidad": "und"
-                })
-            try:
-                self.db.post("catalogo_insumos", json_data=nuevos, timeout=10)
-            except Exception:
-                pass
-
     def insert_compras(self, compras_list: list) -> bool:
+        """Inserta compras por lotes y actualiza los costos del catálogo concurrentemente en background."""
         if not compras_list:
             return True
         try:
-            self._asegurar_insumos_existen(compras_list)
+            self.insumos_repo.asegurar_insumos_existen(compras_list)
+
             # Chunking para inserciones grandes
             chunk_size = 100
             for i in range(0, len(compras_list), chunk_size):
@@ -177,7 +199,8 @@ class ComprasRepository:
                     err = res.text if res else "No response"
                     logger.error(f"Error en insert_compras chunk {i}: {err}")
                     return False
-            # Desduplicar y actualizar costo_unitario en catalogo_insumos en segundo plano
+
+            # Desduplicar y actualizar costo_unitario en catalogo_insumos concurrentemente
             costos_map = {}
             for c in compras_list:
                 cod = str(c.get("codigo_insumo") or "").strip()
@@ -185,19 +208,26 @@ class ComprasRepository:
                 if cod and costo_u > 0:
                     costos_map[cod] = costo_u
 
-            def _actualizar_costos_async(c_map):
-                for cod, cost in c_map.items():
-                    try:
-                        self.db.patch(f"catalogo_insumos?codigo_insumo=eq.{cod}", json_data={"costo_unitario": cost}, timeout=5)
-                    except Exception:
-                        pass
+            def _actualizar_costo_item(item_tuple):
+                cod, cost = item_tuple
+                try:
+                    cod_q = urllib.parse.quote(cod)
+                    self.db.patch(f"catalogo_insumos?codigo_insumo=eq.{cod_q}", json_data={"costo_unitario": cost}, timeout=5)
+                except Exception as ex:
+                    logger.warning(f"Error actualizando costo insumo {cod}: {ex}")
+
+            def _actualizar_costos_worker(c_map):
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    executor.map(_actualizar_costo_item, c_map.items())
 
             if costos_map:
-                import threading
-                threading.Thread(target=_actualizar_costos_async, args=(costos_map,), daemon=True).start()
+                threading.Thread(target=_actualizar_costos_worker, args=(costos_map,), daemon=True).start()
 
-            from core.audit_logger import registrar_accion
-            facs = list(set([str(c.get("numero_factura") or c.get("numero_entrada") or "") for c in compras_list if (c.get("numero_factura") or c.get("numero_entrada"))]))
+            facs = list(set([
+                str(c.get("numero_factura") or c.get("numero_entrada") or "") 
+                for c in compras_list 
+                if (c.get("numero_factura") or c.get("numero_entrada"))
+            ]))
             fac_txt = f" (Docs: {', '.join(facs[:3])}{'...' if len(facs)>3 else ''})" if facs else ""
             tot_monto = sum([float(c.get("costo_total") or 0) for c in compras_list])
             registrar_accion(
@@ -211,13 +241,14 @@ class ComprasRepository:
             return False
 
     def get_entradas_existentes(self, lista_eas: list, lista_facturas: list = None) -> set:
+        """Consulta documentos de entrada y facturas ya registradas en la base de datos."""
         existentes = set()
         if lista_eas:
             chunk_size = 50
             for i in range(0, len(lista_eas), chunk_size):
                 chunk = lista_eas[i:i + chunk_size]
                 try:
-                    eas_str = ",".join([str(x).strip() for x in chunk if str(x).strip()])
+                    eas_str = ",".join([urllib.parse.quote(str(x).strip()) for x in chunk if str(x).strip()])
                     endpoint = f"registro_compras?select=numero_entrada&numero_entrada=in.({eas_str})"
                     res = self.db.get(endpoint, timeout=10)
                     if res and res.status_code == 200:
@@ -233,7 +264,7 @@ class ComprasRepository:
             for i in range(0, len(lista_facturas), chunk_size):
                 chunk = lista_facturas[i:i + chunk_size]
                 try:
-                    fac_str = ",".join([str(x).strip() for x in chunk if str(x).strip()])
+                    fac_str = ",".join([urllib.parse.quote(str(x).strip()) for x in chunk if str(x).strip()])
                     endpoint = f"registro_compras?select=numero_factura&numero_factura=in.({fac_str})"
                     res = self.db.get(endpoint, timeout=10)
                     if res and res.status_code == 200:
@@ -246,13 +277,15 @@ class ComprasRepository:
         return existentes
 
     def eliminar_compras_por_entradas(self, lista_entradas: list) -> bool:
+        """Elimina compras asociadas a los números de factura o entrada especificados."""
         if not lista_entradas:
             return True
         try:
             for ref in lista_entradas:
-                endpoint = f"registro_compras?or=(numero_entrada.eq.{ref},numero_factura.eq.{ref})"
+                ref_q = urllib.parse.quote(str(ref).strip())
+                endpoint = f"registro_compras?or=(numero_entrada.eq.{ref_q},numero_factura.eq.{ref_q})"
                 self.db.delete(endpoint, timeout=10)
-            from core.audit_logger import registrar_accion
+
             registrar_accion(
                 accion=f"Eliminación / Anulación de compras para documentos: {', '.join(lista_entradas)}",
                 modulo="COMPRAS",
@@ -264,6 +297,7 @@ class ComprasRepository:
             return False
 
     def get_compras_summary(self, fecha_corte=None) -> dict:
+        """Calcula el resumen financiero de compras del mes y del día."""
         try:
             hoy = datetime.date.today().strftime("%Y-%m-%d")
             mes_actual = hoy[:7]
@@ -273,7 +307,11 @@ class ComprasRepository:
             limit = 2500
             while True:
                 headers = {"Range": f"{offset}-{offset + limit - 1}"}
-                res = self.db.get("registro_compras?select=fecha,cantidad,costo_total,iva,valor_iva,estado_registro&estado_registro=eq.VÁLIDO", custom_headers=headers, timeout=15)
+                res = self.db.get(
+                    "registro_compras?select=fecha,cantidad,costo_total,iva,valor_iva,estado_registro&estado_registro=eq.VÁLIDO", 
+                    custom_headers=headers, 
+                    timeout=15
+                )
                 if not res or res.status_code not in (200, 206):
                     break
                 chunk = res.json()
@@ -318,8 +356,10 @@ class ComprasRepository:
             return {"total_mes": 0, "total_hoy": 0, "cantidad_total": 0, "iva_mes": 0, "iva_hoy": 0}
 
     def update_compra_individual(self, id_compra: str, datos: dict) -> bool:
+        """Actualiza un registro individual de compra."""
         try:
-            endpoint = f"registro_compras?id_compra=eq.{id_compra}"
+            id_q = urllib.parse.quote(str(id_compra).strip())
+            endpoint = f"registro_compras?id_compra=eq.{id_q}"
             res = self.db.patch(endpoint, json_data=datos, timeout=10)
             return bool(res and res.status_code in (200, 204))
         except Exception as ex:
@@ -327,8 +367,10 @@ class ComprasRepository:
             return False
 
     def eliminar_compra_individual(self, id_compra: str) -> bool:
+        """Elimina un registro individual de compra por su ID único."""
         try:
-            endpoint = f"registro_compras?id_compra=eq.{id_compra}"
+            id_q = urllib.parse.quote(str(id_compra).strip())
+            endpoint = f"registro_compras?id_compra=eq.{id_q}"
             res = self.db.delete(endpoint, timeout=10)
             return bool(res and res.status_code in (200, 204))
         except Exception as ex:

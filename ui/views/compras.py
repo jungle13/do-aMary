@@ -105,17 +105,71 @@ class ComprasView(ft.Container):
             icon_color="red"
         )
         
-        # Dashboard Resumen
-        self.lbl_compras_mes = ft.Text("$0", size=20, weight="bold", color=Config.COLOR_PRIMARY)
-        self.lbl_compras_hoy = ft.Text("$0", size=20, weight="bold", color="green")
-        self.lbl_cantidad = ft.Text("0", size=20, weight="bold")
+        # Dashboard Resumen Financiero Compacto
+        self.lbl_compras_mes = ft.Text("$0", size=16, weight="bold", color=Config.COLOR_PRIMARY)
+        self.lbl_compras_hoy = ft.Text("$0", size=16, weight="bold", color="green700")
+        self.lbl_iva_mes = ft.Text("$0", size=16, weight="bold", color="purple700")
+        self.lbl_iva_hoy = ft.Text("$0", size=16, weight="bold", color="teal800")
         
         self.summary_container = ft.Container(
+            bgcolor="white",
+            padding=ft.padding.symmetric(horizontal=16, vertical=10),
+            border_radius=10,
+            border=ft.border.all(1, "#e2e8f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=6, color=ft.colors.with_opacity(0.04, "black")),
             content=ft.Row([
-                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Total Compras en el Mes"), self.lbl_compras_mes]), padding=5), expand=True),
-                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Total Compras Hoy"), self.lbl_compras_hoy]), padding=5), expand=True),
-                ft.Card(content=ft.Container(content=ft.Column([ft.Text("Cantidad Productos Comprados"), self.lbl_cantidad]), padding=5), expand=True),
-            ])
+                # Bloque 1: TOTAL COMPRAS MES
+                ft.Container(
+                    expand=1,
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.icons.SHOPPING_BAG_OUTLINED, size=15, color=Config.COLOR_PRIMARY),
+                            ft.Text("TOTAL COMPRAS (MES)", size=10, weight="bold", color="grey700")
+                        ], spacing=4),
+                        self.lbl_compras_mes,
+                        ft.Text("Acumulado Mes Activo", size=10, color="grey500")
+                    ], spacing=2)
+                ),
+                ft.VerticalDivider(width=1, color="#e2e8f0"),
+                # Bloque 2: COMPRAS DE HOY
+                ft.Container(
+                    expand=1,
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.icons.TODAY, size=15, color="green700"),
+                            ft.Text("COMPRAS DE HOY", size=10, weight="bold", color="grey700")
+                        ], spacing=4),
+                        self.lbl_compras_hoy,
+                        ft.Text("Entradas registradas hoy", size=10, color="grey500")
+                    ], spacing=2)
+                ),
+                ft.VerticalDivider(width=1, color="#e2e8f0"),
+                # Bloque 3: IVA PAGADO EN EL MES
+                ft.Container(
+                    expand=1,
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.icons.ACCOUNT_BALANCE_WALLET_OUTLINED, size=15, color="purple700"),
+                            ft.Text("IVA PAGADO (MES)", size=10, weight="bold", color="grey700")
+                        ], spacing=4),
+                        self.lbl_iva_mes,
+                        ft.Text("Crédito fiscal compras", size=10, color="grey500")
+                    ], spacing=2)
+                ),
+                ft.VerticalDivider(width=1, color="#e2e8f0"),
+                # Bloque 4: IVA PAGADO HOY
+                ft.Container(
+                    expand=1,
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.icons.RECEIPT, size=15, color="teal800"),
+                            ft.Text("IVA PAGADO HOY", size=10, weight="bold", color="grey700")
+                        ], spacing=4),
+                        self.lbl_iva_hoy,
+                        ft.Text("Impuesto compras del día", size=10, color="grey500")
+                    ], spacing=2)
+                )
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         )
         
         self.btn_agregar = ft.ElevatedButton(
@@ -128,6 +182,20 @@ class ComprasView(ft.Container):
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
         )
         
+        # Filtro de Proveedor para la tabla principal
+        self.drop_filtro_proveedor_tabla = ft.Dropdown(
+            options=[ft.dropdown.Option("TODOS", "Todos los Proveedores")],
+            value="TODOS",
+            label="Proveedor",
+            dense=True,
+            width=180,
+            border_radius=8,
+            text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+            height=38,
+            on_change=lambda e: self.on_filtro_proveedor_change(e)
+        )
+
         # File Picker
         self.file_picker = ft.FilePicker(on_result=self.on_file_picked)
         
@@ -145,29 +213,27 @@ class ComprasView(ft.Container):
         # Diálogo de Confirmación (se construirá dinámicamente)
         self.dlg_confirm = ft.AlertDialog(modal=True)
         
-        # Tabla de Datos
+        # Tabla de Datos Optimizada
         self.data_table = ft.DataTable(
-            data_row_min_height=30,
-            data_row_max_height=30,
-            heading_row_height=40,
+            data_row_min_height=36,
+            data_row_max_height=42,
+            heading_row_height=38,
             columns=[
-                ft.DataColumn(ft.Text("Fecha", weight="bold")),
-                ft.DataColumn(ft.Text("No. Factura", weight="bold")),
-                ft.DataColumn(ft.Text("Proveedor", weight="bold")),
-                ft.DataColumn(ft.Text("Código Item", weight="bold")),
-                ft.DataColumn(ft.Container(content=ft.Text("Nombre", weight="bold"), width=230)),
-                ft.DataColumn(ft.Text("Cantidad", weight="bold"), numeric=True),
-                ft.DataColumn(ft.Text("Costo Unit.", weight="bold"), numeric=True),
-                ft.DataColumn(ft.Text("IVA", weight="bold"), numeric=True),
-                ft.DataColumn(ft.Text("Costo Total", weight="bold"), numeric=True),
-                ft.DataColumn(ft.Text("Acciones", weight="bold")),
+                ft.DataColumn(ft.Text("Entrada & Fecha", weight="bold", size=12)),
+                ft.DataColumn(ft.Container(content=ft.Text("Proveedor", weight="bold", size=12), width=160)),
+                ft.DataColumn(ft.Container(content=ft.Text("Insumo / Descripción", weight="bold", size=12), width=280)),
+                ft.DataColumn(ft.Text("Cant.", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Costo Unit.", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("IVA", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Total", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Acciones", weight="bold", size=12)),
             ],
             rows=[],
-            heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
-            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
+            heading_row_color="#f8fafc",
+            border=ft.border.all(1, "#e2e8f0"),
             border_radius=8,
-            vertical_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
+            vertical_lines=ft.border.BorderSide(1, "#f1f5f9"),
+            horizontal_lines=ft.border.BorderSide(1, "#e2e8f0"),
         )
         
         # Controles Paginación
@@ -231,14 +297,17 @@ class ComprasView(ft.Container):
         
         # --- PREPARACIÓN DE LAS PESTAÑAS (TABS) ---
         
+        # --- PREPARACIÓN DE LAS PESTAÑAS (TABS) ---
+        
         # 1. Contenido Tab 1: Registro Compras
         row_filtros_compras = ft.Row([
             self.search_autocomplete,
+            self.drop_filtro_proveedor_tabla,
             self.btn_date,
             self.btn_clear_date,
             ft.Container(expand=True),
             self.btn_crear_manual
-        ])
+        ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
         
         contenedor_tabla_compras = ft.Container(
             content=ft.Row([ft.Column([self.data_table], scroll=ft.ScrollMode.ALWAYS)], scroll=ft.ScrollMode.ALWAYS, expand=True, vertical_alignment=ft.CrossAxisAlignment.START),
@@ -252,7 +321,8 @@ class ComprasView(ft.Container):
         
         layout_tab_compras = ft.Container(
             content=ft.Column([row_filtros_compras, contenedor_tabla_compras, footer_paginacion], expand=True, spacing=10),
-            padding=10
+            padding=ft.padding.only(top=15),
+            expand=True
         )
         
         # 2. Contenido Tab 2: Gestión de Cargas Consolidada
@@ -277,12 +347,16 @@ class ComprasView(ft.Container):
         # --- DISEÑO DEL PANEL HISTÓRICO ---
         self.lbl_tot_compras_panel = ft.Text("$0 COP", size=14, weight="bold", color="teal800")
         self.lbl_cant_compras_panel = ft.Text("0 unds", size=10, color="grey")
+        self.panel_page = 1
+        self.panel_page_size = 10
+        self.panel_total_pages = 1
+        self.panel_items_cache = []
 
         kpi_compras_panel = ft.Container(
             content=ft.Row([
                 ft.Icon(ft.icons.SHOPPING_BAG, color="teal700", size=20),
                 ft.Column([
-                    ft.Text("TOTAL COMPRAS DEL DÍA", size=9, weight="bold", color="grey"),
+                    ft.Text("TOTAL COMPRAS FILTRO", size=9, weight="bold", color="grey"),
                     self.lbl_tot_compras_panel
                 ], spacing=0, expand=True),
                 self.lbl_cant_compras_panel
@@ -292,23 +366,57 @@ class ComprasView(ft.Container):
 
         self.segment_agrupacion = ft.SegmentedButton(
             segments=[
-                ft.Segment(value="FACTURA", label=ft.Text("Por Factura", size=10)),
-                ft.Segment(value="PROVEEDOR", label=ft.Text("Por Proveedor", size=10)),
+                ft.Segment(value="FACTURA", label=ft.Text("Factura", size=10)),
+                ft.Segment(value="PROVEEDOR", label=ft.Text("Proveedor", size=10)),
             ],
             selected={"FACTURA"},
             on_change=self.on_agrupacion_change,
             show_selected_icon=False
         )
 
+        self.drop_filtro_panel_prov = ft.Dropdown(
+            options=[ft.dropdown.Option("TODOS", "Todos")],
+            value="TODOS",
+            label="Proveedor",
+            dense=True,
+            width=120,
+            border_radius=8,
+            text_size=11,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
+            height=32,
+            on_change=lambda e: self.cargar_historial_panel()
+        )
+
         self.btn_fecha_compras_panel = ft.OutlinedButton(
-            self.fecha_historial_activa,
+            self.fecha_historial_activa or "Ver Todo",
             icon=ft.icons.CALENDAR_TODAY,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), padding=5),
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), padding=4),
             height=30,
             on_click=lambda e: self.date_picker_compras_timeline.pick_date()
         )
 
+        self.btn_ver_todo_panel = ft.TextButton(
+            "Ver Todo",
+            icon=ft.icons.ALL_INCLUSIVE,
+            style=ft.ButtonStyle(padding=2),
+            height=28,
+            on_click=self.limpiar_fecha_panel
+        )
+
         self.panel_compras_list = ft.ListView(expand=True, spacing=6)
+
+        # Controles de paginación del panel
+        self.lbl_panel_page_info = ft.Text("Pág 1/1", size=10, color="grey700")
+        self.btn_panel_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, icon_size=16, tooltip="Anterior", on_click=self.on_panel_prev_page, disabled=True)
+        self.btn_panel_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, icon_size=16, tooltip="Siguiente", on_click=self.on_panel_next_page, disabled=True)
+
+        footer_panel = ft.Row([
+            self.btn_ver_todo_panel,
+            ft.Container(expand=True),
+            self.btn_panel_prev,
+            self.lbl_panel_page_info,
+            self.btn_panel_next
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
         # Botón para copiar histórico de compras
         self.btn_copiar_compras_panel = ft.IconButton(
@@ -336,10 +444,17 @@ class ComprasView(ft.Container):
                     padding=10, bgcolor="#f4f6f8", border_radius=ft.border_radius.only(top_left=8, top_right=8)
                 ),
                 ft.Container(content=kpi_compras_panel, padding=ft.padding.symmetric(horizontal=10)),
-                ft.Container(content=self.segment_agrupacion, padding=ft.padding.symmetric(horizontal=10), alignment=ft.alignment.center),
+                ft.Container(
+                    content=ft.Row([
+                        self.segment_agrupacion,
+                        self.drop_filtro_panel_prov
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    padding=ft.padding.symmetric(horizontal=10)
+                ),
                 ft.Divider(height=1, color="#e0e0e0"),
-                ft.Container(content=self.panel_compras_list, expand=True, padding=10)
-            ], spacing=8)
+                ft.Container(content=self.panel_compras_list, expand=True, padding=10),
+                ft.Container(content=footer_panel, padding=ft.padding.symmetric(horizontal=10, vertical=4), bgcolor="#f8fafc")
+            ], spacing=6)
         )
 
         self.filtro_badge_compras = ft.Container(
@@ -379,7 +494,7 @@ class ComprasView(ft.Container):
 
     def toggle_right_panel(self, e):
         self.panel_abierto = not self.panel_abierto
-        self.right_panel.width = 330 if self.panel_abierto else 0
+        self.right_panel.width = 380 if self.panel_abierto else 0
         self.right_panel.visible = self.panel_abierto
         self.right_panel.padding = 0
         self.btn_toggle_panel.icon = ft.icons.HISTORY if self.panel_abierto else ft.icons.HISTORY_TOGGLE_OFF
@@ -394,41 +509,82 @@ class ComprasView(ft.Container):
         if self.date_picker_compras_timeline.value:
             self.fecha_historial_activa = self.date_picker_compras_timeline.value.strftime("%Y-%m-%d")
             self.btn_fecha_compras_panel.text = self.fecha_historial_activa
+            self.panel_page = 1
             self.cargar_historial_panel()
+
+    def limpiar_fecha_panel(self, e):
+        self.fecha_historial_activa = None
+        self.date_picker_compras_timeline.value = None
+        self.btn_fecha_compras_panel.text = "Ver Todo"
+        self.panel_page = 1
+        self.cargar_historial_panel()
+
+    def on_panel_prev_page(self, e):
+        if self.panel_page > 1:
+            self.panel_page -= 1
+            self._render_panel_items()
+
+    def on_panel_next_page(self, e):
+        if self.panel_page < self.panel_total_pages:
+            self.panel_page += 1
+            self._render_panel_items()
 
     def on_agrupacion_change(self, e):
         if e.control.selected:
             self.modo_agrupacion_compras = list(e.control.selected)[0]
+            self.panel_page = 1
             self.cargar_historial_panel()
 
     def cargar_historial_panel(self):
         if not self.page: return
 
         def worker():
-            items = self.db.get_historial_compras_dia(self.fecha_historial_activa, self.modo_agrupacion_compras)
+            prov_filtro = getattr(self.drop_filtro_panel_prov, "value", "TODOS")
+            items = self.db.get_historial_compras_dia(
+                fecha_dia=self.fecha_historial_activa,
+                agrupar_por=self.modo_agrupacion_compras,
+                proveedor_filtro=prov_filtro
+            )
+
+            self.panel_items_cache = items
+            self.panel_total_pages = max(1, math.ceil(len(items) / self.panel_page_size))
+            if self.panel_page > self.panel_total_pages:
+                self.panel_page = 1
 
             tot_pesos = sum([item.get("total", 0) for item in items])
-            tot_unds = sum([item.get("unidades", 0) for item in items])
 
             self.lbl_tot_compras_panel.value = f"${tot_pesos:,.0f} COP"
-            self.lbl_cant_compras_panel.value = f"{tot_unds:g} unds"
+            self.lbl_cant_compras_panel.value = f"{len(items)} reg."
 
-            self.panel_compras_list.controls.clear()
-
-            for item in items:
-                self.panel_compras_list.controls.append(self._crear_card_item_compras(item))
-
-            if not self.panel_compras_list.controls:
-                self.panel_compras_list.controls.append(
-                    ft.Container(content=ft.Text("Sin compras registradas en esta fecha.", size=11, color="grey"), padding=20, alignment=ft.alignment.center)
-                )
-
-            if hasattr(self, "safe_update"):
-                self.safe_update()
-            else:
-                self.page.update()
+            self._render_panel_items()
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _render_panel_items(self):
+        self.panel_compras_list.controls.clear()
+        start = (self.panel_page - 1) * self.panel_page_size
+        end = start + self.panel_page_size
+        page_items = self.panel_items_cache[start:end]
+
+        for item in page_items:
+            self.panel_compras_list.controls.append(self._crear_card_item_compras(item))
+
+        if not self.panel_items_cache:
+            self.panel_compras_list.controls.append(
+                ft.Container(
+                    content=ft.Text("Sin compras registradas para este filtro.", size=11, color="grey"),
+                    padding=20, alignment=ft.alignment.center
+                )
+            )
+
+        self.lbl_panel_page_info.value = f"Pág {self.panel_page}/{self.panel_total_pages}"
+        self.btn_panel_prev.disabled = (self.panel_page <= 1)
+        self.btn_panel_next.disabled = (self.panel_page >= self.panel_total_pages)
+
+        if hasattr(self, "safe_update"):
+            self.safe_update()
+        elif self.page:
+            self.page.update()
 
     def _crear_card_item_compras(self, item):
         tipo = item.get("tipo", "COMPRA")
@@ -436,13 +592,13 @@ class ComprasView(ft.Container):
         if tipo == "COMPRA":
             badge_txt = f"FACTURA: {item.get('factura', 'S/N')}"
             badge_bg, badge_col = "#e6f4ea", "teal800"
-            sub_txt = item.get("proveedor", "Clientes Varios")
+            sub_txt = item.get("proveedor", "Varios")
             icon_mat = ft.icons.RECEIPT
         elif tipo == "PROVEEDOR_RESUMEN":
             cant_f = item.get("facturas_cant", 1)
             badge_txt = f"{cant_f} Facturas" if cant_f != 1 else "1 Factura"
             badge_bg, badge_col = "#e8f0fe", "blue800"
-            sub_txt = item.get("proveedor", "Clientes Varios")
+            sub_txt = item.get("proveedor", "Varios")
             icon_mat = ft.icons.BUSINESS
         else:
             # AJUSTE_ENTRADA
@@ -453,25 +609,25 @@ class ComprasView(ft.Container):
 
         badge = ft.Container(
             content=ft.Text(badge_txt, size=9, weight="bold", color=badge_col, no_wrap=True),
-            padding=ft.padding.symmetric(horizontal=6, vertical=2), bgcolor=badge_bg, border_radius=10
+            padding=ft.padding.symmetric(horizontal=6, vertical=2), bgcolor=badge_bg, border_radius=6
         )
 
         card = ft.Container(
             content=ft.Row([
-                ft.Icon(icon_mat, size=16, color="teal700"),
+                ft.Icon(icon_mat, size=16, color=Config.COLOR_PRIMARY),
                 ft.Column([
                     badge,
-                    ft.Text(sub_txt, size=11, weight="bold", color="black87", no_wrap=True, tooltip=sub_txt),
+                    ft.Text(sub_txt, size=10, color="grey700", no_wrap=True, overflow=ft.TextOverflow.ELLIPSIS),
                 ], expand=True, spacing=2),
                 ft.Column([
-                    ft.Text(f"${item.get('total', 0):,.0f}", size=11, weight="bold", color="black87"),
+                    ft.Text(f"${item.get('total', 0):,.0f}", size=11, weight="bold", color="teal800"),
                     ft.Text(f"{item.get('unidades', 0):g} unds", size=9, color="grey", text_align=ft.TextAlign.RIGHT)
                 ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=1)
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
             padding=8,
             border_radius=6,
             bgcolor="#ffffff",
-            border=ft.border.all(1, "#eeeeee"),
+            border=ft.border.all(1, "#e2e8f0"),
             on_click=lambda e, i=item: self.aplicar_filtro_cruzado_compras(i),
             ink=True
         )
@@ -918,13 +1074,40 @@ class ComprasView(ft.Container):
         elif self.page:
             self.page.update()
         
+    def on_filtro_proveedor_change(self, e):
+        self.current_page = 1
+        self.load_data()
+
     def load_summary(self):
-        res = self.db.get_compras_summary()
+        f_corte = getattr(self, "fecha_corte", None)
+        res = self.db.get_compras_summary(fecha_corte=f_corte)
         self.lbl_compras_mes.value = f"${res.get('total_mes', 0):,.2f}"
         self.lbl_compras_hoy.value = f"${res.get('total_hoy', 0):,.2f}"
-        self.lbl_cantidad.value = f"{res.get('cantidad_total', 0):,.2f}"
+        self.lbl_iva_mes.value = f"${res.get('iva_mes', 0):,.2f}"
+        self.lbl_iva_hoy.value = f"${res.get('iva_hoy', 0):,.2f}"
+
+        # Actualizar opciones de proveedores en dropdown si es necesario
+        try:
+            provs = self.db.get_proveedores_unicos()
+            if provs:
+                curr_val = getattr(self.drop_filtro_proveedor_tabla, "value", "TODOS")
+                opts = [ft.dropdown.Option("TODOS", "Todos los Proveedores")] + [ft.dropdown.Option(p, p) for p in provs]
+                self.drop_filtro_proveedor_tabla.options = opts
+                if curr_val in [o.key for o in opts]:
+                    self.drop_filtro_proveedor_tabla.value = curr_val
+
+                opts_p = [ft.dropdown.Option("TODOS", "Todos")] + [ft.dropdown.Option(p, p[:15]) for p in provs]
+                self.drop_filtro_panel_prov.options = opts_p
+        except Exception:
+            pass
+
         if self.page:
-            self.update()
+            try:
+                self.summary_container.update()
+                self.drop_filtro_proveedor_tabla.update()
+                self.drop_filtro_panel_prov.update()
+            except Exception:
+                pass
             
     def open_date_picker(self, e):
         self.date_picker.pick_date()
@@ -1596,7 +1779,10 @@ class ComprasView(ft.Container):
             search_val = self.search_input_text.value or raw_auto
         
         fact_filtro = getattr(self, 'filtro_factura_activo', None)
+        prov_tabla = getattr(self.drop_filtro_proveedor_tabla, "value", "TODOS")
         prov_filtro = getattr(self, 'filtro_proveedor_activo', None)
+        if prov_tabla and prov_tabla != "TODOS":
+            prov_filtro = prov_tabla
         f_corte = getattr(self, 'fecha_corte', None)
 
         data, total = self.db.get_compras(
@@ -1615,38 +1801,79 @@ class ComprasView(ft.Container):
         
         for item in data:
             fecha_raw = str(item.get('fecha', ''))
-            # Cortar a 'YYYY-MM-DD' si viene con timestamp
-            fecha_formateada = fecha_raw[:10] if len(fecha_raw) >= 10 else fecha_raw
+            str_fecha = fecha_raw[:10] if len(fecha_raw) >= 10 else fecha_raw
             
-            # El nombre viene del JOIN con catalogo_insumos: catalogo_insumos.nombre
+            num_ea = str(item.get('numero_entrada') or '')
+            num_fac = str(item.get('numero_factura') or '')
+            doc_label = f"EA #{num_ea}" if num_ea else (f"Fact #{num_fac}" if num_fac else 'S/N')
+            str_prov = str(item.get('proveedor') or 'Varios')
+            str_codigo = str(item.get('codigo_insumo', ''))
+            
             cat_info = item.get('catalogo_insumos') or {}
-            nombre_insumo = cat_info.get('nombre', 'Desconocido')
+            nombre_insumo = cat_info.get('nombre') or item.get('descripcion') or 'Desconocido'
             
-            cantidad = int(item.get('cantidad', 0) or 0)
+            cantidad = float(item.get('cantidad', 0) or 0)
             costo_unit = float(item.get('costo_unitario', 0) or 0)
             costo_tot = float(item.get('costo_total', 0) or 0)
-            
             iva_val = float(item.get('iva') or item.get('valor_iva') or 0)
             
+            str_cant = f"{int(cantidad)} unds" if cantidad.is_integer() else f"{cantidad:g} unds"
             str_costo_unit = f"${costo_unit:,.2f}"
             str_iva = f"${iva_val:,.2f}"
             str_costo_tot = f"${costo_tot:,.2f}"
             
+            cell_doc = ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.Container(
+                            content=ft.Text("EA" if num_ea else "FAC", size=9, weight="bold", color="teal800"),
+                            bgcolor="#e6f4ea", padding=ft.padding.symmetric(horizontal=4, vertical=1), border_radius=3
+                        ),
+                        ft.Text(doc_label, size=11, weight="bold", color=Config.COLOR_PRIMARY)
+                    ], spacing=4),
+                    ft.Text(str_fecha, size=10, color="grey600")
+                ], spacing=1, alignment=ft.MainAxisAlignment.CENTER),
+                padding=ft.padding.symmetric(vertical=2)
+            )
+
+            cell_prov = ft.Container(
+                content=ft.Text(str_prov, size=11, weight="w500", overflow=ft.TextOverflow.ELLIPSIS),
+                width=160
+            )
+
+            cell_item = ft.Container(
+                content=ft.Row([
+                    ft.Text(f"[{str_codigo}]", size=11, weight="bold", color=Config.COLOR_PRIMARY),
+                    ft.Text(nombre_insumo, size=11, weight="w500", overflow=ft.TextOverflow.ELLIPSIS, expand=True)
+                ], spacing=5),
+                width=280
+            )
+
             row = ft.DataRow(
                 cells=[
-                    ft.DataCell(ft.Text(fecha_formateada)),
-                    ft.DataCell(ft.Text(str(item.get('numero_factura') or 'N/A'))),
-                    ft.DataCell(ft.Text(str(item.get('proveedor') or 'N/A'))),
-                    ft.DataCell(ft.Text(str(item.get('codigo_insumo', '')))),
-                    ft.DataCell(ft.Container(content=ft.Text(nombre_insumo), width=280)),
-                    ft.DataCell(ft.Text(str(cantidad), weight="bold")),
-                    ft.DataCell(ft.Text(str_costo_unit)),
-                    ft.DataCell(ft.Text(str_iva)),
-                    ft.DataCell(ft.Text(str_costo_tot, color="blue", weight="bold")),
+                    ft.DataCell(cell_doc),
+                    ft.DataCell(cell_prov),
+                    ft.DataCell(cell_item),
+                    ft.DataCell(ft.Text(str_cant, size=11, weight="bold")),
+                    ft.DataCell(ft.Text(str_costo_unit, size=11)),
+                    ft.DataCell(ft.Text(str_iva, size=11, color="grey700")),
+                    ft.DataCell(ft.Text(str_costo_tot, size=11, color="teal800", weight="bold")),
                     ft.DataCell(
                         ft.Row([
-                            ft.IconButton(icon=ft.icons.EDIT_OUTLINED, icon_color="blue", tooltip="Editar", on_click=lambda e, i=item: self.abrir_modal_editar_compra(i)),
-                            ft.IconButton(icon=ft.icons.DELETE_OUTLINED, icon_color="red", tooltip="Eliminar", on_click=lambda e, i=item: self.confirmar_eliminar_compra(i))
+                            ft.IconButton(
+                                icon=ft.icons.EDIT_OUTLINED, 
+                                icon_color="blue", 
+                                icon_size=18,
+                                tooltip="Editar Compra", 
+                                on_click=lambda e, i=item: self.abrir_modal_editar_compra(i)
+                            ),
+                            ft.IconButton(
+                                icon=ft.icons.DELETE_OUTLINED, 
+                                icon_color="red", 
+                                icon_size=18,
+                                tooltip="Eliminar Compra", 
+                                on_click=lambda e, i=item: self.confirmar_eliminar_compra(i)
+                            )
                         ], spacing=0)
                     ),
                 ]
@@ -1810,22 +2037,28 @@ class ComprasView(ft.Container):
             items_prov = self.db.get_historial_compras_dia(self.fecha_historial_activa, "PROVEEDOR")
 
             tot_pesos = self.lbl_tot_compras_panel.value
-            tot_unds = self.lbl_cant_compras_panel.value
+
+            if self.fecha_historial_activa is None:
+                fecha_str = "Todo el Mes"
+                label_total = "Total Compra del Mes"
+            else:
+                fecha_str = str(self.fecha_historial_activa)
+                label_total = "Total Compras del Día"
 
             lineas_prov = []
             for item in items_prov:
                 prov = item.get("proveedor", "Clientes Varios")
                 total = item.get("total", 0)
-                unds = item.get("unidades", 0)
                 fact_cant = item.get("facturas_cant", 1)
-                lineas_prov.append(f"  • {prov}: ${total:,.0f} COP ({unds:g} unds | {fact_cant} fact.)")
+                fact_txt = "factura" if fact_cant == 1 else "facturas"
+                lineas_prov.append(f"  • {prov}: {fact_cant} {fact_txt} - ${total:,.0f} COP")
 
             prov_text = "\n".join(lineas_prov) if lineas_prov else "  (Sin registros de proveedores)"
 
             texto_copia = (
                 f"🛍️ HISTÓRICO DE ENTRADAS / COMPRAS\n"
-                f"📅 Fecha: {self.fecha_historial_activa}\n"
-                f"💵 Total Compras del Día: {tot_pesos} ({tot_unds})\n"
+                f"📅 Fecha: {fecha_str}\n"
+                f"💵 {label_total}: {tot_pesos}\n"
                 f"-----------------------------------------\n"
                 f"🏢 DESGLOSE POR PROVEEDOR:\n"
                 f"{prov_text}\n"

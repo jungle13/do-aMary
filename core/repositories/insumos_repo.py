@@ -1,18 +1,30 @@
 """
 Repositorio para el catálogo de insumos, stock y ajustes de inventario.
 """
-import requests
+import urllib.parse
 from core.database import BaseDatabase
 from core.logger import get_logger, log_error
 
 logger = get_logger("InsumosRepo")
+
 
 class InsumosRepository:
     def __init__(self, db: BaseDatabase | None = None):
         self.db = db or BaseDatabase()
 
     def get_categorias(self) -> list[str]:
-        """Obtiene la lista de categorías únicas de insumos."""
+        """Obtiene la lista de categorías únicas de insumos optimizada con RPC."""
+        try:
+            res = self.db.post("rpc/get_categorias_unicas_rpc", json_data={}, timeout=8)
+            if res and res.status_code == 200:
+                data = res.json()
+                cats = [str(item["categoria"]).strip() for item in data if item.get("categoria")]
+                if cats:
+                    return sorted(cats)
+        except Exception:
+            pass
+
+        # Fallback estándar
         try:
             res = self.db.get("catalogo_insumos?select=categoria", timeout=10)
             if res and res.status_code == 200:
@@ -35,7 +47,7 @@ class InsumosRepository:
         sort_asc: bool = True,
         codigos_filtro: list | None = None
     ) -> tuple[list, int]:
-        """Obtiene insumos con paginación, filtros y ordenamiento."""
+        """Obtiene insumos con paginación, filtros y ordenamiento sanitizado."""
         endpoint = "rpc/obtener_inventario_por_fecha?select=*" if fecha_corte else "vista_inventario_completo?select=*"
         filtros = []
 
@@ -43,14 +55,16 @@ class InsumosRepository:
             if not codigos_filtro:
                 filtros.append("codigo_insumo=in.(INVALID_FORCE_EMPTY)")
             else:
-                codigos_str = ",".join(codigos_filtro)
+                codigos_str = ",".join([urllib.parse.quote(str(c).strip()) for c in codigos_filtro if str(c).strip()])
                 filtros.append(f"codigo_insumo=in.({codigos_str})")
 
         if categoria and categoria != "Todas":
-            filtros.append(f"categoria=eq.{categoria}")
+            cat_enc = urllib.parse.quote(str(categoria).strip())
+            filtros.append(f"categoria=eq.{cat_enc}")
 
-        if search:
-            filtros.append(f"or=(nombre.ilike.*{search}*,codigo_insumo.ilike.*{search}*)")
+        if search and search.strip():
+            s_enc = urllib.parse.quote(search.strip())
+            filtros.append(f"or=(nombre.ilike.*{s_enc}*,codigo_insumo.ilike.*{s_enc}*)")
 
         if filtros:
             endpoint += "&" + "&".join(filtros)
@@ -222,19 +236,51 @@ class InsumosRepository:
             log_error("get_top_costo_inventario", ex)
             return []
 
-    def get_inventario_kpis(self, fecha_corte=None) -> dict:
-        """Obtiene los KPIs generales de valorización de inventario."""
+    def get_inventario_kpis(self, fecha_corte: str | None = None) -> dict:
+        """Obtiene los KPIs generales de valorización de inventario y alertas utilizando la función RPC en BD."""
         try:
+            payload = {"p_fecha_corte": fecha_corte} if fecha_corte else {}
+            res = self.db.post("rpc/get_inventario_kpis_rpc", json_data=payload, timeout=8)
+            if res and res.status_code == 200:
+                data = res.json()
+                if isinstance(data, dict):
+                    return {
+                        "valor_inventario": float(data.get("valor_inventario") or 0.0),
+                        "alertas_criticas": int(data.get("alertas_criticas") or 0)
+                    }
+        except Exception as ex:
+            logger.warning(f"Fallback local para get_inventario_kpis: {ex}")
+
+        # Fallback local
+        try:
+            res_c = self.db.get("registro_compras?select=codigo_insumo,costo_unitario,fecha&estado_registro=eq.VÁLIDO&order=fecha.desc&limit=5000", timeout=10)
+            costos_compras = {}
+            if res_c and res_c.status_code == 200:
+                for r in res_c.json():
+                    cod = str(r.get("codigo_insumo") or "").strip()
+                    cu = float(r.get("costo_unitario") or 0)
+                    if cod and cod not in costos_compras and cu > 0:
+                        costos_compras[cod] = cu
+
             insumos, _ = self.get_insumos(page=1, page_size=99999, fecha_corte=fecha_corte)
-            val_inv = sum([float(i.get("costo_total_insumo") or 0) for i in insumos])
-            alertas = sum([1 for i in insumos if float(i.get("stock_actual") or i.get("stock_real") or 0) <= float(i.get("stock_minimo") or 5)])
+            val_inv = 0.0
+            alertas = 0
+            for i in insumos:
+                stk = float(i.get("stock_actual") or i.get("stock_real") or 0)
+                if stk > 0:
+                    cod = str(i.get("codigo_insumo") or "").strip()
+                    cu = costos_compras.get(cod) or float(i.get("costo_unitario") or 0)
+                    val_inv += (stk * cu)
+                if stk <= float(i.get("stock_minimo") or 5):
+                    alertas += 1
+
             return {
                 "valor_inventario": val_inv,
                 "alertas_criticas": alertas
             }
         except Exception as ex:
             log_error("get_inventario_kpis", ex)
-            return {"valor_inventario": 0, "alertas_criticas": 0}
+            return {"valor_inventario": 0.0, "alertas_criticas": 0}
 
     def get_kpis_por_categoria(self, fecha_corte=None) -> list:
         """Invoca RPC para extraer rendimiento y rotación agrupada por categoría."""
@@ -361,3 +407,61 @@ class InsumosRepository:
         except Exception as ex:
             log_error("anular_ajuste", ex, {"id_ajuste": id_ajuste})
             return False
+
+    def asegurar_insumos_existen(self, items_list: list):
+        """Verifica la existencia de insumos en el catálogo y auto-registra los faltantes de manera centralizada."""
+        if not items_list:
+            return
+        import urllib.parse
+        codigos_entrantes = {
+            str(x.get("codigo_insumo") or x.get("codigo_item") or "").strip()
+            for x in items_list
+            if str(x.get("codigo_insumo") or x.get("codigo_item") or "").strip()
+        }
+        if not codigos_entrantes:
+            return
+
+        existentes = set()
+        chunk_size = 50
+        codigos_arr = list(codigos_entrantes)
+        for i in range(0, len(codigos_arr), chunk_size):
+            chk = codigos_arr[i:i + chunk_size]
+            c_str = ",".join([urllib.parse.quote(c) for c in chk])
+            try:
+                res = self.db.get(f"catalogo_insumos?select=codigo_insumo&codigo_insumo=in.({c_str})", timeout=8)
+                if res and res.status_code == 200:
+                    for row in res.json():
+                        existentes.add(str(row["codigo_insumo"]).strip())
+            except Exception as ex:
+                logger.warning(f"Error consultando existencia de insumos chunk {i}: {ex}")
+
+        faltantes = codigos_entrantes - existentes
+        if faltantes:
+            nuevos = []
+            for cod in faltantes:
+                nom = "INSUMO AUTO-REGISTRADO"
+                for item in items_list:
+                    if str(item.get("codigo_insumo") or item.get("codigo_item") or "").strip() == cod:
+                        nom = item.get("descripcion") or item.get("nombre") or nom
+                        break
+                nuevos.append({
+                    "codigo_insumo": cod,
+                    "nombre": nom[:100],
+                    "categoria": "DESECHABLES",
+                    "costo_unitario": 0.0,
+                    "precio_venta": 0.0,
+                    "stock_actual": 0.0,
+                    "stock_minimo": 5.0,
+                    "estado": True,
+                    "zona": "NO UBICADO",
+                    "ubicacion": "BODEGA",
+                    "tipo_unidad": "und"
+                })
+            try:
+                res_post = self.db.post("catalogo_insumos", json_data=nuevos, timeout=10)
+                if not (res_post and res_post.status_code in (200, 201, 204)):
+                    logger.error(f"Fallo al auto-registrar insumos faltantes: {res_post.text if res_post else 'Sin respuesta'}")
+                else:
+                    logger.info(f"Auto-registrados {len(nuevos)} insumos nuevos en catálogo exitosamente")
+            except Exception as ex:
+                log_error("Error auto-registrando nuevos insumos", ex)

@@ -468,11 +468,15 @@ class CierreInventarioView(ft.Container):
         periodos = self.cierres_repo.get_periodos_inventario()
         meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
 
-        # 1. Total Costo de Inventario Global Actual
-        res_cat = self.db._db.get("catalogo_insumos?select=stock_actual,costo_unitario", timeout=10)
-        tot_costo_inv = 0.0
-        if res_cat and res_cat.status_code == 200:
-            tot_costo_inv = sum(float(r.get("stock_actual") or 0) * float(r.get("costo_unitario") or 0) for r in res_cat.json())
+        # 1. Total Costo de Inventario Global Actual (Stock real > 0 con costos de compras)
+        kpis_inv = self.db.get_inventario_kpis()
+        tot_costo_inv = float(kpis_inv.get("valor_inventario") or 0.0)
+
+        res_v = self.db.get_ventas_summary()
+        res_c = self.db.get_compras_summary()
+        tot_ventas = float(res_v.get("total_mes") or 0.0)
+        tot_compras = float(res_c.get("total_mes") or 0.0)
+        rentabilidad = ((tot_ventas - tot_compras) / tot_ventas * 100) if tot_ventas > 0 else 0.0
 
         filas = []
         for p in periodos:
@@ -486,15 +490,6 @@ class CierreInventarioView(ft.Container):
 
             estado = p.get("estado", "ABIERTO")
             color_est = {"ABIERTO": "green", "EN_AUDITORIA": "blue", "CERRADO": "red"}.get(estado, "black")
-
-            # 2. Ventas y Compras del periodo
-            res_v = self.db._db.get(f"registro_ventas?fecha=gte.{mes_periodo}-01T00:00:00&fecha=lte.{mes_periodo}-31T23:59:59&select=total", timeout=10)
-            tot_ventas = sum(float(r.get("total") or 0) for r in res_v.json()) if res_v and res_v.status_code == 200 else 0.0
-
-            res_c = self.db._db.get(f"registro_compras?fecha=gte.{mes_periodo}-01T00:00:00&fecha=lte.{mes_periodo}-31T23:59:59&select=costo_total", timeout=10)
-            tot_compras = sum(float(r.get("costo_total") or 0) for r in res_c.json()) if res_c and res_c.status_code == 200 else 0.0
-
-            rentabilidad = ((tot_ventas - tot_compras) / tot_ventas * 100) if tot_ventas > 0 else 0.0
 
             btn_inventario_texto = f"Inventario ({month_nombre})"
 

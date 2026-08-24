@@ -603,10 +603,9 @@ class VentasView(ft.Container):
                 self.panel_page = 1
 
             tot_pesos = sum([item["total"] for item in items])
-            tot_unds = sum([item["unidades"] for item in items])
 
             self.lbl_tot_ventas_panel.value = f"${tot_pesos:,.0f} COP"
-            self.lbl_cant_ventas_panel.value = f"{tot_unds:g} unds"
+            self.lbl_cant_ventas_panel.value = f"{len(items)} reg."
 
             self._render_panel_items()
 
@@ -2144,29 +2143,35 @@ class VentasView(ft.Container):
         if not self.page: return
 
         def worker():
-            # Consultar desglose por categoría para la fecha activa
-            items_cat = self.db.get_historial_ventas_dia(self.fecha_historial_activa, "CATEGORIA")
+            # Consultar desglose por tipo de documento para la fecha activa
+            items_doc = self.db.get_historial_ventas_dia(self.fecha_historial_activa, "TIPO_DOCUMENTO")
 
             tot_pesos = self.lbl_tot_ventas_panel.value
-            tot_unds = self.lbl_cant_ventas_panel.value
 
-            lineas_cat = []
-            for item in items_cat:
-                cat = item.get("categoria", "SIN CATEGORÍA")
+            if self.fecha_historial_activa is None:
+                fecha_str = "Todo el Mes"
+                label_total = "Total Venta del Mes"
+            else:
+                fecha_str = str(self.fecha_historial_activa)
+                label_total = "Total Ventas del Día"
+
+            lineas_doc = []
+            for item in items_doc:
+                tdoc = item.get("tipo_documento", "Factura POS")
                 total = item.get("total", 0)
-                unds = item.get("unidades", 0)
-                items_cant = item.get("items_count", 0)
-                lineas_cat.append(f"  • {cat}: ${total:,.0f} COP ({unds:g} unds | {items_cant} ítems)")
+                fact_cant = item.get("facturas_cant", 1)
+                fact_txt = "factura" if fact_cant == 1 else "facturas"
+                lineas_doc.append(f"  • {tdoc}: {fact_cant} {fact_txt} - ${total:,.0f} COP")
 
-            cat_text = "\n".join(lineas_cat) if lineas_cat else "  (Sin ventas registradas por categoría)"
+            doc_text = "\n".join(lineas_doc) if lineas_doc else "  (Sin ventas registradas por tipo de documento)"
 
             texto_copia = (
                 f"📊 HISTÓRICO DE VENTAS / SALIDAS\n"
-                f"📅 Fecha: {self.fecha_historial_activa}\n"
-                f"💵 Total Ventas del Día: {tot_pesos} ({tot_unds})\n"
+                f"📅 Fecha: {fecha_str}\n"
+                f"💵 {label_total}: {tot_pesos}\n"
                 f"-----------------------------------------\n"
-                f"🏷️ DESGLOSE POR CATEGORÍA:\n"
-                f"{cat_text}\n"
+                f"📄 DESGLOSE POR TIPO DE DOCUMENTO:\n"
+                f"{doc_text}\n"
                 f"-----------------------------------------"
             )
 

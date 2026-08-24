@@ -1,8 +1,10 @@
 import flet as ft
 import threading
+import datetime
+import calendar
+from concurrent.futures import ThreadPoolExecutor
 from config import Config
 from core.supabase_client import SupabaseClient
-import datetime
 
 class DashboardView(ft.Container):
     def __init__(self):
@@ -55,45 +57,65 @@ class DashboardView(ft.Container):
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
         
         # Tarjetas de KPIs (Valores Iniciales) - SECCIÓN COSTOS
-        self.val_inventario = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_compras = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_rotacion = ft.Text("N/D", size=14, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_compras_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_inventario = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
+        self.sub_inventario = ft.Text("Valoración real stock > 0", size=10, color="grey600")
+        
+        self.val_compras = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
+        self.sub_compras = ft.Text("Entradas acumuladas del mes", size=10, color="grey600")
+        
+        self.val_compras_hoy = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
+        self.sub_compras_hoy = ft.Text("Registradas hoy", size=10, color="grey600")
+        
+        self.val_rotacion = ft.Text("N/D", size=13, weight="bold", color="teal800")
         
         # SECCIÓN VENTAS
-        self.val_ingresos = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_ventas_hoy = ft.Text("$ 0", size=24, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
-        self.val_proyeccion_ventas = ft.Text("$ 0", size=14, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_proyeccion_rentabilidad = ft.Text("0.0%", size=14, weight="bold", color="#2ecca0")
+        self.val_ingresos = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
+        self.sub_ingresos = ft.Text("Salidas acumuladas del mes", size=10, color="grey600")
+        
+        self.val_cumplimiento_mes = ft.Text("0.0%", size=22, weight="bold", color="teal800")
+        self.sub_cumplimiento_mes = ft.Text("Capacidad: $ 0", size=10, color="grey600")
+
+        self.val_ventas_hoy = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
+        self.sub_ventas_hoy = ft.Text("Registradas hoy", size=10, color="grey600")
+        
+        self.val_cumplimiento_hoy = ft.Text("0.0%", size=22, weight="bold", color="teal800")
+        self.sub_cumplimiento_hoy = ft.Text("Meta diaria: $ 0", size=10, color="grey600")
+
+        self.val_rentabilidad = ft.Text("0.0%", size=13, weight="bold", color="teal800")
+        self.val_proyeccion_ventas = ft.Text("$ 0", size=13, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_proyeccion_rentabilidad = ft.Text("0.0%", size=13, weight="bold", color="teal800")
         
         self.kpi_costos_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("Costo Inv. Actual", self.val_inventario, ft.icons.INVENTORY_2_ROUNDED, card_color=Config.COLOR_INFO), col={"xs": 12, "sm": 6, "md": 4}),
-            ft.Container(content=self._build_kpi_card("Total Compras (Mes)", self.val_compras, ft.icons.SHOPPING_BAG_ROUNDED, card_color=Config.COLOR_ACCENT), col={"xs": 12, "sm": 6, "md": 4}),
-            ft.Container(content=self._build_kpi_card("Compras (Hoy)", self.val_compras_hoy, ft.icons.PAYMENTS_ROUNDED, card_color=Config.COLOR_WARNING), col={"xs": 12, "sm": 6, "md": 4}),
-        ], spacing=10, run_spacing=10)
+            ft.Container(content=self._build_kpi_card("Costo Inv. Actual", self.val_inventario, ft.icons.INVENTORY_2_ROUNDED, subtext_control=self.sub_inventario, card_color="#3b82f6"), col={"xs": 12, "sm": 6, "md": 4}),
+            ft.Container(content=self._build_kpi_card("Total Compras (Mes)", self.val_compras, ft.icons.SHOPPING_BAG_ROUNDED, subtext_control=self.sub_compras, card_color="#8b5cf6"), col={"xs": 12, "sm": 6, "md": 4}),
+            ft.Container(content=self._build_kpi_card("Compras (Hoy)", self.val_compras_hoy, ft.icons.PAYMENTS_ROUNDED, subtext_control=self.sub_compras_hoy, card_color="#f59e0b"), col={"xs": 12, "sm": 6, "md": 4}),
+        ], spacing=12, run_spacing=12)
 
         self.kpi_ventas_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("Total Ventas (Mes)", self.val_ingresos, ft.icons.TRENDING_UP_ROUNDED, card_color=Config.COLOR_SUCCESS), col={"xs": 12, "sm": 6, "md": 6}),
-            ft.Container(content=self._build_kpi_card("Ventas (Hoy)", self.val_ventas_hoy, ft.icons.MONETIZATION_ON_ROUNDED, card_color=Config.COLOR_SUCCESS), col={"xs": 12, "sm": 6, "md": 6}),
-        ], spacing=10, run_spacing=10)
+            ft.Container(content=self._build_kpi_card("Total Ventas (Mes)", self.val_ingresos, ft.icons.TRENDING_UP_ROUNDED, subtext_control=self.sub_ingresos, card_color="#10b981"), col={"xs": 12, "sm": 6, "md": 3}),
+            ft.Container(content=self._build_kpi_card("Cumplimiento Mes", self.val_cumplimiento_mes, ft.icons.SPEED_ROUNDED, subtext_control=self.sub_cumplimiento_mes, card_color="#0284c7"), col={"xs": 12, "sm": 6, "md": 3}),
+            ft.Container(content=self._build_kpi_card("Ventas (Hoy)", self.val_ventas_hoy, ft.icons.MONETIZATION_ON_ROUNDED, subtext_control=self.sub_ventas_hoy, card_color="#059669"), col={"xs": 12, "sm": 6, "md": 3}),
+            ft.Container(content=self._build_kpi_card("Cumplimiento Hoy", self.val_cumplimiento_hoy, ft.icons.CHECK_CIRCLE_OUTLINE_ROUNDED, subtext_control=self.sub_cumplimiento_hoy, card_color="#0d9488"), col={"xs": 12, "sm": 6, "md": 3}),
+        ], spacing=12, run_spacing=12)
         
-        # Paso 3: Crear la Barra de Métricas Secundarias
+        # Paso 3: Barra de Métricas Secundarias
         self.val_meta_diaria = ft.Text("$ 0 / día", size=13, weight="bold", color="teal700")
 
         self.kpi_secundarios = ft.Container(
             content=ft.Row([
+                ft.Icon(ft.icons.INSIGHTS, size=16, color=Config.COLOR_PRIMARY),
                 ft.Text("Objetivo Comercial:", weight="bold", color=Config.COLOR_PRIMARY, size=12),
-                ft.Text("Proy. Ventas Stock:", size=12, color="grey"), self.val_proyeccion_ventas,
-                ft.Text(" | Proy. Rentabilidad:", size=12, color="grey"), self.val_proyeccion_rentabilidad,
-                ft.Container(width=1, height=20, bgcolor="#d0d0d0", margin=ft.padding.symmetric(horizontal=8)),
+                ft.Text("Proy. Ventas Stock:", size=12, color="grey700"), self.val_proyeccion_ventas,
+                ft.Text(" | Margen Proy.:", size=12, color="grey700"), self.val_proyeccion_rentabilidad,
+                ft.Container(width=1, height=18, bgcolor="#e2e8f0", margin=ft.padding.symmetric(horizontal=6)),
                 ft.Icon(ft.icons.FLAG, size=16, color="teal700"),
-                ft.Text("Meta Venta Diaria:", weight="bold", size=12, color="grey"), self.val_meta_diaria,
+                ft.Text("Meta Venta Diaria:", weight="bold", size=12, color="grey700"), self.val_meta_diaria,
                 ft.Container(expand=True),
-                ft.Text("Rotación Global:", size=12, color="grey"), self.val_rotacion,
+                ft.Text("Rotación Global:", size=12, color="grey700"), self.val_rotacion,
             ], spacing=5, alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=ft.padding.symmetric(horizontal=15, vertical=10),
-            bgcolor="#f0f4f8", border_radius=8, border=ft.border.all(1, "#d0d7de")
+            padding=ft.padding.symmetric(horizontal=16, vertical=10),
+            bgcolor="white", border_radius=10, border=ft.border.all(1, "#e2e8f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=6, color=ft.colors.with_opacity(0.04, "black"), offset=ft.Offset(0, 2))
         )
 
         # SECCIÓN AJUSTES
@@ -110,30 +132,30 @@ class DashboardView(ft.Container):
             # Panel Salida
             ft.Container(
                 content=ft.Column([
-                    ft.Text("Ajustes de Salida (-)", size=16, weight="bold", color="red"),
-                    ft.Divider(height=1),
+                    ft.Text("Ajustes de Salida (-)", size=15, weight="bold", color="red700"),
+                    ft.Divider(height=1, color="#fee2e2"),
                     self.col_ajustes_salida
                 ]),
                 bgcolor="white",
                 padding=15,
-                border_radius=8,
+                border_radius=10,
                 expand=True,
-                border=ft.border.all(1, "#f0f0f0"),
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+                border=ft.border.all(1, "#fecaca"),
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.04, "black"))
             ),
             # Panel Entrada
             ft.Container(
                 content=ft.Column([
-                    ft.Text("Ajustes de Entrada (+)", size=16, weight="bold", color="green"),
-                    ft.Divider(height=1),
+                    ft.Text("Ajustes de Entrada (+)", size=15, weight="bold", color="teal700"),
+                    ft.Divider(height=1, color="#d1fae5"),
                     self.col_ajustes_entrada
                 ]),
                 bgcolor="white",
                 padding=15,
-                border_radius=8,
+                border_radius=10,
                 expand=True,
-                border=ft.border.all(1, "#f0f0f0"),
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+                border=ft.border.all(1, "#a7f3d0"),
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.04, "black"))
             )
         ], spacing=15)
 
@@ -147,7 +169,7 @@ class DashboardView(ft.Container):
         )
         
         header_kpis_row = ft.Row([
-            ft.Text("Resumen Financiero y Operativo", size=20, weight="bold", color=Config.COLOR_PRIMARY),
+            ft.Text("Resumen Financiero y Operativo", size=18, weight="bold", color=Config.COLOR_PRIMARY),
             self.btn_copiar_resumen
         ], tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
@@ -160,24 +182,31 @@ class DashboardView(ft.Container):
         ], spacing=10)
 
         # SECCIÓN RESUMEN DE IMPUESTOS
-        self.val_iva_generado_mes = ft.Text("$ 0", size=22, weight="bold", color="blue700")
-        self.val_iva_generado_hoy = ft.Text("$ 0", size=22, weight="bold", color="blue700")
-        self.val_iva_pagado_mes = ft.Text("$ 0", size=22, weight="bold", color="teal700")
-        self.val_iva_pagado_hoy = ft.Text("$ 0", size=22, weight="bold", color="teal700")
+        self.val_iva_generado_mes = ft.Text("$ 0", size=20, weight="bold", color="blue800")
+        self.sub_iva_gen_mes = ft.Text("IVA facturado en ventas", size=10, color="grey600")
+        
+        self.val_iva_generado_hoy = ft.Text("$ 0", size=20, weight="bold", color="blue800")
+        self.sub_iva_gen_hoy = ft.Text("IVA cobrado hoy", size=10, color="grey600")
+        
+        self.val_iva_pagado_mes = ft.Text("$ 0", size=20, weight="bold", color="purple800")
+        self.sub_iva_pag_mes = ft.Text("Crédito fiscal en compras", size=10, color="grey600")
+        
+        self.val_iva_pagado_hoy = ft.Text("$ 0", size=20, weight="bold", color="purple800")
+        self.sub_iva_pag_hoy = ft.Text("IVA compras de hoy", size=10, color="grey600")
 
         header_impuestos_row = ft.Row([
-            ft.Text("Resumen de Impuestos", size=20, weight="bold", color=Config.COLOR_PRIMARY),
+            ft.Text("Resumen de Impuestos (IVA)", size=18, weight="bold", color=Config.COLOR_PRIMARY),
         ], tight=True)
 
         self.kpi_iva_generado_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("IVA Generado (Mes)", self.val_iva_generado_mes, ft.icons.RECEIPT_LONG_ROUNDED, card_color=Config.COLOR_INFO), col={"xs": 12, "sm": 6}),
-            ft.Container(content=self._build_kpi_card("IVA Generado (Hoy)", self.val_iva_generado_hoy, ft.icons.POINT_OF_SALE_ROUNDED, card_color=Config.COLOR_INFO), col={"xs": 12, "sm": 6}),
-        ], spacing=10, run_spacing=10)
+            ft.Container(content=self._build_kpi_card("IVA Generado (Mes)", self.val_iva_generado_mes, ft.icons.RECEIPT_LONG_ROUNDED, subtext_control=self.sub_iva_gen_mes, card_color="#2563eb"), col={"xs": 12, "sm": 6}),
+            ft.Container(content=self._build_kpi_card("IVA Generado (Hoy)", self.val_iva_generado_hoy, ft.icons.POINT_OF_SALE_ROUNDED, subtext_control=self.sub_iva_gen_hoy, card_color="#3b82f6"), col={"xs": 12, "sm": 6}),
+        ], spacing=12, run_spacing=12)
 
         self.kpi_iva_pagado_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("IVA Pagado (Mes)", self.val_iva_pagado_mes, ft.icons.SHOPPING_CART_CHECKOUT_ROUNDED, card_color=Config.COLOR_WARNING), col={"xs": 12, "sm": 6}),
-            ft.Container(content=self._build_kpi_card("IVA Pagado (Hoy)", self.val_iva_pagado_hoy, ft.icons.SHOPPING_BAG_ROUNDED, card_color=Config.COLOR_WARNING), col={"xs": 12, "sm": 6}),
-        ], spacing=10, run_spacing=10)
+            ft.Container(content=self._build_kpi_card("IVA Pagado (Mes)", self.val_iva_pagado_mes, ft.icons.SHOPPING_CART_CHECKOUT_ROUNDED, subtext_control=self.sub_iva_pag_mes, card_color="#7c3aed"), col={"xs": 12, "sm": 6}),
+            ft.Container(content=self._build_kpi_card("IVA Pagado (Hoy)", self.val_iva_pagado_hoy, ft.icons.SHOPPING_BAG_ROUNDED, subtext_control=self.sub_iva_pag_hoy, card_color="#9333ea"), col={"xs": 12, "sm": 6}),
+        ], spacing=12, run_spacing=12)
 
         self.seccion_impuestos = ft.Column([
             header_impuestos_row,
@@ -367,96 +396,8 @@ class DashboardView(ft.Container):
         self.btn_clear_fecha_dash.visible = False
         self.load_data()
 
-    def _fetch_data_worker(self):
-        """Ejecuta todas las llamadas HTTP síncronas sin congelar la ventana."""
-        # Cargar contexto temporal
-        mes_actual = datetime.date.today().strftime("%Y-%m")
-        datos_cierre = self.db.obtener_estado_cierre(mes_actual)
-        estado_periodo = datos_cierre.get('periodo', {}).get('estado', 'ABIERTO') if datos_cierre and datos_cierre.get('periodo') else 'ABIERTO'
-
-        meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-        partes = mes_actual.split('-')
-        nombre_mes = f"{meses[int(partes[1]) - 1]} {partes[0]}"
-
-        self.lbl_periodo_dash.value = f"Periodo: {nombre_mes}"
-        self.lbl_estado_dash.value = f"Estado: {estado_periodo}"
-
-        colores_estado = {'ABIERTO': 'green', 'PRELIMINAR': 'orange', 'EN_AUDITORIA': 'blue', 'CERRADO': 'red'}
-        self.lbl_estado_dash.color = colores_estado.get(estado_periodo, 'black')
-
-        ahora = datetime.datetime.now()
-        self.lbl_fecha_hora.value = ahora.strftime("%d/%m/%Y - %I:%M %p")
-
-        # 1. Load KPIs
-        kpis_cat = self.db.get_rendimiento_categorias_periodo(fecha_inicio=None, fecha_fin=self.fecha_filtro_dash)
-        val_inv_real = sum([c["inventario_costo"] for c in kpis_cat])
-        val_inv = val_inv_real
-        self.val_inventario.value = f"$ {val_inv:,.0f}"
-        
-        res_cat = self.db.get_catalogo_summary(fecha_corte=self.fecha_filtro_dash)
-        res_ven = self.db.get_ventas_summary(fecha_corte=self.fecha_filtro_dash)
-        res_com = self.db.get_compras_summary(fecha_corte=self.fecha_filtro_dash)
-        
-        ingresos = float(res_ven.get('total_mes') or 0)
-        compras = float(res_com.get('total_mes') or 0)
-        
-        ventas_hoy = float(res_ven.get('total_hoy') or 0)
-        compras_hoy = float(res_com.get('total_hoy') or 0)
-        
-        self.val_ingresos.value = f"$ {ingresos:,.0f}"
-        self.val_ventas_hoy.value = f"$ {ventas_hoy:,.0f}"
-        self.val_compras.value = f"$ {compras:,.0f}"
-        self.val_compras_hoy.value = f"$ {compras_hoy:,.0f}"
-
-        # Extraer montos de IVA de Ventas y Compras
-        iva_gen_mes = float(res_ven.get('iva_mes') or 0)
-        iva_gen_hoy = float(res_ven.get('iva_hoy') or 0)
-        iva_pag_mes = float(res_com.get('iva_mes') or 0)
-        iva_pag_hoy = float(res_com.get('iva_hoy') or 0)
-
-        self.val_iva_generado_mes.value = f"$ {iva_gen_mes:,.0f}"
-        self.val_iva_generado_hoy.value = f"$ {iva_gen_hoy:,.0f}"
-        self.val_iva_pagado_mes.value = f"$ {iva_pag_mes:,.0f}"
-        self.val_iva_pagado_hoy.value = f"$ {iva_pag_hoy:,.0f}"
-        
-        rentabilidad = 0
-        if ingresos > 0:
-            rentabilidad = ((ingresos - compras) / ingresos) * 100
-            
-        self.val_rentabilidad.value = f"{rentabilidad:.1f}%"
-        self.val_rentabilidad.color = "#2ecca0" if rentabilidad >= 0 else "#f26c61"
-        
-        # Basic rotacion (Ventas / Inventario)
-        if val_inv > 0:
-            rotacion_global = ingresos / val_inv
-            self.val_rotacion.value = f"{rotacion_global:.2f}x"
-        else:
-            self.val_rotacion.value = "N/D"
-
-        # Nuevos KPIs y Ajustes
-        proyeccion_ventas = self.db.get_proyeccion_ventas(fecha_corte=self.fecha_filtro_dash)
-        self.val_proyeccion_ventas.value = f"$ {proyeccion_ventas:,.0f}"
-        
-        proy_rent = 0
-        if proyeccion_ventas > 0:
-            proy_rent = ((proyeccion_ventas - val_inv) / proyeccion_ventas) * 100
-        
-        self.val_proyeccion_rentabilidad.value = f"{proy_rent:.1f}%"
-        self.val_proyeccion_rentabilidad.color = "#2ecca0" if proy_rent >= 0 else "#f26c61"
-
-        hoy_obj = datetime.datetime.strptime(self.fecha_filtro_dash, "%Y-%m-%d").date() if self.fecha_filtro_dash else datetime.date.today()
-        if hoy_obj.month == 12:
-            ultimo_dia_mes = datetime.date(hoy_obj.year, 12, 31).day
-        else:
-            ultimo_dia_mes = (datetime.date(hoy_obj.year, hoy_obj.month + 1, 1) - datetime.timedelta(days=1)).day
-        dias_restantes = max(1, ultimo_dia_mes - hoy_obj.day + 1)
-        meta_diaria = (proyeccion_ventas / dias_restantes) if dias_restantes > 0 and proyeccion_ventas > 0 else 0.0
-        self.val_meta_diaria.value = f"$ {meta_diaria:,.0f} / día"
-        self.val_meta_diaria.tooltip = f"Meta calculada para alcanzar la proyección de stock ($ {proyeccion_ventas:,.0f}) en los {dias_restantes} días restantes del mes"
-
-        mes_actual = hoy_obj.strftime("%Y-%m")
-        ajustes_bd = self.db.get_ajustes_mes(mes_actual, fecha_corte=self.fecha_filtro_dash)
-        
+    def _clasificar_ajustes(self, ajustes_bd: list) -> tuple[dict, dict, float, float, float, float, float]:
+        """Clasifica los ajustes de inventario en entradas y salidas calculando totales y neto."""
         tipos_salida = {
             "Daño / Merma": {"conteo": 0, "cantidad": 0, "costo": 0.0},
             "Vencimiento": {"conteo": 0, "cantidad": 0, "costo": 0.0},
@@ -473,14 +414,14 @@ class DashboardView(ft.Container):
             "Devolución Cliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
             "Otro (Entrada)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
         }
-        
-        for fila in ajustes_bd:
+
+        for fila in (ajustes_bd or []):
             tipo_bd = fila.get("tipo_ajuste", "")
             motivo_bd = fila.get("motivo_observacion", "")
             cant = float(fila.get("cantidad_total") or 0)
             costo = float(fila.get("costo_total") or 0)
             conteo = int(fila.get("conteo") or 0)
-            
+
             asignado = False
             if tipo_bd in ("AJUSTE_ENTRADA", "ENTRADA_POR_SOBRANTE"):
                 for key in tipos_entrada.keys():
@@ -503,7 +444,6 @@ class DashboardView(ft.Container):
                         asignado = True
                         break
                 if not asignado:
-                    # Fallback por tipo
                     if tipo_bd == "BAJA_VENCIMIENTO": k = "Vencimiento"
                     elif tipo_bd == "SALIDA_POR_FALTANTE": k = "Pérdida"
                     else: k = "Otro (Salida)"
@@ -511,95 +451,189 @@ class DashboardView(ft.Container):
                     tipos_salida[k]["cantidad"] += cant
                     tipos_salida[k]["costo"] += costo
 
-        total_costo_entradas = sum([d["costo"] for d in tipos_entrada.values()])
-        total_costo_salidas = sum([d["costo"] for d in tipos_salida.values()])
-        
-        total_cant_entradas = sum([d["cantidad"] for d in tipos_entrada.values()])
-        total_cant_salidas = sum([d["cantidad"] for d in tipos_salida.values()])
-        
-        neto = total_costo_entradas - total_costo_salidas
-        if neto > 0:
-            self.lbl_neto_ajustes_header.value = f"NETO (POSITIVO): +${neto:,.0f}"
-            self.lbl_neto_ajustes_header.color = "#2ecca0"
-        elif neto < 0:
-            self.lbl_neto_ajustes_header.value = f"NETO (NEGATIVO): -${abs(neto):,.0f}"
-            self.lbl_neto_ajustes_header.color = "#f26c61"
-        else:
-            self.lbl_neto_ajustes_header.value = f"NETO: $0"
-            self.lbl_neto_ajustes_header.color = "grey"
+        tot_cost_ent = sum([d["costo"] for d in tipos_entrada.values()])
+        tot_cost_sal = sum([d["costo"] for d in tipos_salida.values()])
+        tot_cant_ent = sum([d["cantidad"] for d in tipos_entrada.values()])
+        tot_cant_sal = sum([d["cantidad"] for d in tipos_salida.values()])
+        neto = tot_cost_ent - tot_cost_sal
 
-        # Limpiar columnas
-        self.col_ajustes_entrada.controls.clear()
-        self.col_ajustes_salida.controls.clear()
+        return tipos_entrada, tipos_salida, tot_cost_ent, tot_cost_sal, tot_cant_ent, tot_cant_sal, neto
 
-        # Render Entrada
-        for key, datos in tipos_entrada.items():
+    def _fetch_data_worker(self):
+        """Ejecuta todas las llamadas concurrentes con ThreadPoolExecutor y actualiza la UI."""
+        try:
+            hoy_obj = (
+                datetime.datetime.strptime(self.fecha_filtro_dash, "%Y-%m-%d").date()
+                if self.fecha_filtro_dash
+                else datetime.date.today()
+            )
+            mes_actual = hoy_obj.strftime("%Y-%m")
+
+            # 1. Cargar todas las consultas independientes en paralelo
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                f_cierre = executor.submit(self.db.obtener_estado_cierre, mes_actual)
+                f_cat_kpis = executor.submit(self.db.get_rendimiento_categorias_periodo, None, self.fecha_filtro_dash)
+                f_ven = executor.submit(self.db.get_ventas_summary, fecha_corte=self.fecha_filtro_dash)
+                f_com = executor.submit(self.db.get_compras_summary, fecha_corte=self.fecha_filtro_dash)
+                f_proy = executor.submit(self.db.get_proyeccion_ventas, fecha_corte=self.fecha_filtro_dash)
+                f_ajustes = executor.submit(self.db.get_ajustes_mes, mes_actual, fecha_corte=self.fecha_filtro_dash)
+                f_tendencia = executor.submit(self.db.get_tendencia_diaria, fecha_corte=self.fecha_filtro_dash)
+                f_top_ventas = executor.submit(self.db.get_top_ventas_mes, limit=10, fecha_corte=self.fecha_filtro_dash)
+                f_top_costos = executor.submit(self.db.get_top_costo_inventario, limit=10, fecha_corte=self.fecha_filtro_dash)
+
+                datos_cierre = f_cierre.result() or {}
+                kpis_cat = f_cat_kpis.result() or []
+                res_ven = f_ven.result() or {}
+                res_com = f_com.result() or {}
+                proyeccion_ventas = float(f_proy.result() or 0.0)
+                ajustes_bd = f_ajustes.result() or []
+                tendencia = f_tendencia.result() or {}
+                top_ventas = f_top_ventas.result() or []
+                top_costos = f_top_costos.result() or []
+
+            # 2. Contexto Temporal y Estado de Periodo
+            estado_periodo = datos_cierre.get('periodo', {}).get('estado', 'ABIERTO') if datos_cierre and datos_cierre.get('periodo') else 'ABIERTO'
+            meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+            partes = mes_actual.split('-')
+            nombre_mes = f"{meses[int(partes[1]) - 1]} {partes[0]}"
+
+            self.lbl_periodo_dash.value = f"Periodo: {nombre_mes}"
+            self.lbl_estado_dash.value = f"Estado: {estado_periodo}"
+
+            colores_estado = {'ABIERTO': 'green', 'PRELIMINAR': 'orange', 'EN_AUDITORIA': 'blue', 'CERRADO': 'red'}
+            self.lbl_estado_dash.color = colores_estado.get(estado_periodo, 'black')
+
+            ahora = datetime.datetime.now()
+            self.lbl_fecha_hora.value = ahora.strftime("%d/%m/%Y - %I:%M %p")
+
+            # 3. KPIs de Inventario, Ventas, Compras e IVA
+            val_inv = sum([float(c.get("inventario_costo") or 0.0) for c in kpis_cat])
+            self.val_inventario.value = f"$ {val_inv:,.0f}"
+
+            ingresos = float(res_ven.get('total_mes') or 0.0)
+            compras = float(res_com.get('total_mes') or 0.0)
+            ventas_hoy = float(res_ven.get('total_hoy') or 0.0)
+            compras_hoy = float(res_com.get('total_hoy') or 0.0)
+
+            self.val_ingresos.value = f"$ {ingresos:,.0f}"
+            self.val_ventas_hoy.value = f"$ {ventas_hoy:,.0f}"
+            self.val_compras.value = f"$ {compras:,.0f}"
+            self.val_compras_hoy.value = f"$ {compras_hoy:,.0f}"
+
+            iva_gen_mes = float(res_ven.get('iva_mes') or 0.0)
+            iva_gen_hoy = float(res_ven.get('iva_hoy') or 0.0)
+            iva_pag_mes = float(res_com.get('iva_mes') or 0.0)
+            iva_pag_hoy = float(res_com.get('iva_hoy') or 0.0)
+
+            self.val_iva_generado_mes.value = f"$ {iva_gen_mes:,.0f}"
+            self.val_iva_generado_hoy.value = f"$ {iva_gen_hoy:,.0f}"
+            self.val_iva_pagado_mes.value = f"$ {iva_pag_mes:,.0f}"
+            self.val_iva_pagado_hoy.value = f"$ {iva_pag_hoy:,.0f}"
+
+            rentabilidad = ((ingresos - compras) / ingresos * 100) if ingresos > 0 else 0.0
+            self.val_rentabilidad.value = f"{rentabilidad:.1f}%"
+            self.val_rentabilidad.color = "teal800" if rentabilidad >= 0 else "red700"
+
+            rotacion_global = (ingresos / val_inv) if val_inv > 0 else 0.0
+            self.val_rotacion.value = f"{rotacion_global:.2f}x" if val_inv > 0 else "N/D"
+
+            self.val_proyeccion_ventas.value = f"$ {proyeccion_ventas:,.0f}"
+            proy_rent = ((proyeccion_ventas - val_inv) / proyeccion_ventas * 100) if (proyeccion_ventas > 0 and val_inv > 0) else 0.0
+            self.val_proyeccion_rentabilidad.value = f"{proy_rent:.1f}%"
+            self.val_proyeccion_rentabilidad.color = "teal800" if proy_rent >= 0 else "red700"
+
+            # Cumplimiento Mes: Ventas acumuladas / (Ventas acumuladas + Proyección Stock)
+            meta_total_mes = ingresos + proyeccion_ventas
+            pct_cumplimiento_mes = (ingresos / meta_total_mes * 100) if meta_total_mes > 0 else 0.0
+            self.val_cumplimiento_mes.value = f"{pct_cumplimiento_mes:.1f}%"
+            self.val_cumplimiento_mes.color = "teal800" if pct_cumplimiento_mes >= 100 else ("blue800" if pct_cumplimiento_mes >= 50 else "amber800")
+            self.sub_cumplimiento_mes.value = f"Capacidad total: $ {meta_total_mes:,.0f}"
+
+            # Cumplimiento Hoy y Meta Diaria (Uso nativo de calendar)
+            dias_en_mes = calendar.monthrange(hoy_obj.year, hoy_obj.month)[1]
+            dias_restantes = max(1, dias_en_mes - hoy_obj.day + 1)
+            meta_diaria = (proyeccion_ventas / dias_restantes) if dias_restantes > 0 and proyeccion_ventas > 0 else 0.0
+            self.val_meta_diaria.value = f"$ {meta_diaria:,.0f} / día"
+            self.val_meta_diaria.tooltip = f"Meta calculada para alcanzar la proyección de stock ($ {proyeccion_ventas:,.0f}) en los {dias_restantes} días restantes del mes"
+
+            pct_cumplimiento_hoy = (ventas_hoy / meta_diaria * 100) if meta_diaria > 0 else 0.0
+            self.val_cumplimiento_hoy.value = f"{pct_cumplimiento_hoy:.1f}%"
+            self.val_cumplimiento_hoy.color = "teal800" if pct_cumplimiento_hoy >= 100 else ("blue800" if pct_cumplimiento_hoy > 0 else "grey700")
+            self.sub_cumplimiento_hoy.value = f"Meta diaria: $ {meta_diaria:,.0f}"
+
+            # 4. Clasificación y Renderizado de Ajustes
+            tipos_ent, tipos_sal, tot_cost_ent, tot_cost_sal, tot_cant_ent, tot_cant_sal, neto = self._clasificar_ajustes(ajustes_bd)
+
+            if neto > 0:
+                self.lbl_neto_ajustes_header.value = f"NETO (POSITIVO): +${neto:,.0f}"
+                self.lbl_neto_ajustes_header.color = "#2ecca0"
+            elif neto < 0:
+                self.lbl_neto_ajustes_header.value = f"NETO (NEGATIVO): -${abs(neto):,.0f}"
+                self.lbl_neto_ajustes_header.color = "#f26c61"
+            else:
+                self.lbl_neto_ajustes_header.value = "NETO: $0"
+                self.lbl_neto_ajustes_header.color = "grey"
+
+            self.col_ajustes_entrada.controls.clear()
+            self.col_ajustes_salida.controls.clear()
+
+            for key, datos in tipos_ent.items():
+                self.col_ajustes_entrada.controls.append(
+                    ft.Row([
+                        ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
+                        ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
+                        ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#2ecca0")
+                    ])
+                )
+            filas_faltantes = len(tipos_sal) - len(tipos_ent)
+            for _ in range(max(0, filas_faltantes)):
+                self.col_ajustes_entrada.controls.append(
+                    ft.Container(height=18, content=ft.Text(""))
+                )
+            self.col_ajustes_entrada.controls.append(ft.Divider(color="black12", height=10))
             self.col_ajustes_entrada.controls.append(
                 ft.Row([
-                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
-                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
-                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#2ecca0")
+                    ft.Text("TOTAL ENTRADAS", size=12, weight="bold"),
+                    ft.Text(f"{tot_cant_ent:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
+                    ft.Text(f"${tot_cost_ent:,.0f}", size=12, weight="bold", color="#2ecca0")
                 ])
             )
-            
-        # Rellenar con espacio invisible para igualar simetría
-        filas_faltantes = len(tipos_salida) - len(tipos_entrada)
-        for _ in range(max(0, filas_faltantes)):
-            self.col_ajustes_entrada.controls.append(
-                ft.Container(height=18, content=ft.Text("")) # Fila transparente de relleno
-            )
-            
-        self.col_ajustes_entrada.controls.append(ft.Divider(color="black12", height=10))
-        self.col_ajustes_entrada.controls.append(
-            ft.Row([
-                ft.Text("TOTAL ENTRADAS", size=12, weight="bold"),
-                ft.Text(f"{total_cant_entradas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
-                ft.Text(f"${total_costo_entradas:,.0f}", size=12, weight="bold", color="#2ecca0")
-            ])
-        )
-        
-        # Render Salida
-        for key, datos in tipos_salida.items():
+
+            for key, datos in tipos_sal.items():
+                self.col_ajustes_salida.controls.append(
+                    ft.Row([
+                        ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
+                        ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
+                        ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#f26c61")
+                    ])
+                )
+            self.col_ajustes_salida.controls.append(ft.Divider(color="black12", height=10))
             self.col_ajustes_salida.controls.append(
                 ft.Row([
-                    ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
-                    ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
-                    ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#f26c61")
+                    ft.Text("TOTAL SALIDAS", size=12, weight="bold"),
+                    ft.Text(f"{tot_cant_sal:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
+                    ft.Text(f"${tot_cost_sal:,.0f}", size=12, weight="bold", color="#f26c61")
                 ])
             )
-        self.col_ajustes_salida.controls.append(ft.Divider(color="black12", height=10))
-        self.col_ajustes_salida.controls.append(
-            ft.Row([
-                ft.Text("TOTAL SALIDAS", size=12, weight="bold"),
-                ft.Text(f"{total_cant_salidas:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
-                ft.Text(f"${total_costo_salidas:,.0f}", size=12, weight="bold", color="#f26c61")
-            ])
-        )
 
-        # 2. Load Chart Data (Nativo Flet)
-        try:
-            tendencia = self.db.get_tendencia_diaria(fecha_corte=self.fecha_filtro_dash)
+            # 5. Gráfico de Tendencia Diaria Flet
             dias_ordenados = sorted(tendencia.keys())
-            max_val_y = 0
-            
+            max_val_y = 0.0
             pts_ventas = []
             pts_compras = []
             etiquetas_x = []
-            
+
             for i, dia in enumerate(dias_ordenados):
                 v = float(tendencia[dia]["ventas"])
                 c = float(tendencia[dia]["compras"])
                 if v > max_val_y: max_val_y = v
                 if c > max_val_y: max_val_y = c
-                # Poner la fecha SOLO en el tooltip de arriba (compras) para que Flet no la duplique al apilar
                 tt_compras = f"{dia}\nCostos: ${c:,.0f}"
                 tt_ventas = f"Ingresos: ${v:,.0f}"
                 estilo_tt = ft.TextStyle(size=12, weight="bold", color="black87")
-                
+
                 pts_ventas.append(ft.LineChartDataPoint(i, v, tooltip=tt_ventas, tooltip_style=estilo_tt))
                 pts_compras.append(ft.LineChartDataPoint(i, c, tooltip=tt_compras, tooltip_style=estilo_tt))
-                
-                # Densidad en Eje X: Mostrar todos los días con la fecha completa rotada
                 etiquetas_x.append(
                     ft.ChartAxisLabel(
                         value=i, 
@@ -610,36 +644,32 @@ class DashboardView(ft.Container):
                         )
                     )
                 )
-                
+
             if not pts_ventas:
                 pts_ventas = [ft.LineChartDataPoint(0, 0)]
                 pts_compras = [ft.LineChartDataPoint(0, 0)]
-                
+
             self.chart_ventas.data_points = pts_ventas
             self.chart_compras.data_points = pts_compras
-            
             self.line_chart.max_x = len(dias_ordenados) - 1 if dias_ordenados else 0
-            max_y_calc = max_val_y * 1.15 if max_val_y > 0 else 1000
+            max_y_calc = max_val_y * 1.15 if max_val_y > 0 else 1000.0
             self.line_chart.max_y = max_y_calc
-            
+
             def formato_moneda_corta(valor):
                 if valor >= 1000000: return f"${valor/1000000:.1f}M"
                 if valor >= 1000: return f"${valor/1000:.0f}k"
                 return f"${valor:.0f}"
-                
-            # Mayor densidad en Y: 8 divisiones en lugar de 5
+
             intervalo_y = max_y_calc / 8 if max_y_calc > 0 else 100
             etiquetas_y = [
                 ft.ChartAxisLabel(value=step * intervalo_y, label=ft.Text(formato_moneda_corta(step * intervalo_y), size=11, color="grey"))
                 for step in range(9)
             ]
-            
             self.line_chart.left_axis.labels = etiquetas_y
             self.line_chart.left_axis.labels_interval = intervalo_y
             self.line_chart.bottom_axis.labels = etiquetas_x
             self.line_chart.bottom_axis.labels_interval = 1
-            
-            # Cuadrícula visible completa con efecto punteado
+
             self.line_chart.horizontal_grid_lines = ft.ChartGridLines(
                 interval=intervalo_y,
                 color=ft.colors.with_opacity(0.05, "black"),
@@ -647,18 +677,13 @@ class DashboardView(ft.Container):
                 dash_pattern=[4, 4]
             )
             self.line_chart.vertical_grid_lines = ft.ChartGridLines(
-                interval=2, # Línea vertical sincronizada con el eje X
+                interval=2,
                 color=ft.colors.with_opacity(0.05, "black"),
                 width=1,
                 dash_pattern=[4, 4]
             )
-            
-        except Exception as e:
-            print(f"Error crítico construyendo Chart Flet: {e}")
-        
-        # 3. Load Tables Data (A prueba de fallos)
-        try:
-            top_ventas = self.db.get_top_ventas_mes(limit=10, fecha_corte=self.fecha_filtro_dash)
+
+            # 6. Tablas y Tarjetas de Rendimiento
             self.dt_ventas.rows.clear()
             for item in top_ventas:
                 self.dt_ventas.rows.append(
@@ -669,11 +694,7 @@ class DashboardView(ft.Container):
                         ft.DataCell(ft.Text(f"${float(item.get('ingreso_total') or 0):,.2f}", size=11))
                     ])
                 )
-        except Exception as e:
-            print(f"Error crítico en tabla ventas: {e}")
-            
-        try:
-            top_costos = self.db.get_top_costo_inventario(limit=10, fecha_corte=self.fecha_filtro_dash)
+
             self.dt_costos.rows.clear()
             for item in top_costos:
                 self.dt_costos.rows.append(
@@ -684,20 +705,17 @@ class DashboardView(ft.Container):
                         ft.DataCell(ft.Text(str(item.get('rotacion') or ''), size=11))
                     ])
                 )
-        except Exception as e:
-            print(f"Error crítico en tabla costos: {e}")
-            
-        try:
+
             self.categorias_row.controls.clear()
             for cat in kpis_cat:
                 self.categorias_row.controls.append(self._crear_card_categoria(cat))
-        except Exception as e:
-            print(f"Error cargando KPIs por categoría: {e}")
-            
-        # Apagar indicador de carga al finalizar todo el trabajo
-        self.progress_bar.visible = False
-        
-        self.safe_update()
+
+        except Exception as ex:
+            import traceback
+            traceback.print_exc()
+        finally:
+            self.progress_bar.visible = False
+            self.safe_update()
 
     def _build_kpi_card(self, title, value_control, icon, subtext_control=None, card_color=None):
         accent = card_color or Config.COLOR_ACCENT
