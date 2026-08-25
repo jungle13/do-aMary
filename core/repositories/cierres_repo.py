@@ -1,10 +1,13 @@
 """
 Repositorio para cierres mensuales, auditorías, snapshots y conteos físicos.
 """
+import calendar
+import urllib.parse
 from core.database import BaseDatabase
 from core.logger import get_logger, log_error
 
 logger = get_logger("CierresRepo")
+
 
 class CierresRepository:
     def __init__(self, db: BaseDatabase | None = None):
@@ -24,9 +27,13 @@ class CierresRepository:
         try:
             year, month = map(int, mes_seleccionado.split("-"))
             if month == 1:
-                mes_anterior = f"{year - 1}-12"
+                prev_year, prev_month = year - 1, 12
             else:
-                mes_anterior = f"{year}-{month - 1:02d}"
+                prev_year, prev_month = year, month - 1
+            mes_anterior = f"{prev_year}-{prev_month:02d}"
+
+            last_day_prev = calendar.monthrange(prev_year, prev_month)[1]
+            last_day_curr = calendar.monthrange(year, month)[1]
         except Exception as ex:
             log_error(f"get_datos_conteo_inicial parsing {mes_seleccionado}", ex)
             return []
@@ -34,16 +41,21 @@ class CierresRepository:
         # 1. Catálogo
         catalogo = []
         try:
-            res_cat = self.db.get("catalogo_insumos?select=codigo_insumo,nombre,categoria", timeout=10)
+            res_cat = self.db.get("catalogo_insumos?select=codigo_insumo,nombre,categoria&estado=eq.true&order=nombre.asc", timeout=12)
             if res_cat and res_cat.status_code == 200:
                 catalogo = res_cat.json()
         except Exception as ex:
             log_error("get_datos_conteo_inicial (catalogo)", ex)
 
-        # 2. Cierre mes anterior
+        # 2. Cierre mes anterior con rango exacto
         cierre_anterior = {}
         try:
-            endpoint_ant = f"registro_auditorias_cierres?tipo_registro=eq.CIERRE_MENSUAL&fecha_cierre=gte.{mes_anterior}-01&fecha_cierre=lte.{mes_anterior}-31&select=codigo_insumo,cantidad_fisica"
+            endpoint_ant = (
+                f"registro_auditorias_cierres?tipo_registro=eq.CIERRE_MENSUAL"
+                f"&fecha_cierre=gte.{mes_anterior}-01T00:00:00"
+                f"&fecha_cierre=lte.{mes_anterior}-{last_day_prev:02d}T23:59:59"
+                f"&select=codigo_insumo,cantidad_fisica"
+            )
             res_ant = self.db.get(endpoint_ant, timeout=10)
             if res_ant and res_ant.status_code == 200:
                 for r in res_ant.json():
@@ -51,10 +63,15 @@ class CierresRepository:
         except Exception as ex:
             log_error("get_datos_conteo_inicial (cierre_anterior)", ex)
 
-        # 3. Inicial mes actual
+        # 3. Inicial mes actual con rango exacto
         inicio_actual = {}
         try:
-            endpoint_act = f"registro_auditorias_cierres?tipo_registro=eq.INVENTARIO_INICIAL&fecha_cierre=gte.{mes_seleccionado}-01&fecha_cierre=lte.{mes_seleccionado}-31&select=codigo_insumo,cantidad_fisica"
+            endpoint_act = (
+                f"registro_auditorias_cierres?tipo_registro=eq.INVENTARIO_INICIAL"
+                f"&fecha_cierre=gte.{mes_seleccionado}-01T00:00:00"
+                f"&fecha_cierre=lte.{mes_seleccionado}-{last_day_curr:02d}T23:59:59"
+                f"&select=codigo_insumo,cantidad_fisica"
+            )
             res_act = self.db.get(endpoint_act, timeout=10)
             if res_act and res_act.status_code == 200:
                 for r in res_act.json():
@@ -84,25 +101,63 @@ class CierresRepository:
             tipo_registro = registros[0].get("tipo_registro")
             codigos = [r["codigo_insumo"] for r in registros if "codigo_insumo" in r]
 
+            existentes = {}
             if codigos:
-                codigos_str = ",".join(codigos)
-                endpoint_exist = f"registro_auditorias_cierres?fecha_cierre=eq.{fecha_cierre}&tipo_registro=eq.{tipo_registro}&codigo_insumo=in.({codigos_str})&select=id_auditoria,codigo_insumo"
-                res_exist = self.db.get(endpoint_exist, timeout=10)
-                if res_exist and res_exist.status_code == 200:
-                    existentes = {item["codigo_insumo"]: item["id_auditoria"] for item in res_exist.json() if "id_auditoria" in item}
-                    for r in registros:
-                        if r["codigo_insumo"] in existentes:
-                            r["id_auditoria"] = existentes[r["codigo_insumo"]]
+                fc_enc = urllib.parse.quote(str(fecha_cierre).strip()) if fecha_cierre else ""
+                tr_enc = urllib.parse.quote(str(tipo_registro).strip()) if tipo_registro else ""
+                chunk_size = 50
+                for i in range(0, len(codigos), chunk_size):
+                    chunk = codigos[i:i + chunk_size]
+                    codigos_str = ",".join([urllib.parse.quote(str(c).strip()) for c in chunk if str(c).strip()])
+                    endpoint_exist = (
+                        f"registro_auditorias_cierres?fecha_cierre=eq.{fc_enc}"
+                        f"&tipo_registro=eq.{tr_enc}"
+                        f"&codigo_insumo=in.({codigos_str})"
+                        f"&select=id_auditoria,codigo_insumo"
+                    )
+                    res_exist = self.db.get(endpoint_exist, timeout=10)
+                    if res_exist and res_exist.status_code == 200:
+                        for item in res_exist.json():
+                            if "id_auditoria" in item:
+                                existentes[item["codigo_insumo"]] = item["id_auditoria"]
+
+                for r in registros:
+                    if r.get("codigo_insumo") in existentes:
+                        r["id_auditoria"] = existentes[r["codigo_insumo"]]
         except Exception as ex:
             log_error("upsert_conteos_iniciales (busqueda existentes)", ex)
 
         headers = {"Prefer": "resolution=merge-duplicates"}
         try:
-            res = self.db.post("registro_auditorias_cierres", json_data=registros, custom_headers=headers, timeout=10)
-            return bool(res and res.status_code in (200, 201, 204))
+            # Enviar en bloques de 100 para evitar payloads excesivos
+            chunk_save = 100
+            for i in range(0, len(registros), chunk_save):
+                chunk = registros[i:i + chunk_save]
+                res = self.db.post("registro_auditorias_cierres", json_data=chunk, custom_headers=headers, timeout=15)
+                if not (res and res.status_code in (200, 201, 204)):
+                    return False
+            return True
         except Exception as ex:
             log_error("upsert_conteos_iniciales", ex)
             return False
+
+    def _fetch_all_rows(self, endpoint: str, page_size: int = 2500, timeout: int = 12) -> list:
+        """Descarga todos los registros de un endpoint usando paginación por bloques Range."""
+        all_data = []
+        offset = 0
+        while True:
+            headers = {"Range": f"{offset}-{offset + page_size - 1}"}
+            res = self.db.get(endpoint, custom_headers=headers, timeout=timeout)
+            if not res or res.status_code not in (200, 206):
+                break
+            chunk = res.json()
+            if not chunk:
+                break
+            all_data.extend(chunk)
+            if len(chunk) < page_size:
+                break
+            offset += page_size
+        return all_data
 
     def iniciar_snapshot_cierre(self, mes_periodo: str) -> dict:
         try:
@@ -118,27 +173,27 @@ class CierresRepository:
         """Obtiene el estado completo y consolidado del periodo con los conteos físicos y diferencias en tiempo real."""
         try:
             # 1. Obtener Periodo
-            res_p = self.db.get(f"periodos_inventario?mes_periodo=eq.{mes_periodo}", timeout=10)
+            mes_periodo_enc = urllib.parse.quote(str(mes_periodo).strip())
+            res_p = self.db.get(f"periodos_inventario?mes_periodo=eq.{mes_periodo_enc}", timeout=10)
             periodo = res_p.json()[0] if res_p and res_p.status_code == 200 and res_p.json() else {}
             id_periodo = periodo.get("id_periodo")
 
-            # 2. Obtener Catálogo Completo
-            res_cat = self.db.get("catalogo_insumos?select=codigo_insumo,nombre,categoria,stock_actual,costo_unitario,precio_venta,tipo_unidad&estado=eq.true&order=nombre.asc&limit=3500", timeout=15)
-            catalogo = res_cat.json() if res_cat and res_cat.status_code == 200 else []
+            # 2. Obtener Catálogo Completo con Stock en Vivo desde vista_inventario_completo
+            catalogo = self._fetch_all_rows("vista_inventario_completo?select=codigo_insumo,nombre,categoria,stock_inicial,stock_actual,costo_unitario,precio_venta,tipo_unidad&estado=eq.true&order=nombre.asc")
 
             # 3. Obtener Conteos Físicos de Auditoría
-            endpoint_aud = "registro_auditorias_cierres?limit=3500"
+            endpoint_aud = "registro_auditorias_cierres"
             if id_periodo:
-                endpoint_aud = f"registro_auditorias_cierres?id_periodo=eq.{id_periodo}&limit=3500"
-            res_aud = self.db.get(endpoint_aud, timeout=15)
-            aud_list = res_aud.json() if res_aud and res_aud.status_code == 200 else []
+                id_p_enc = urllib.parse.quote(str(id_periodo).strip())
+                endpoint_aud = f"registro_auditorias_cierres?id_periodo=eq.{id_p_enc}"
+            aud_list = self._fetch_all_rows(endpoint_aud)
 
             # 3.5. Obtener Ajustes válidos para el periodo
-            endpoint_ajustes = "registro_ajustes_inventario?estado_registro=eq.VÁLIDO&limit=3500"
+            endpoint_ajustes = "registro_ajustes_inventario?estado_registro=eq.VÁLIDO"
             if id_periodo:
-                endpoint_ajustes = f"registro_ajustes_inventario?id_periodo=eq.{id_periodo}&estado_registro=eq.VÁLIDO&limit=3500"
-            res_ajustes = self.db.get(endpoint_ajustes, timeout=10)
-            ajustes_list = res_ajustes.json() if res_ajustes and res_ajustes.status_code == 200 else []
+                id_p_enc = urllib.parse.quote(str(id_periodo).strip())
+                endpoint_ajustes = f"registro_ajustes_inventario?id_periodo=eq.{id_p_enc}&estado_registro=eq.VÁLIDO"
+            ajustes_list = self._fetch_all_rows(endpoint_ajustes)
             ajustados_cods = {str(a.get("codigo_insumo")) for a in ajustes_list if a.get("codigo_insumo")}
 
             aud_map = {}
@@ -154,6 +209,8 @@ class CierresRepository:
                 aud = aud_map.get(cod)
                 item = dict(c)
                 costo_cat = float(c.get("costo_unitario") or 0.0)
+                item["stock_inicial"] = float(c.get("stock_inicial") or 0.0)
+                item["stock_actual"] = float(c.get("stock_actual") or 0.0)
 
                 if aud:
                     costo_snap = float(aud.get("costo_unitario_snapshot") or 0.0)
@@ -259,3 +316,37 @@ class CierresRepository:
         except Exception as ex:
             log_error(f"aprobar_cierre_mes({id_periodo})", ex)
             return {"exito": False, "error": str(ex)}
+
+    def actualizar_auditoria_ajustada(self, codigo_insumo: str, datos: dict, id_periodo: str | None = None) -> bool:
+        """Actualiza el estado y costo de la auditoría tras aplicar un ajuste individual."""
+        try:
+            cod_enc = urllib.parse.quote(str(codigo_insumo).strip())
+            if id_periodo:
+                id_p_enc = urllib.parse.quote(str(id_periodo).strip())
+                endpoint = f"registro_auditorias_cierres?id_periodo=eq.{id_p_enc}&codigo_insumo=eq.{cod_enc}"
+            else:
+                endpoint = f"registro_auditorias_cierres?codigo_insumo=eq.{cod_enc}"
+            res = self.db.patch(endpoint, json_data=datos, timeout=8)
+            return bool(res and res.status_code in (200, 204))
+        except Exception as ex:
+            log_error(f"actualizar_auditoria_ajustada({codigo_insumo})", ex)
+            return False
+
+    def sellar_periodo_cierre(self, mes_periodo: str, id_periodo: str | None = None, aprobado_por: str = "Usuario Actual") -> bool:
+        """Sella y aprueba el periodo de inventario en base de datos."""
+        try:
+            from core.fecha_utils import get_ahora_iso
+            if id_periodo:
+                res = self.aprobar_cierre_mes(id_periodo, aprobado_por)
+                if isinstance(res, dict) and (res.get("exito") or res.get("status") == "success" or res.get("estado") == "CERRADO"):
+                    return True
+            mes_enc = urllib.parse.quote(str(mes_periodo).strip())
+            res = self.db.patch(
+                f"periodos_inventario?mes_periodo=eq.{mes_enc}",
+                json_data={"estado": "CERRADO", "fecha_aprobacion": get_ahora_iso(), "aprobado_por": aprobado_por},
+                timeout=10
+            )
+            return bool(res and res.status_code in (200, 204))
+        except Exception as ex:
+            log_error(f"sellar_periodo_cierre({mes_periodo})", ex)
+            return False

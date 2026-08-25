@@ -665,6 +665,7 @@ class AjustesInventarioView(ft.Container):
         total_sal_neg = 0.0
 
         tokens_filtro = filtro_texto.split()
+        from core.fecha_utils import parsear_a_fecha_local
 
         for aj in self.data_completa:
             es_entrada = aj["tipo_ajuste"] in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
@@ -686,7 +687,8 @@ class AjustesInventarioView(ft.Container):
             # Reglas de coincidencia multi-token
             texto_aj = f"{aj['codigo_insumo']} {nombre}".lower()
             match_texto = all(t in texto_aj for t in tokens_filtro) if tokens_filtro else True
-            match_fecha = filtro_fecha is None or aj["fecha_ajuste"][:10] == filtro_fecha
+            fecha_ajuste_local = parsear_a_fecha_local(aj.get("fecha_ajuste"))
+            match_fecha = filtro_fecha is None or fecha_ajuste_local == filtro_fecha
             
             tipo_ajuste_str = "Entrada" if es_entrada else "Salida"
             match_tipo = filtro_tipo == "Todos" or filtro_tipo == tipo_ajuste_str
@@ -776,10 +778,11 @@ class AjustesInventarioView(ft.Container):
                 border_radius=15
             )
 
+            fecha_item_local = parsear_a_fecha_local(aj.get("fecha_ajuste"))
             fila1_cabecera = ft.Row([
                 ft.Row([
                     ft.Icon(ft.icons.CALENDAR_MONTH, size=15, color="grey"),
-                    ft.Text(aj["fecha_ajuste"][:10], size=11.5, color="grey"),
+                    ft.Text(fecha_item_local, size=11.5, color="grey"),
                     badge_origen
                 ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 badge_tipo

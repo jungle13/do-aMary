@@ -43,7 +43,8 @@ def registrar_accion(accion: str, modulo: str = "GENERAL", usuario: str = None, 
     """
     def _worker():
         try:
-            ahora = datetime.datetime.now()
+            from core.fecha_utils import get_ahora_local
+            ahora = get_ahora_local()
             fecha_str = ahora.strftime("%Y-%m-%d")
             hora_str = ahora.strftime("%H:%M:%S")
             

@@ -5,6 +5,7 @@ from core.supabase_client import SupabaseClient
 import math
 from datetime import datetime
 from ui.components.autocomplete import CustomAutoComplete
+from core.fecha_utils import get_ahora_local, get_hoy_local_str, parsear_a_fecha_local, formatear_fecha_hora_local
 
 class InventarioView(ft.Container):
     def __init__(self):
@@ -375,7 +376,7 @@ class InventarioView(ft.Container):
         self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
         
         self.panel_abierto = False
-        self.fecha_historial_activa = datetime.now().strftime("%Y-%m-%d")
+        self.fecha_historial_activa = get_hoy_local_str()
         self.filtro_tipo_timeline = "TODO" # "TODO", "COMPRAS", "VENTAS", "AJUSTES"
         self.codigos_filtro_activos = None
 
@@ -706,7 +707,7 @@ class InventarioView(ft.Container):
             self.lbl_sub_proy.value = f"Capacidad total: ${meta_total_mes:,.0f}"
 
             # Meta diaria
-            hoy_dt = datetime.strptime(self.fecha_corte, "%Y-%m-%d").date() if self.fecha_corte else datetime.now().date()
+            hoy_dt = datetime.strptime(self.fecha_corte, "%Y-%m-%d").date() if self.fecha_corte else get_ahora_local().date()
             if hoy_dt.month == 12:
                 ultimo_dia_mes = 31
             else:

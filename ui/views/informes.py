@@ -4,6 +4,7 @@ from core.supabase_client import SupabaseClient
 import datetime
 from calendar import monthrange
 import threading
+from core.fecha_utils import parsear_a_fecha_local, formatear_fecha_hora_local, get_ahora_local, get_hoy_local_str
 
 class InformesView(ft.Container):
     def __init__(self):
@@ -25,9 +26,24 @@ class InformesView(ft.Container):
                 ft.dropdown.Option("Resumen de KPIs")
             ],
             value="Valorización de Inventario",
+            on_change=self._on_tipo_informe_change,
             dense=True, border_radius=8,
             height=38, text_size=12,
             content_padding=ft.padding.symmetric(horizontal=10, vertical=8)
+        )
+
+        self.drop_agrupacion_ventas = ft.Dropdown(
+            label="Agrupar Ventas por",
+            options=[
+                ft.dropdown.Option("Tipo de Documento (POS / Remisión)"),
+                ft.dropdown.Option("Categoría"),
+                ft.dropdown.Option("Documento y Categoría")
+            ],
+            value="Tipo de Documento (POS / Remisión)",
+            dense=True, border_radius=8,
+            height=38, text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+            visible=False
         )
         
         self.drop_filtro_fecha = ft.Dropdown(
@@ -98,6 +114,7 @@ class InformesView(ft.Container):
                 ft.Text("Parámetros del Informe", weight="bold", color=Config.COLOR_PRIMARY),
                 ft.Divider(height=1, color="#eeeeee"),
                 self.drop_tipo_informe,
+                self.drop_agrupacion_ventas,
                 self.drop_filtro_fecha,
                 ft.Text("Nivel de Detalle", size=12, color="grey"),
                 self.opcion_detalle,
@@ -152,6 +169,11 @@ class InformesView(ft.Container):
             panel_controles,
             scroll_lienzo
         ], expand=True, spacing=20, vertical_alignment=ft.CrossAxisAlignment.START)
+
+    def _on_tipo_informe_change(self, e):
+        self.drop_agrupacion_ventas.visible = (self.drop_tipo_informe.value == "Informe de Ventas")
+        if self.page:
+            self.page.update()
 
     def did_mount(self):
         if self.page:
@@ -521,27 +543,52 @@ class InformesView(ft.Container):
         agrupacion = {}
         gran_total = 0.0
         gran_total_cant = 0.0
+        modo_agrup = self.drop_agrupacion_ventas.value or "Tipo de Documento (POS / Remisión)"
 
         for item in data:
-            fecha = item.get("fecha", "")[:10]
-            if not (fecha_inicio <= fecha <= fecha_fin): continue
+            if item.get("estado_registro") == "ANULADO":
+                continue
+            fecha = parsear_a_fecha_local(item.get("fecha"))
+            if not (fecha_inicio <= fecha <= fecha_fin):
+                continue
 
-            cat = item.get("catalogo_insumos", {}).get("categoria", "SIN CATEGORIA")
-            
-            if cat not in agrupacion:
-                agrupacion[cat] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
+            tipo_doc = str(item.get("tipo_documento") or "Remisión").strip()
+            if "pos" in tipo_doc.lower():
+                tipo_doc_fmt = "FACTURA POS"
+            elif "remi" in tipo_doc.lower():
+                tipo_doc_fmt = "REMISIÓN"
+            else:
+                tipo_doc_fmt = tipo_doc.upper()
+
+            cat = str(item.get("catalogo_insumos", {}).get("categoria") or "SIN CATEGORIA").strip().upper()
+
+            if modo_agrup == "Tipo de Documento (POS / Remisión)":
+                clave_grupo = tipo_doc_fmt
+                label_grupo = "TIPO DE DOCUMENTO"
+            elif modo_agrup == "Categoría":
+                clave_grupo = cat
+                label_grupo = "CATEGORÍA"
+            else:
+                clave_grupo = f"{tipo_doc_fmt} • {cat}"
+                label_grupo = "DOCUMENTO Y CATEGORÍA"
+
+            if clave_grupo not in agrupacion:
+                agrupacion[clave_grupo] = {"items": [], "subtotal": 0.0, "cant_total": 0.0}
 
             total = float(item.get("total") or 0)
             cant = float(item.get("cantidad", 0))
-            agrupacion[cat]["items"].append({
+            factura_num = str(item.get("factura_no") or "S/D")
+            doc_display = f"{factura_num} ({tipo_doc_fmt})" if modo_agrup == "Categoría" else factura_num
+
+            agrupacion[clave_grupo]["items"].append({
                 "fecha": fecha,
-                "factura": item.get("factura_no", ""),
+                "factura": doc_display,
                 "insumo": item.get("descripcion") or item.get("catalogo_insumos", {}).get("nombre", ""),
                 "cant": cant,
                 "total": total
             })
-            agrupacion[cat]["subtotal"] += total
-            agrupacion[cat]["cant_total"] += cant
+            agrupacion[clave_grupo]["subtotal"] += total
+            agrupacion[clave_grupo]["cant_total"] += cant
             gran_total += total
             gran_total_cant += cant
 
@@ -550,9 +597,9 @@ class InformesView(ft.Container):
         self.current_periodo = self.doc_header_periodo.value
 
         if detalle == "Resumido":
-            self._dibujar_resumido(agrupacion, "CATEGORÍA", gran_total, gran_total_cant)
+            self._dibujar_resumido(agrupacion, label_grupo, gran_total, gran_total_cant)
         else:
-            self._dibujar_tabla_financiera(agrupacion, "CATEGORÍA", gran_total, ["FECHA", "FACTURA", "INSUMO", "CANT.", "INGRESOS"])
+            self._dibujar_tabla_financiera(agrupacion, label_grupo, gran_total, ["FECHA", "DOC / FACTURA", "INSUMO", "CANT.", "INGRESOS"])
 
     def _generar_ajustes(self, fecha_inicio, fecha_fin, detalle):
         data = self.db.get_ajustes_inventario()
@@ -560,10 +607,11 @@ class InformesView(ft.Container):
         gran_total_neto = 0.0
         gran_total_cant = 0.0
 
+        from core.fecha_utils import parsear_a_fecha_local
         for item in data:
             if item.get("estado_registro") != "VÁLIDO": continue
 
-            fecha = item.get("fecha_ajuste", "")[:10]
+            fecha = parsear_a_fecha_local(item.get("fecha_ajuste"))
             if not (fecha_inicio <= fecha <= fecha_fin): continue
 
             tipo = "ENTRADAS (+)" if item.get("tipo_ajuste") in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE') else "SALIDAS (-)"
@@ -982,7 +1030,7 @@ class InformesView(ft.Container):
                 cat_i = a.get("catalogo_insumos") or {}
                 es_ent = a.get("tipo_ajuste") in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
                 
-                ws_a.cell(row=r_idx, column=1, value=str(a.get("fecha_ajuste", ""))[:10])
+                ws_a.cell(row=r_idx, column=1, value=parsear_a_fecha_local(a.get("fecha_ajuste")))
                 ws_a.cell(row=r_idx, column=2, value=str(a.get("codigo_insumo", "")))
                 ws_a.cell(row=r_idx, column=3, value=cat_i.get("nombre", "Desconocido"))
                 ws_a.cell(row=r_idx, column=4, value="Entrada" if es_ent else "Salida")

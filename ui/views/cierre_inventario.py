@@ -239,6 +239,15 @@ class CierreInventarioView(ft.Container):
             self.page.overlay.append(self.modal_ajuste)
         self.cargar_historial_periodos()
 
+    def _cerrar_dialogo(self, dlg):
+        """Cierra un diálogo limpiamente notificando al motor gráfico de Flet."""
+        try:
+            if dlg:
+                dlg.open = False
+                self.safe_update()
+        except Exception:
+            pass
+
     def safe_update(self):
         try:
             if self.page and self.uid:
@@ -427,11 +436,11 @@ class CierreInventarioView(ft.Container):
             width=140,
             on_change=self._on_modal_tipo_change
         )
-        self.modal_drop_motivo = ft.Dropdown(label="Motivo Específico", expand=True)
+        self.modal_drop_motivo = ft.Dropdown(label="Motivo Específico", width=360)
         self.modal_txt_cant = ft.TextField(label="Cantidad Ajuste", width=140, on_change=self._calc_tot_modal_ajuste)
         self.modal_txt_costo = ft.TextField(label="Costo Unitario ($)", width=140, on_change=self._calc_tot_modal_ajuste)
         self.modal_lbl_total = ft.Text("$0", size=15, weight="bold", color=Config.COLOR_ACCENT)
-        self.modal_txt_obs = ft.TextField(label="Observaciones (Opcional)", expand=True)
+        self.modal_txt_obs = ft.TextField(label="Observaciones (Opcional)", width=510)
 
         self.modal_ajuste = ft.AlertDialog(
             title=ft.Text("Registrar Ajuste de Auditoría", weight="bold"),
@@ -440,7 +449,7 @@ class CierreInventarioView(ft.Container):
                 content=ft.Column([
                     ft.Row([
                         self.modal_txt_codigo,
-                        ft.Container(content=self.modal_txt_nombre, expand=True, padding=10, bgcolor="#F8FAFC", border_radius=8)
+                        ft.Container(content=self.modal_txt_nombre, width=390, padding=10, bgcolor="#F8FAFC", border_radius=8)
                     ], spacing=10),
                     ft.Row([self.modal_drop_tipo, self.modal_drop_motivo], spacing=10),
                     ft.Row([self.modal_txt_cant, self.modal_txt_costo], spacing=10),
@@ -448,7 +457,7 @@ class CierreInventarioView(ft.Container):
                         ft.Text("Impacto Financiero:", size=13, weight="w500"),
                         self.modal_lbl_total
                     ], spacing=6),
-                    ft.Row([self.modal_txt_obs])
+                    self.modal_txt_obs
                 ], tight=True, spacing=12)
             ),
             actions=[
@@ -891,6 +900,8 @@ class CierreInventarioView(ft.Container):
         # Cargar motivos según tipo
         self._actualizar_motivos_modal(tipo)
 
+        if self.modal_ajuste not in self.page.overlay:
+            self.page.overlay.append(self.modal_ajuste)
         self.modal_ajuste.open = True
         self.safe_update()
 
@@ -928,8 +939,7 @@ class CierreInventarioView(ft.Container):
         self.safe_update()
 
     def _cerrar_modal_ajuste(self):
-        self.modal_ajuste.open = False
-        self.safe_update()
+        self._cerrar_dialogo(self.modal_ajuste)
 
     def _on_guardar_ajuste_modal(self, e):
         try:
@@ -964,26 +974,17 @@ class CierreInventarioView(ft.Container):
         ok = self.insumos_repo.insert_ajuste_individual(datos_ajuste)
 
         if ok:
-            # 1. Actualizar estado y costo en registro_auditorias_cierres en Supabase
-            try:
-                update_aud = {
-                    "estado": "AJUSTADO",
-                    "costo_unitario_snapshot": costo,
-                    "observacion": f"Ajuste {tipo} por {cant:g} unds ({motivo_final})"
-                }
-                if id_periodo:
-                    self.db._db.patch(f"registro_auditorias_cierres?id_periodo=eq.{id_periodo}&codigo_insumo=eq.{cod}", json_data=update_aud, timeout=8)
-                else:
-                    self.db._db.patch(f"registro_auditorias_cierres?codigo_insumo=eq.{cod}", json_data=update_aud, timeout=8)
-            except Exception as ex:
-                log_error("actualizar_registro_auditoria_ajustado", ex)
+            # 1. Actualizar estado y costo en auditorías mediante repositorio
+            update_aud = {
+                "estado": "AJUSTADO",
+                "costo_unitario_snapshot": costo,
+                "observacion": f"Ajuste {tipo} por {cant:g} unds ({motivo_final})"
+            }
+            self.cierres_repo.actualizar_auditoria_ajustada(cod, update_aud, id_periodo=id_periodo)
 
-            # 2. Actualizar costo_unitario en catalogo_insumos si costo > 0
+            # 2. Actualizar costo_unitario en catálogo maestro si costo > 0
             if costo > 0:
-                try:
-                    self.db._db.patch(f"catalogo_insumos?codigo_insumo=eq.{cod}", json_data={"costo_unitario": costo}, timeout=8)
-                except Exception:
-                    pass
+                self.insumos_repo.actualizar_costo_unitario(cod, costo)
 
             self._cerrar_modal_ajuste()
             self.mostrar_alerta(f"✓ Ajuste de {tipo} aplicado con éxito para [{cod}].", "green")
@@ -1035,8 +1036,7 @@ class CierreInventarioView(ft.Container):
         # CASO 1: Si NO hay descuadres sin justificar
         if not descuadres_pos and not descuadres_neg:
             def confirmar_cierre_limpio(ev):
-                dlg_conf.open = False
-                self.safe_update()
+                self._cerrar_dialogo(dlg_conf)
                 threading.Thread(target=self._worker_aprobar_cierre_final, args=([], [], "", ""), daemon=True).start()
 
             dlg_conf = ft.AlertDialog(
@@ -1057,7 +1057,7 @@ class CierreInventarioView(ft.Container):
                     ], tight=True, spacing=6)
                 ),
                 actions=[
-                    ft.TextButton("Cancelar", on_click=lambda ev: setattr(dlg_conf, "open", False) or self.safe_update()),
+                    ft.TextButton("Cancelar", on_click=lambda ev: self._cerrar_dialogo(dlg_conf)),
                     ft.ElevatedButton("🔒 Sí, Cerrar Periodo", bgcolor=Config.COLOR_PRIMARY, color="white", on_click=confirmar_cierre_limpio)
                 ]
             )
@@ -1103,8 +1103,7 @@ class CierreInventarioView(ft.Container):
         def ejecutar_cierre_con_ajustes(ev):
             motivo_pos = drop_motivo_sobrantes.value
             motivo_neg = drop_motivo_faltantes.value
-            dlg_smart.open = False
-            self.safe_update()
+            self._cerrar_dialogo(dlg_smart)
             self.mostrar_alerta("Procesando ajustes masivos y cerrando periodo...", "blue")
             threading.Thread(
                 target=self._worker_aprobar_cierre_final,
@@ -1205,7 +1204,7 @@ class CierreInventarioView(ft.Container):
             title=ft.Text("Conciliación Inteligente de Cierre", weight="bold"),
             content=contenido_smart,
             actions=[
-                ft.TextButton("Revisar Manualmente", on_click=lambda ev: setattr(dlg_smart, "open", False) or self.safe_update()),
+                ft.TextButton("Revisar Manualmente", on_click=lambda ev: self._cerrar_dialogo(dlg_smart)),
                 ft.ElevatedButton(
                     "🔒 ✓ Aplicar Ajustes y Cerrar Mes",
                     bgcolor=Config.COLOR_PRIMARY,
@@ -1222,8 +1221,9 @@ class CierreInventarioView(ft.Container):
     def _worker_aprobar_cierre_final(self, descuadres_pos, descuadres_neg, motivo_pos, motivo_neg):
         try:
             id_periodo = self.datos_cierre.get("periodo", {}).get("id_periodo")
+            ajustes_batch = []
 
-            # 1. Aplicar ajustes masivos de entrada
+            # 1. Acumular ajustes masivos de entrada
             for it in descuadres_pos:
                 cod = it.get("codigo_insumo")
                 fisico = float(it.get("cantidad_fisica") or 0.0)
@@ -1242,9 +1242,9 @@ class CierreInventarioView(ft.Container):
                     }
                     if id_periodo:
                         d_pos["id_periodo"] = id_periodo
-                    self.insumos_repo.insert_ajuste_individual(d_pos)
+                    ajustes_batch.append(d_pos)
 
-            # 2. Aplicar ajustes masivos de salida
+            # 2. Acumular ajustes masivos de salida
             for it in descuadres_neg:
                 cod = it.get("codigo_insumo")
                 fisico = float(it.get("cantidad_fisica") or 0.0)
@@ -1263,18 +1263,18 @@ class CierreInventarioView(ft.Container):
                     }
                     if id_periodo:
                         d_neg["id_periodo"] = id_periodo
-                    self.insumos_repo.insert_ajuste_individual(d_neg)
+                    ajustes_batch.append(d_neg)
 
-            # 3. Sellar periodo en Supabase
-            if id_periodo:
-                self.cierres_repo.aprobar_cierre_mes(id_periodo, "Usuario Actual")
-            else:
-                self.db._db.post(
-                    f"periodos_inventario?mes_periodo=eq.{self.mes_seleccionado}",
-                    json_data={"estado": "CERRADO", "fecha_aprobacion": datetime.datetime.now().isoformat()}
-                )
+            # 3. Insertar TODOS los ajustes en UNA sola llamada masiva (batch)
+            if ajustes_batch:
+                ok_ajustes = self.insumos_repo.insert_ajustes_masivo(ajustes_batch)
+                if not ok_ajustes:
+                    self.mostrar_alerta("Advertencia: Algunos ajustes no pudieron registrarse en lote.", "orange")
 
-            # 4. Actualizar memoria y feedback
+            # 4. Sellar y aprobar periodo mediante el repositorio
+            self.cierres_repo.sellar_periodo_cierre(self.mes_seleccionado, id_periodo=id_periodo)
+
+            # 5. Actualizar UI y feedback
             self.badge_estado_auditoria.content.controls[1].value = "CERRADO"
             self.badge_estado_auditoria.bgcolor = ft.colors.with_opacity(0.1, "red")
             self.badge_estado_auditoria.content.controls[0].bgcolor = "red"
@@ -1368,7 +1368,7 @@ class CierreInventarioView(ft.Container):
             ], tight=True, spacing=10, width=380, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             actions=[
                 ft.TextButton("Copiar Enlace", on_click=copiar_url),
-                ft.ElevatedButton("Cerrar", bgcolor=Config.COLOR_PRIMARY, color="white", on_click=lambda ev: cerrar_dialogo(dlg))
+                ft.ElevatedButton("Cerrar", bgcolor=Config.COLOR_PRIMARY, color="white", on_click=lambda ev: self._cerrar_dialogo(dlg))
             ],
             actions_alignment=ft.MainAxisAlignment.END,
             shape=ft.RoundedRectangleBorder(radius=14)
@@ -1464,11 +1464,15 @@ class CierreInventarioView(ft.Container):
                         )
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     ft.Divider(height=8),
-                    ft.Column(items_timeline, spacing=6, scroll=ft.ScrollMode.AUTO)
+                    ft.Container(
+                        content=ft.Column(items_timeline, spacing=6, scroll=ft.ScrollMode.AUTO),
+                        height=280,
+                        width=480
+                    )
                 ], tight=True, spacing=8)
             ),
             actions=[
-                ft.ElevatedButton("Cerrar", bgcolor=Config.COLOR_PRIMARY, color="white", on_click=lambda ev: setattr(dlg_hist, "open", False) or self.safe_update())
+                ft.ElevatedButton("Cerrar", bgcolor=Config.COLOR_PRIMARY, color="white", on_click=lambda ev: self._cerrar_dialogo(dlg_hist))
             ],
             shape=ft.RoundedRectangleBorder(radius=12)
         )

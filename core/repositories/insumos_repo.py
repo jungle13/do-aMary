@@ -372,6 +372,10 @@ class InsumosRepository:
             if "estado_registro" not in payload:
                 payload["estado_registro"] = "VÁLIDO"
 
+            if "fecha_ajuste" not in payload or not payload["fecha_ajuste"]:
+                from core.fecha_utils import get_ahora_iso
+                payload["fecha_ajuste"] = get_ahora_iso()
+
             res = self.db.post("registro_ajustes_inventario", json_data=payload, timeout=10)
             if res and res.status_code in (200, 201, 204):
                 from core.audit_logger import registrar_accion
@@ -406,6 +410,51 @@ class InsumosRepository:
             return False
         except Exception as ex:
             log_error("anular_ajuste", ex, {"id_ajuste": id_ajuste})
+            return False
+
+    def insert_ajustes_masivo(self, ajustes: list[dict]) -> bool:
+        """Inserta múltiples registros de ajuste de inventario en lote (batch)."""
+        if not ajustes:
+            return True
+        try:
+            from core.fecha_utils import get_ahora_iso
+            ahora_iso = get_ahora_iso()
+            payloads = []
+            for a in ajustes:
+                p = dict(a)
+                if "estado_registro" not in p:
+                    p["estado_registro"] = "VÁLIDO"
+                if "fecha_ajuste" not in p or not p["fecha_ajuste"]:
+                    p["fecha_ajuste"] = ahora_iso
+                payloads.append(p)
+
+            chunk_size = 100
+            for i in range(0, len(payloads), chunk_size):
+                chunk = payloads[i:i + chunk_size]
+                res = self.db.post("registro_ajustes_inventario", json_data=chunk, timeout=15)
+                if not (res and res.status_code in (200, 201, 204)):
+                    return False
+
+            from core.audit_logger import registrar_accion
+            registrar_accion(
+                accion=f"Registro masivo de {len(payloads)} ajustes de inventario por cierre",
+                modulo="AJUSTES",
+                detalles={"total_ajustes": len(payloads)}
+            )
+            return True
+        except Exception as ex:
+            log_error("insert_ajustes_masivo", ex, {"total": len(ajustes)})
+            return False
+
+    def actualizar_costo_unitario(self, codigo_insumo: str, costo: float) -> bool:
+        """Actualiza el costo unitario de un insumo en el catálogo maestro."""
+        try:
+            cod_enc = urllib.parse.quote(str(codigo_insumo).strip())
+            endpoint = f"catalogo_insumos?codigo_insumo=eq.{cod_enc}"
+            res = self.db.patch(endpoint, json_data={"costo_unitario": costo}, timeout=8)
+            return bool(res and res.status_code in (200, 204))
+        except Exception as ex:
+            log_error(f"actualizar_costo_unitario({codigo_insumo})", ex)
             return False
 
     def asegurar_insumos_existen(self, items_list: list):

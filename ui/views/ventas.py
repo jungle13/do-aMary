@@ -42,8 +42,9 @@ class VentasView(ft.Container):
         self.parsed_data = None # Para guardar temporalmente los datos extraídos
         
         # --- ESTADO PANEL HISTÓRICO VENTAS ---
+        from core.fecha_utils import get_hoy_local_str
         self.panel_abierto = False
-        self.fecha_historial_activa = datetime.date.today().strftime("%Y-%m-%d")
+        self.fecha_historial_activa = get_hoy_local_str()
         self.modo_agrupacion_ventas = "CATEGORIA" # "CATEGORIA" o "FACTURA"
         self.filtro_categoria_activo = None
         self.filtro_factura_activo = None
@@ -2261,7 +2262,8 @@ class VentasView(ft.Container):
         self.crud_item_id = None
         self.dlg_crud.title.value = "Registrar Nueva Venta"
         self.crud_codigo_insumo.value = ""
-        self.crud_fecha.value = datetime.date.today().strftime("%Y-%m-%d")
+        from core.fecha_utils import get_hoy_local_str
+        self.crud_fecha.value = get_hoy_local_str()
         self.crud_factura.value = ""
         self.crud_tipo_doc.value = "Remisión"
         self.crud_cantidad.value = ""

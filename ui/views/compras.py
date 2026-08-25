@@ -42,8 +42,9 @@ class ComprasView(ft.Container):
         self.parsed_data = None # Para guardar temporalmente los datos extraídos
         
         # --- ESTADO PANEL HISTÓRICO ---
+        from core.fecha_utils import get_hoy_local_str
         self.panel_abierto = False
-        self.fecha_historial_activa = datetime.date.today().strftime("%Y-%m-%d")
+        self.fecha_historial_activa = get_hoy_local_str()
         self.modo_agrupacion_compras = "FACTURA" # "FACTURA" o "PROVEEDOR"
         self.filtro_factura_activo = None
         self.filtro_proveedor_activo = None
@@ -2149,7 +2150,8 @@ class ComprasView(ft.Container):
         self.crud_item_id = None
         self.dlg_crud.title.value = "Registrar Nueva Compra"
         self.crud_codigo_insumo.value = ""
-        self.crud_fecha.value = datetime.date.today().strftime("%Y-%m-%d")
+        from core.fecha_utils import get_hoy_local_str
+        self.crud_fecha.value = get_hoy_local_str()
         self.crud_ea.value = ""
         self.crud_factura.value = ""
         self.crud_proveedor.value = ""

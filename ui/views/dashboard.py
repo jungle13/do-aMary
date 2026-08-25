@@ -5,11 +5,14 @@ import calendar
 from concurrent.futures import ThreadPoolExecutor
 from config import Config
 from core.supabase_client import SupabaseClient
+from core.fecha_utils import get_ahora_local, get_hoy_local_str, get_mes_actual_str
 
 class DashboardView(ft.Container):
-    def __init__(self):
+    def __init__(self, page: ft.Page = None):
         super().__init__()
+        self.page = page
         self.expand = True
+        self.padding = 20
         self.db = SupabaseClient()
         
         self.lbl_periodo_dash = ft.Text("Periodo: ...", size=13, weight="bold", color=Config.COLOR_PRIMARY)
@@ -17,10 +20,14 @@ class DashboardView(ft.Container):
         self.lbl_fecha_hora = ft.Text("...", size=12, color="grey")
 
         self.fecha_filtro_dash = None
-        self.date_picker_dash = ft.DatePicker(on_change=self.on_fecha_dash_change)
+        self.date_picker_dash = ft.DatePicker(
+            on_change=self.on_fecha_dash_change,
+            first_date=datetime.datetime(2020, 1, 1),
+            last_date=datetime.datetime(2035, 12, 31)
+        )
 
         self.btn_fecha_dash = ft.OutlinedButton(
-            text=f"Fecha: {datetime.date.today().strftime('%d/%m/%Y')}",
+            text=f"Fecha: {get_ahora_local().strftime('%d/%m/%Y')}",
             icon=ft.icons.CALENDAR_MONTH,
             on_click=lambda e: self.date_picker_dash.pick_date(),
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
@@ -220,24 +227,6 @@ class DashboardView(ft.Container):
         ], spacing=10)
 
         # Gráficos y Tablas
-        # Series de datos (Grosor y puntas redondeadas)
-        self.chart_ventas = ft.LineChartData(
-            data_points=[], 
-            color=ft.colors.BLUE_400,
-            stroke_width=4, 
-            curved=False,
-            stroke_cap_round=True,
-            below_line_bgcolor=ft.colors.with_opacity(0.1, ft.colors.BLUE_400)
-        )
-        self.chart_compras = ft.LineChartData(
-            data_points=[], 
-            color="#2ecca0", 
-            stroke_width=4, 
-            curved=False,
-            stroke_cap_round=True,
-            below_line_bgcolor=ft.colors.with_opacity(0.1, "#2ecca0")
-        )
-        
         # Contenedor de Categorías (Grilla Responsiva)
         self.categorias_row = ft.ResponsiveRow(columns=12, spacing=15, run_spacing=15)
         self.categorias_container = ft.Container(
@@ -248,29 +237,92 @@ class DashboardView(ft.Container):
             margin=ft.padding.only(top=10, bottom=10)
         )
 
-        # Gráfico habilitando los ejes visuales
-        self.line_chart = ft.LineChart(
-            data_series=[self.chart_ventas, self.chart_compras],
+        # Gráfico de Barras Moderno
+        self.bar_chart = ft.BarChart(
+            bar_groups=[],
             border=ft.border.all(1, "#f0f0f0"),
             min_y=0,
-            min_x=0,
             expand=True,
             tooltip_bgcolor="white",
+            interactive=True,
             left_axis=ft.ChartAxis(labels_size=50), 
             bottom_axis=ft.ChartAxis(labels_size=40), 
         )
-        
-        # Leyenda adaptada a fondo claro
+
+        # Indicadores de Resumen del Gráfico
+        self.badge_dias_cumplidos = ft.Text("...", size=13, weight="bold", color="teal800")
+        self.badge_mejor_dia = ft.Text("...", size=13, weight="bold", color="blue800")
+        self.badge_promedio_diario = ft.Text("...", size=13, weight="bold", color="grey800")
+        self.badge_meta_promedio = ft.Text("...", size=13, weight="bold", color="purple800")
+
+        kpi_strip_chart = ft.ResponsiveRow([
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("DÍAS META CUMPLIDA", size=10, color="grey600", weight="w600"),
+                    self.badge_dias_cumplidos
+                ], spacing=2),
+                padding=10, bgcolor="#ecfdf5", border_radius=8, border=ft.border.all(1, "#a7f3d0"),
+                col={"xs": 6, "sm": 3}
+            ),
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("MEJOR DÍA DE VENTAS", size=10, color="grey600", weight="w600"),
+                    self.badge_mejor_dia
+                ], spacing=2),
+                padding=10, bgcolor="#eff6ff", border_radius=8, border=ft.border.all(1, "#bfdbfe"),
+                col={"xs": 6, "sm": 3}
+            ),
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("PROMEDIO VENTA DÍA", size=10, color="grey600", weight="w600"),
+                    self.badge_promedio_diario
+                ], spacing=2),
+                padding=10, bgcolor="#f8fafc", border_radius=8, border=ft.border.all(1, "#e2e8f0"),
+                col={"xs": 6, "sm": 3}
+            ),
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("META DIARIA BASE", size=10, color="grey600", weight="w600"),
+                    self.badge_meta_promedio
+                ], spacing=2),
+                padding=10, bgcolor="#faf5ff", border_radius=8, border=ft.border.all(1, "#e9d5ff"),
+                col={"xs": 6, "sm": 3}
+            ),
+        ], spacing=10, run_spacing=10)
+
+        # Leyenda moderna
         leyenda = ft.Row([
-            ft.Row([ft.Container(width=12, height=12, bgcolor=ft.colors.BLUE_400, border_radius=6), ft.Text("Ingresos", size=12, weight="bold", color="black87")]),
-            ft.Row([ft.Container(width=12, height=12, bgcolor="#2ecca0", border_radius=6), ft.Text("Costos", size=12, weight="bold", color="black87")]),
-        ], spacing=30, alignment=ft.MainAxisAlignment.CENTER)
-        
+            ft.Row([ft.Container(width=12, height=12, bgcolor="#10b981", border_radius=3), ft.Text("Ventas (Meta Superada)", size=11, weight="bold", color="black87")]),
+            ft.Row([ft.Container(width=12, height=12, bgcolor="#3b82f6", border_radius=3), ft.Text("Ventas (En progreso)", size=11, weight="bold", color="black87")]),
+            ft.Row([ft.Container(width=12, height=12, bgcolor="#a78bfa", border_radius=3), ft.Text("Meta Diaria", size=11, weight="bold", color="black87")]),
+            ft.Row([ft.Container(width=12, height=12, bgcolor="#06b6d4", border_radius=3), ft.Text("Compras", size=11, weight="bold", color="black87")]),
+        ], spacing=20, alignment=ft.MainAxisAlignment.CENTER, wrap=True)
+
+        # Tira de tarjetas diarias
+        self.cards_diarias_row = ft.Row(scroll=ft.ScrollMode.ALWAYS, spacing=10)
+
         self.chart_container = ft.Container(
             content=ft.Column([
-                ft.Text("Tendencia Diaria: Ingresos vs Costo de Ventas", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Row([
+                    ft.Column([
+                        ft.Text("Desempeño Diario: Ventas vs Meta de Venta vs Compras", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                        ft.Text("Monitoreo día a día con cumplimiento porcentual de la meta de ventas", size=12, color="grey"),
+                    ], expand=True, spacing=2),
+                ]),
+                ft.Divider(height=5, color="transparent"),
+                kpi_strip_chart,
+                ft.Divider(height=10, color="transparent"),
                 leyenda,
-                ft.Container(content=self.line_chart, height=320, margin=ft.padding.only(top=10))
+                ft.Container(content=self.bar_chart, height=320, margin=ft.padding.only(top=10, bottom=15)),
+                ft.Divider(height=1, color="#f0f0f0"),
+                ft.Row([
+                    ft.Icon(ft.icons.CALENDAR_VIEW_DAY, size=16, color=Config.COLOR_PRIMARY),
+                    ft.Text("Seguimiento Día a Día (Desliza horizontalmente para ver el mes completo)", size=13, weight="bold", color="grey800"),
+                ], spacing=6),
+                ft.Container(
+                    content=self.cards_diarias_row,
+                    padding=ft.padding.symmetric(vertical=8),
+                )
             ]),
             bgcolor="white",
             padding=20,
@@ -503,7 +555,7 @@ class DashboardView(ft.Container):
             colores_estado = {'ABIERTO': 'green', 'PRELIMINAR': 'orange', 'EN_AUDITORIA': 'blue', 'CERRADO': 'red'}
             self.lbl_estado_dash.color = colores_estado.get(estado_periodo, 'black')
 
-            ahora = datetime.datetime.now()
+            ahora = get_ahora_local()
             self.lbl_fecha_hora.value = ahora.strftime("%d/%m/%Y - %I:%M %p")
 
             # 3. KPIs de Inventario, Ventas, Compras e IVA
@@ -616,72 +668,120 @@ class DashboardView(ft.Container):
                 ])
             )
 
-            # 5. Gráfico de Tendencia Diaria Flet
+            # 5. Gráfico de Barras Comparativo y Tarjetas de Detalle Diario
+            meta_diaria_base = (meta_total_mes / dias_en_mes) if (dias_en_mes > 0 and meta_total_mes > 0) else 0.0
             dias_ordenados = sorted(tendencia.keys())
-            max_val_y = 0.0
-            pts_ventas = []
-            pts_compras = []
+            
+            dias_cumplidos = 0
+            dias_activos = 0
+            suma_ventas_activos = 0.0
+            mejor_dia_fecha = ""
+            mejor_dia_venta = 0.0
+
+            max_val_y = meta_diaria_base
+            bar_groups = []
             etiquetas_x = []
 
             for i, dia in enumerate(dias_ordenados):
                 v = float(tendencia[dia]["ventas"])
                 c = float(tendencia[dia]["compras"])
+                m = meta_diaria_base
+                
+                if v > 0:
+                    dias_activos += 1
+                    suma_ventas_activos += v
+                if v >= m and m > 0:
+                    dias_cumplidos += 1
+                if v > mejor_dia_venta:
+                    mejor_dia_venta = v
+                    mejor_dia_fecha = dia
+
                 if v > max_val_y: max_val_y = v
                 if c > max_val_y: max_val_y = c
-                tt_compras = f"{dia}\nCostos: ${c:,.0f}"
-                tt_ventas = f"Ingresos: ${v:,.0f}"
-                estilo_tt = ft.TextStyle(size=12, weight="bold", color="black87")
 
-                pts_ventas.append(ft.LineChartDataPoint(i, v, tooltip=tt_ventas, tooltip_style=estilo_tt))
-                pts_compras.append(ft.LineChartDataPoint(i, c, tooltip=tt_compras, tooltip_style=estilo_tt))
+                pct_dia = (v / m * 100) if m > 0 else 0.0
+                col_v = "#10b981" if pct_dia >= 100 else ("#3b82f6" if v > 0 else "#cbd5e1")
+
+                dt = datetime.datetime.strptime(dia, "%Y-%m-%d").date()
+                dias_semana = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+                dia_tag = f"{dias_semana[dt.weekday()]} {dt.day:02d}"
+
+                tt_v = f"{dia} ({dias_semana[dt.weekday()]})\n💰 Ventas: ${v:,.0f} ({pct_dia:.1f}% Meta)"
+                tt_m = f"{dia}\n🎯 Meta: ${m:,.0f}"
+                tt_c = f"{dia}\n🛒 Compras: ${c:,.0f}"
+
+                rod_v = ft.BarChartRod(
+                    from_y=0, to_y=v, color=col_v, width=8,
+                    border_radius=ft.border_radius.vertical(top=4),
+                    tooltip=tt_v
+                )
+                rod_m = ft.BarChartRod(
+                    from_y=0, to_y=m, color="#a78bfa", width=8,
+                    border_radius=ft.border_radius.vertical(top=4),
+                    tooltip=tt_m
+                )
+                rod_c = ft.BarChartRod(
+                    from_y=0, to_y=c, color="#06b6d4", width=8,
+                    border_radius=ft.border_radius.vertical(top=4),
+                    tooltip=tt_c
+                )
+
+                bar_groups.append(ft.BarChartGroup(x=i, bar_rods=[rod_v, rod_m, rod_c]))
                 etiquetas_x.append(
                     ft.ChartAxisLabel(
-                        value=i, 
+                        value=i,
                         label=ft.Container(
-                            content=ft.Text(dia, size=9, color="grey"),
-                            padding=ft.padding.only(top=10),
-                            rotate=-0.5
+                            content=ft.Text(f"{dt.day:02d}", size=9, color="grey700"),
+                            padding=ft.padding.only(top=5)
                         )
                     )
                 )
 
-            if not pts_ventas:
-                pts_ventas = [ft.LineChartDataPoint(0, 0)]
-                pts_compras = [ft.LineChartDataPoint(0, 0)]
+            # Actualizar Badges de Resumen del Gráfico
+            pct_dias_cumplidos = (dias_cumplidos / dias_activos * 100) if dias_activos > 0 else 0.0
+            self.badge_dias_cumplidos.value = f"{dias_cumplidos} / {dias_activos} días ({pct_dias_cumplidos:.0f}%)"
+            
+            dt_mejor = datetime.datetime.strptime(mejor_dia_fecha, "%Y-%m-%d") if mejor_dia_fecha else None
+            str_mejor = f"{dt_mejor.strftime('%d/%m')} (${mejor_dia_venta/1000000:.1f}M)" if dt_mejor else "N/D"
+            self.badge_mejor_dia.value = str_mejor
 
-            self.chart_ventas.data_points = pts_ventas
-            self.chart_compras.data_points = pts_compras
-            self.line_chart.max_x = len(dias_ordenados) - 1 if dias_ordenados else 0
-            max_y_calc = max_val_y * 1.15 if max_val_y > 0 else 1000.0
-            self.line_chart.max_y = max_y_calc
+            prom_v = (suma_ventas_activos / dias_activos) if dias_activos > 0 else 0.0
+            self.badge_promedio_diario.value = f"${prom_v:,.0f} / día"
+            self.badge_meta_promedio.value = f"${meta_diaria_base:,.0f} / día"
+
+            # Configurar Ejes y Cuadrícula del BarChart
+            self.bar_chart.bar_groups = bar_groups
+            self.bar_chart.max_y = max_val_y * 1.15 if max_val_y > 0 else 1000.0
 
             def formato_moneda_corta(valor):
                 if valor >= 1000000: return f"${valor/1000000:.1f}M"
                 if valor >= 1000: return f"${valor/1000:.0f}k"
                 return f"${valor:.0f}"
 
-            intervalo_y = max_y_calc / 8 if max_y_calc > 0 else 100
+            intervalo_y = self.bar_chart.max_y / 6 if self.bar_chart.max_y > 0 else 100
             etiquetas_y = [
-                ft.ChartAxisLabel(value=step * intervalo_y, label=ft.Text(formato_moneda_corta(step * intervalo_y), size=11, color="grey"))
-                for step in range(9)
+                ft.ChartAxisLabel(value=step * intervalo_y, label=ft.Text(formato_moneda_corta(step * intervalo_y), size=10, color="grey"))
+                for step in range(7)
             ]
-            self.line_chart.left_axis.labels = etiquetas_y
-            self.line_chart.left_axis.labels_interval = intervalo_y
-            self.line_chart.bottom_axis.labels = etiquetas_x
-            self.line_chart.bottom_axis.labels_interval = 1
+            self.bar_chart.left_axis.labels = etiquetas_y
+            self.bar_chart.left_axis.labels_interval = intervalo_y
+            self.bar_chart.bottom_axis.labels = etiquetas_x
+            self.bar_chart.bottom_axis.labels_interval = 1
 
-            self.line_chart.horizontal_grid_lines = ft.ChartGridLines(
+            self.bar_chart.horizontal_grid_lines = ft.ChartGridLines(
                 interval=intervalo_y,
                 color=ft.colors.with_opacity(0.05, "black"),
                 width=1,
                 dash_pattern=[4, 4]
             )
-            self.line_chart.vertical_grid_lines = ft.ChartGridLines(
-                interval=2,
-                color=ft.colors.with_opacity(0.05, "black"),
-                width=1,
-                dash_pattern=[4, 4]
-            )
+
+            # Llenar la Tira de Tarjetas Diarias (Daily Tracker)
+            self.cards_diarias_row.controls.clear()
+            for dia in dias_ordenados:
+                v_dia = float(tendencia[dia]["ventas"])
+                c_dia = float(tendencia[dia]["compras"])
+                card = self._crear_card_dia(dia, v_dia, c_dia, meta_diaria_base)
+                self.cards_diarias_row.controls.append(card)
 
             # 6. Tablas y Tarjetas de Rendimiento
             self.dt_ventas.rows.clear()
@@ -745,8 +845,67 @@ class DashboardView(ft.Container):
             bgcolor=Config.COLOR_SURFACE,
             padding=ft.padding.symmetric(horizontal=16, vertical=14),
             border_radius=12,
-            border=ft.border.all(1, Config.COLOR_BORDER),
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=6, color=ft.colors.with_opacity(0.04, "black"), offset=ft.Offset(0, 2))
+        )
+
+    def _crear_card_dia(self, fecha_str: str, venta: float, compras: float, meta_diaria: float) -> ft.Container:
+        """Crea una tarjeta estética para el seguimiento individual de ventas, meta y compras de cada día."""
+        dt = datetime.datetime.strptime(fecha_str, "%Y-%m-%d").date()
+        dias_semana = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+        nombre_dia = f"{dias_semana[dt.weekday()]} {dt.day:02d}"
+        
+        pct_meta = (venta / meta_diaria * 100) if meta_diaria > 0 else 0.0
+        
+        if pct_meta >= 100:
+            badge_bg, badge_col = "#ecfdf5", "#059669"
+            badge_txt = f"{pct_meta:.0f}% 🎯"
+            border_col = "#a7f3d0"
+        elif pct_meta >= 50:
+            badge_bg, badge_col = "#eff6ff", "#2563eb"
+            badge_txt = f"{pct_meta:.0f}%"
+            border_col = "#bfdbfe"
+        elif venta > 0:
+            badge_bg, badge_col = "#fffbeb", "#d97706"
+            badge_txt = f"{pct_meta:.0f}%"
+            border_col = "#fde68a"
+        else:
+            badge_bg, badge_col = "#f1f5f9", "#64748b"
+            badge_txt = "0%"
+            border_col = "#e2e8f0"
+
+        progreso_val = min(1.0, pct_meta / 100.0) if pct_meta > 0 else 0.0
+        progreso_col = "#10b981" if pct_meta >= 100 else ("#3b82f6" if pct_meta >= 50 else ("#f59e0b" if venta > 0 else "#cbd5e1"))
+
+        return ft.Container(
+            width=175,
+            padding=12,
+            bgcolor="white",
+            border_radius=10,
+            border=ft.border.all(1, border_col),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.04, "black")),
+            content=ft.Column([
+                ft.Row([
+                    ft.Text(nombre_dia, size=11, weight="bold", color="grey800"),
+                    ft.Container(
+                        content=ft.Text(badge_txt, size=10, weight="bold", color=badge_col),
+                        padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                        bgcolor=badge_bg,
+                        border_radius=6
+                    )
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Divider(height=6, color="transparent"),
+                ft.Text(f"${venta:,.0f}", size=13, weight="bold", color="#1e293b" if venta > 0 else "grey500"),
+                ft.ProgressBar(value=progreso_val, color=progreso_col, bgcolor="#f1f5f9", height=4),
+                ft.Divider(height=4, color="transparent"),
+                ft.Row([
+                    ft.Text("Meta:", size=9, color="grey600"),
+                    ft.Text(f"${meta_diaria:,.0f}", size=9, weight="bold", color="#7c3aed")
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Row([
+                    ft.Text("Compras:", size=9, color="grey600"),
+                    ft.Text(f"${compras:,.0f}", size=9, weight="w600", color="#0891b2" if compras > 0 else "grey500")
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ], spacing=3)
         )
 
     def _crear_card_categoria(self, cat_data):

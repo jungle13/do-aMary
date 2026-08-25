@@ -8,6 +8,7 @@ import io
 import base64
 import threading
 import datetime
+import urllib.parse
 import qrcode
 from config import Config
 from core.database import BaseDatabase
@@ -218,7 +219,8 @@ class MobileCountingService:
             if observacion:
                 detalle_accion += f" - Nota: {observacion}"
 
-            ahora_iso = datetime.datetime.now().isoformat()
+            from core.fecha_utils import get_ahora_iso
+            ahora_iso = get_ahora_iso()
             payload = {
                 "codigo_insumo": codigo,
                 "cantidad_fisica": cant_final,
@@ -288,10 +290,10 @@ class MobileCountingService:
         """Obtiene la traza histórica de conteos y ediciones de un insumo."""
         try:
             from core.audit_logger import obtener_historial_acciones
+            from core.fecha_utils import parsear_a_fecha_local, formatear_fecha_hora_local
             acciones = obtener_historial_acciones(limit=200, modulo="CONTEO_MOVIL")
             acciones_desktop = obtener_historial_acciones(limit=200, modulo="CONTEO")
-            acciones_todas = obtener_historial_acciones(limit=200)
-            todas = (acciones or []) + (acciones_desktop or []) + (acciones_todas or [])
+            todas = (acciones or []) + (acciones_desktop or [])
 
             # Eliminar duplicados por ID de acción
             vistas_ids = set()
@@ -303,23 +305,28 @@ class MobileCountingService:
                 vistas_ids.add(aid)
 
                 det = a.get("detalles") or {}
-                if str(det.get("codigo_insumo")) == str(codigo_insumo) or f"[{codigo_insumo}]" in a.get("accion", ""):
+                # Solo procesar si pertenece a este insumo y es una acción de conteo real
+                es_mismo_insumo = str(det.get("codigo_insumo")) == str(codigo_insumo) or f"[{codigo_insumo}]" in a.get("accion", "")
+                cant = det.get("cantidad_ingresada") if det.get("cantidad_ingresada") is not None else det.get("cantidad")
+                
+                if es_mismo_insumo and cant is not None:
                     filtradas.append({
                         "fecha": a.get("fecha"),
                         "hora": a.get("hora"),
                         "usuario": a.get("nombre_usuario") or a.get("usuario") or "Operario",
                         "rol": det.get("rol") or "OPERADOR",
                         "dispositivo": det.get("dispositivo") or ("WEB_MOVIL" if a.get("modulo") == "CONTEO_MOVIL" else "ESCRITORIO"),
-                        "cantidad_ingresada": det.get("cantidad_ingresada") or det.get("cantidad"),
-                        "cantidad_total": det.get("cantidad_total") or det.get("cantidad"),
+                        "cantidad_ingresada": cant,
+                        "cantidad_total": det.get("cantidad_total") if det.get("cantidad_total") is not None else cant,
                         "modo": det.get("modo") or "REEMPLAZAR",
                         "observacion": det.get("observacion") or a.get("accion")
                     })
 
             # Si no hay traza en logs pero sí en registro_auditorias_cierres, agregar registro
             if not filtradas:
-                res_aud = self.db._db.table("registro_auditorias_cierres").select("*").eq("codigo_insumo", str(codigo_insumo)).execute()
-                for r in (res_aud.data or []):
+                cod_enc = urllib.parse.quote(str(codigo_insumo).strip())
+                res_aud = self.db.get(f"registro_auditorias_cierres?codigo_insumo=eq.{cod_enc}", timeout=5)
+                for r in (res_aud.json() if res_aud and res_aud.status_code == 200 else []):
                     if r.get("cantidad_fisica") is not None:
                         obs = r.get("observacion") or "Conteo registrado en periodo"
                         user = "Operario"
@@ -331,9 +338,10 @@ class MobileCountingService:
                                 rol = user_part.split("(")[1].replace(")", "").strip()
                             else:
                                 user = user_part
+                        f_raw = r.get("fecha_cierre")
                         filtradas.append({
-                            "fecha": str(r.get("fecha_cierre", ""))[:10],
-                            "hora": str(r.get("fecha_cierre", ""))[11:19],
+                            "fecha": parsear_a_fecha_local(f_raw),
+                            "hora": formatear_fecha_hora_local(f_raw, "%H:%M:%S") if f_raw else "00:00:00",
                             "usuario": user,
                             "rol": rol,
                             "dispositivo": "SISTEMA",
@@ -348,3 +356,8 @@ class MobileCountingService:
         except Exception as ex:
             log_error(f"obtener_historial_insumo({codigo_insumo})", ex)
             return []
+
+
+# Instancia singleton y alias de compatibilidad
+mobile_service = MobileCountingService()
+MobileService = MobileCountingService
