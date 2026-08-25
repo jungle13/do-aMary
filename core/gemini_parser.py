@@ -540,3 +540,101 @@ class GeminiParser:
         except Exception as e:
             print(f"Error procesando página {page_index + 1} de ventas con Gemini: {e}")
             return None
+
+    def parse_ajustes_image(self, file_path: str):
+        """
+        Escanea y extrae datos de una fotografía o documento de hoja de control físico de ajustes de inventario.
+        Columnas del formato: Fecha, Código, Nombre / Insumo, Cantidad, Motivo.
+        Retorna una lista de diccionarios con los campos extraídos y estandarizados.
+        """
+        if not self.api_key:
+            print("Error: No hay API Key de Gemini configurada.")
+            return None
+
+        try:
+            print(f"Subiendo formato de ajustes a Gemini: {file_path}")
+            uploaded_file = genai.upload_file(path=file_path)
+            while uploaded_file.state.name == "PROCESSING":
+                time.sleep(1)
+                uploaded_file = genai.get_file(uploaded_file.name)
+
+            class AjusteItem(TypedDict):
+                fecha: str
+                codigo_insumo: str
+                nombre_extraido: str
+                cantidad: float
+                motivo_extraido: str
+                tipo_ajuste: str
+                motivo_estandarizado: str
+
+            prompt = """
+            Analiza cuidadosamente la imagen de esta hoja física de control de Ajustes / Salidas / Entradas de Inventario.
+            El formato contiene típicamente las columnas: FECHA, CÓDIGO (o Cód), NOMBRE (o Insumo/Descripción), CANT (o Cantidad), MOTIVO (o Observación/Concepto).
+
+            INSTRUCCIONES DE EXTRACCIÓN LÍNEA POR LÍNEA:
+            1. FECHA: Extrae la fecha de cada fila si está escrita (conviértela a formato YYYY-MM-DD). Si no está escrita, pon null o "".
+            2. CÓDIGO: Si el operario escribió un código numérico (ej. 0471, 1460, 4933), extráelo como texto limpio de 4 dígitos (con ceros a la izquierda si aplica). Si no hay código escrito o está en blanco o con guion, pon "".
+            3. NOMBRE: Extrae exactamente el texto legible del producto/insumo tal como fue escrito.
+            4. CANTIDAD: Extrae la cantidad numérica ajustada (ej. 1, 2.5, 10). Debe ser siempre un número positivo mayor que 0.
+            5. MOTIVO_EXTRAIDO: El texto tal cual fue escrito en la columna de motivo.
+            6. TIPO_AJUSTE y MOTIVO_ESTANDARIZADO:
+               Clasifica según las siguientes reglas del negocio:
+               - Si el motivo dice 'Cortesía', 'Cortesia', 'Consumo Cliente', etc.:
+                 tipo_ajuste = 'AJUSTE_SALIDA', motivo_estandarizado = 'Consumo Cliente (Cortesía)'
+               - Si dice 'Merma', 'Daño', 'Dañado', 'Baja', etc.:
+                 tipo_ajuste = 'AJUSTE_SALIDA', motivo_estandarizado = 'Daño / Merma'
+               - Si dice 'Vencimiento', 'Vencido', 'Caducado', etc.:
+                 tipo_ajuste = 'BAJA_VENCIMIENTO', motivo_estandarizado = 'Vencimiento'
+               - Si dice 'Donación', 'Donacion', 'Donaciones', etc.:
+                 tipo_ajuste = 'AJUSTE_SALIDA', motivo_estandarizado = 'Donación Saliente'
+               - Si dice 'Consumo Familia', 'Familia', 'Gasto Personal', etc.:
+                 tipo_ajuste = 'AJUSTE_SALIDA', motivo_estandarizado = 'Consumo Familiar'
+               - Si dice 'Pérdida', 'Perdida', 'Faltante', 'Robo', etc.:
+                 tipo_ajuste = 'SALIDA_POR_FALTANTE', motivo_estandarizado = 'Pérdida'
+               - Si dice 'Entrada', 'Entradas', 'Ingreso', etc.:
+                 tipo_ajuste = 'AJUSTE_ENTRADA', motivo_estandarizado = 'Otro (Entrada)'
+               - Si dice 'Devolución', 'Devolucion', 'Devoluciones', etc.:
+                 tipo_ajuste = 'AJUSTE_ENTRADA', motivo_estandarizado = 'Devolución Cliente'
+               - Si dice 'Sobrante', 'Sobrantes', etc.:
+                 tipo_ajuste = 'ENTRADA_POR_SOBRANTE', motivo_estandarizado = 'Sobrante de Inventario'
+               - POR DEFECTO: Si es cualquier otro motivo no especificado o dudoso, clasifícalo como:
+                 tipo_ajuste = 'AJUSTE_SALIDA', motivo_estandarizado = 'Otro (Salida)'
+
+            Devuelve EXCLUSIVAMENTE una lista JSON válida cumpliendo con la estructura.
+            """
+
+            response = self.model.generate_content(
+                [uploaded_file, prompt],
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=list[AjusteItem],
+                    temperature=0.0,
+                    max_output_tokens=8192
+                )
+            )
+
+            try:
+                genai.delete_file(uploaded_file.name)
+            except Exception:
+                pass
+
+            text_response = response.text.strip()
+            if text_response.startswith("```json"):
+                text_response = text_response[7:]
+            if text_response.startswith("```"):
+                text_response = text_response[3:]
+            if text_response.endswith("```"):
+                text_response = text_response[:-3]
+            text_response = text_response.strip()
+            text_response = re.sub(r',\s*([\]}])', r'\1', text_response)
+
+            data = json.loads(text_response)
+            if isinstance(data, dict):
+                return [data]
+            elif isinstance(data, list):
+                return data
+            return []
+        except Exception as ex:
+            print(f"Error procesando formato de ajustes con Gemini: {ex}")
+            return None
+

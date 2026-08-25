@@ -11,6 +11,7 @@ def build():
     
     hidden_imports = [
         'core',
+        'core.fecha_utils',
         'core.supabase_client',
         'core.database',
         'core.audit_logger',
@@ -19,6 +20,8 @@ def build():
         'core.gemini_parser',
         'core.mobile_server',
         'core.mobile_service',
+        'zoneinfo',
+        'tzdata',
         'core.repositories.compras_repo',
         'core.repositories.ventas_repo',
         'core.repositories.insumos_repo',

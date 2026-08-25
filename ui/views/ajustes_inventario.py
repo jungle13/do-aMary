@@ -1,8 +1,11 @@
 import flet as ft
 import threading
-from config import Config
+import uuid
 from config import Config
 from core.supabase_client import SupabaseClient
+from core.gemini_parser import GeminiParser
+from core.fecha_utils import parsear_a_fecha_local, get_hoy_local_str, get_ahora_iso, formatear_fecha_hora_local
+from core.audit_logger import registrar_accion
 from ui.components.autocomplete import CustomAutoComplete
 
 class AjustesInventarioView(ft.Container):
@@ -16,6 +19,7 @@ class AjustesInventarioView(ft.Container):
         )
         self.expand = True
         self.db = SupabaseClient()
+        self.gemini_parser = GeminiParser()
         self.tipo_ajuste_actual = "ENTRADA"
         
         # Mapeo estricto contra restricciones de BD
@@ -33,19 +37,21 @@ class AjustesInventarioView(ft.Container):
             "Otro (Salida)": "AJUSTE_SALIDA"
         }
 
-        # --- Labels reactivos de Resumen ---
+        # --- Labels reactivos de Resumen (Tab 1) ---
         self.lbl_ent_actual = ft.Text("$0.00", weight="bold")
         self.lbl_ent_pos = ft.Text("$0.00", weight="bold", color="green")
         self.lbl_sal_neg = ft.Text("$0.00", weight="bold", color="red")
         self.lbl_ent_neto = ft.Text("$0.00", weight="bold")
         self.lbl_ent_proyectado = ft.Text("$0.00", weight="bold", color=Config.COLOR_PRIMARY)
 
-        # --- Paginación y Filtros ---
+        # --- Paginación y Filtros (Tab 1) ---
         self.data_completa = []
         self.page_size = 15
         self.current_page = 1
         self.total_pages = 1
         self.total_records = 0
+        self.catalogo_completo = []
+        self.catalogo_cache = {}
 
         def on_select_filtro_ajustes(e):
             texto = e.selection.value if hasattr(e, 'selection') and e.selection else str(e.control.value or "")
@@ -104,7 +110,7 @@ class AjustesInventarioView(ft.Container):
         self.btn_next = ft.IconButton(icon=ft.icons.ARROW_FORWARD_IOS, icon_size=14, on_click=self._next_page, disabled=True)
         self.lbl_page_info = ft.Text("Pág 1 de 1", size=11, weight="bold")
 
-        # --- Vista de Tarjetas (Lista) ---
+        # --- Vista de Tarjetas (Lista Tab 1) ---
         self.lista_ajustes = ft.ListView(expand=True, spacing=6, auto_scroll=False)
         self.btn_agregar_ajuste = ft.ElevatedButton(
             "Registrar Ajuste",
@@ -119,10 +125,57 @@ class AjustesInventarioView(ft.Container):
             on_click=lambda e: self.abrir_modal_ajuste()
         )
 
-        # --- Modal ---
+        # --- Modal Formulario Manual ---
         self.modal_ajuste = self._crear_modal_formulario()
 
-        # --- Layout Principal Unificado ---
+        # =========================================================================
+        # --- ESTADO Y CONTROLES TAB 2: AJUSTES ESCANEADOS CON IA (OCR) ---
+        # =========================================================================
+        self.items_escaneados = [] # Lista de dicts extraídos
+        self.file_picker_ocr = ft.FilePicker(on_result=self._on_ocr_file_selected)
+
+        self.lbl_badge_total_escaneados = ft.Text("0 escaneados", size=11, weight="bold", color="grey700")
+        self.lbl_badge_validados = ft.Text("0 listos", size=11, weight="bold", color="green700")
+        self.lbl_badge_pendientes_codigo = ft.Text("0 requieren código", size=11, weight="bold", color="orange800")
+        
+        self.btn_guardar_todos_validados = ft.ElevatedButton(
+            "Guardar Validados",
+            icon=ft.icons.DONE_ALL_ROUNDED,
+            bgcolor=Config.COLOR_SUCCESS,
+            color="white",
+            height=34,
+            visible=False,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=7)),
+            on_click=self.guardar_todos_escaneados_validados
+        )
+
+        self.btn_limpiar_escaneados = ft.TextButton(
+            "Limpiar",
+            icon=ft.icons.DELETE_SWEEP_ROUNDED,
+            icon_color="red",
+            style=ft.ButtonStyle(color="red"),
+            visible=False,
+            on_click=self.limpiar_lista_escaneados
+        )
+
+        self.ocr_loading_container = ft.Container(
+            content=ft.Row([
+                ft.ProgressRing(width=18, height=18, stroke_width=2.5, color=Config.COLOR_ACCENT),
+                ft.Text("Analizando formato físico con Gemini Flash... Extrayendo productos y motivos...", size=12, color=Config.COLOR_PRIMARY, weight="w500")
+            ], spacing=10, alignment=ft.MainAxisAlignment.CENTER),
+            padding=12,
+            bgcolor="#EFF6FF",
+            border_radius=8,
+            border=ft.border.all(1, "#BFDBFE"),
+            visible=False
+        )
+
+        self.lista_escaneados = ft.ListView(expand=True, spacing=10, auto_scroll=False)
+
+        # =========================================================================
+        # --- CONSTRUCCIÓN DE CONTENEDORES DE PESTAÑAS ---
+        # =========================================================================
+        # Tab 1: Historial de Ajustes
         kpi_bar = ft.Container(
             content=ft.Row([
                 ft.Column([ft.Text("Valor Inventario Base:", size=10, color="grey"), self.lbl_ent_actual], spacing=0),
@@ -155,13 +208,102 @@ class AjustesInventarioView(ft.Container):
             self.btn_next
         ], alignment=ft.MainAxisAlignment.END)
 
+        tab_historial_content = ft.Container(
+            content=ft.Column([
+                kpi_bar,
+                filtros_row,
+                ft.Container(content=self.lista_ajustes, expand=True, bgcolor="#f5f5f5", border_radius=10, padding=10, shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))),
+                paginacion_row
+            ], expand=True, spacing=10),
+            padding=ft.padding.only(top=8),
+            expand=True
+        )
+
+        # Tab 2: Escaneados con IA
+        header_escaneo = ft.Container(
+            content=ft.Row([
+                ft.ElevatedButton(
+                    "📷 Escanear Hoja de Ajustes (Foto / PDF)",
+                    icon=ft.icons.CAMERA_ALT_ROUNDED,
+                    bgcolor=Config.COLOR_PRIMARY,
+                    color="white",
+                    height=36,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                    on_click=lambda e: self.file_picker_ocr.pick_files(
+                        allow_multiple=False,
+                        allowed_extensions=["jpg", "jpeg", "png", "webp", "pdf"],
+                        dialog_title="Seleccionar foto de hoja de control de ajustes"
+                    )
+                ),
+                ft.Container(width=8),
+                ft.Container(
+                    content=ft.Row([
+                        self.lbl_badge_total_escaneados,
+                        ft.Container(width=1, height=14, bgcolor="#CBD5E1"),
+                        self.lbl_badge_validados,
+                        ft.Container(width=1, height=14, bgcolor="#CBD5E1"),
+                        self.lbl_badge_pendientes_codigo,
+                    ], spacing=8),
+                    padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                    bgcolor="#F8FAFC",
+                    border_radius=8,
+                    border=ft.border.all(1, "#E2E8F0")
+                ),
+                ft.Container(expand=True),
+                self.btn_guardar_todos_validados,
+                self.btn_limpiar_escaneados
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
+            padding=ft.padding.symmetric(horizontal=10, vertical=8),
+            bgcolor="#ffffff",
+            border_radius=8,
+            border=ft.border.all(1, "#e2e8f0")
+        )
+
+        tab_escaneo_content = ft.Container(
+            content=ft.Column([
+                header_escaneo,
+                self.ocr_loading_container,
+                ft.Container(
+                    content=self.lista_escaneados,
+                    expand=True,
+                    bgcolor="#f8fafc",
+                    border_radius=10,
+                    padding=10,
+                    border=ft.border.all(1, "#e2e8f0")
+                )
+            ], expand=True, spacing=10),
+            padding=ft.padding.only(top=8),
+            expand=True
+        )
+
+        # Tab Navigation
+        self.tabs_control = ft.Tabs(
+            selected_index=0,
+            animation_duration=200,
+            tabs=[
+                ft.Tab(
+                    text="Historial de Ajustes",
+                    icon=ft.icons.HISTORY_ROUNDED,
+                    content=tab_historial_content
+                ),
+                ft.Tab(
+                    text="Ajustes Escaneados con IA",
+                    icon=ft.icons.DOCUMENT_SCANNER_ROUNDED,
+                    content=tab_escaneo_content
+                )
+            ],
+            expand=True
+        )
+
         self.content = ft.Column([
-            ft.Text("Gestión y Ajustes de Inventario", size=24, weight="bold", color=Config.COLOR_PRIMARY),
-            kpi_bar,
-            filtros_row,
-            ft.Container(content=self.lista_ajustes, expand=True, bgcolor="#f5f5f5", border_radius=10, padding=10, shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))),
-            paginacion_row
-        ], expand=True)
+            ft.Row([
+                ft.Icon(ft.icons.TUNE_ROUNDED, size=24, color=Config.COLOR_PRIMARY),
+                ft.Text("Gestión y Ajustes de Inventario", size=22, weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Container(expand=True),
+                self.btn_fullscreen
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            self.tabs_control
+        ], expand=True, spacing=10)
 
     def _crear_modal_formulario(self):
         def on_tipo_change(e):
@@ -305,8 +447,10 @@ class AjustesInventarioView(ft.Container):
     def safe_update(self):
         """Actualiza la UI solo si el control sigue montado en la página."""
         try:
-            if self.page and self.uid:
+            if self.page:
                 self.page.update()
+            elif self.uid:
+                self.update()
         except Exception:
             pass
 
@@ -329,11 +473,15 @@ class AjustesInventarioView(ft.Container):
             self.page.update()
 
     def did_mount(self):
-        if self.modal_ajuste not in self.page.overlay:
-            self.page.overlay.append(self.modal_ajuste)
-        if hasattr(self, "date_picker") and self.date_picker not in self.page.overlay:
-            self.page.overlay.append(self.date_picker)
+        if self.page:
+            if self.modal_ajuste not in self.page.overlay:
+                self.page.overlay.append(self.modal_ajuste)
+            if hasattr(self, "date_picker") and self.date_picker not in self.page.overlay:
+                self.page.overlay.append(self.date_picker)
+            if hasattr(self, "file_picker_ocr") and self.file_picker_ocr not in self.page.overlay:
+                self.page.overlay.append(self.file_picker_ocr)
         self.load_data()
+        self.renderizar_lista_escaneados()
 
     def buscar_detalle_insumo(self, e):
         codigo = self.form_codigo.value.strip()
@@ -843,3 +991,546 @@ class AjustesInventarioView(ft.Container):
 
         if self.page:
             self.page.update()
+
+    # =========================================================================
+    # --- MÉTODOS DE ESCANEO OCR CON IA (GEMINI FLASH) Y GESTIÓN TAB 2 ---
+    # =========================================================================
+    def _on_ocr_file_selected(self, e: ft.FilePickerResultEvent):
+        if not e.files or len(e.files) == 0:
+            return
+        
+        file_path = e.files[0].path
+        if not file_path:
+            return
+
+        self.ocr_loading_container.visible = True
+        self.safe_update()
+
+        threading.Thread(target=self._worker_procesar_imagen_ocr, args=(file_path,), daemon=True).start()
+
+    def _worker_procesar_imagen_ocr(self, file_path: str):
+        try:
+            # Asegurar catálogo en memoria
+            if not self.catalogo_cache:
+                try:
+                    insumos, _ = self.db.get_insumos(page=1, page_size=99999)
+                    self.catalogo_completo = insumos
+                    self.catalogo_cache = {str(i["codigo_insumo"]).strip(): i for i in insumos}
+                except Exception:
+                    pass
+
+            raw_extraidos = self.gemini_parser.parse_ajustes_image(file_path)
+            
+            if raw_extraidos is None:
+                self.mostrar_alerta("Error al conectar con la IA de Gemini. Verifica tu conexión o clave de API.", "red")
+                return
+
+            if len(raw_extraidos) == 0:
+                self.mostrar_alerta("No se detectaron filas de ajustes legibles en la imagen.", "orange")
+                return
+
+            hoy_str = get_hoy_local_str()
+            nuevos_items = []
+
+            for r in raw_extraidos:
+                f_raw = str(r.get("fecha") or "").strip()
+                fecha_final = parsear_a_fecha_local(f_raw) if f_raw and f_raw != "null" else hoy_str
+                
+                cod_raw = str(r.get("codigo_insumo") or "").strip()
+                nom_raw = str(r.get("nombre_extraido") or "").strip()
+                cant_val = float(r.get("cantidad") or 1.0)
+                motivo_extraido = str(r.get("motivo_extraido") or "").strip()
+                tipo_extraido = str(r.get("tipo_ajuste") or "AJUSTE_SALIDA").strip().upper()
+                motivo_estandarizado = str(r.get("motivo_estandarizado") or "Otro (Salida)").strip()
+
+                # Normalizar tipo y motivo
+                if motivo_estandarizado not in self.mapa_motivos:
+                    motivo_estandarizado = "Otro (Entrada)" if "ENTRADA" in tipo_extraido else "Otro (Salida)"
+
+                # Verificar si el código existe en el catálogo
+                insumo_matched = self.catalogo_cache.get(cod_raw) if cod_raw else None
+
+                if insumo_matched:
+                    cod_final = cod_raw
+                    nom_final = insumo_matched.get("nombre", nom_raw)
+                    costo_val = float(insumo_matched.get("costo_unitario") or 0.0)
+                    estado_val = "VALIDO"
+                else:
+                    cod_final = ""
+                    nom_final = nom_raw
+                    costo_val = 0.0
+                    estado_val = "REQUIERE_CODIGO"
+
+                item_obj = {
+                    "id": uuid.uuid4().hex,
+                    "fecha": fecha_final,
+                    "codigo_insumo": cod_final,
+                    "nombre": nom_final,
+                    "nombre_extraido": nom_raw,
+                    "cantidad": cant_val,
+                    "costo_unitario": costo_val,
+                    "tipo_ajuste": tipo_extraido,
+                    "motivo_ui": motivo_estandarizado,
+                    "observacion": f"Extraído: {motivo_extraido}" if motivo_extraido else "",
+                    "estado_validacion": estado_val
+                }
+                nuevos_items.append(item_obj)
+
+            self.items_escaneados.extend(nuevos_items)
+            self.tabs_control.selected_index = 1
+            self.mostrar_alerta(f"¡Extracción exitosa! {len(nuevos_items)} registros escaneados con IA.", "green")
+
+        except Exception as ex:
+            self.mostrar_alerta(f"Error procesando formato: {str(ex)}", "red")
+        finally:
+            self.ocr_loading_container.visible = False
+            self.renderizar_lista_escaneados()
+            self.safe_update()
+
+    def renderizar_lista_escaneados(self):
+        self.lista_escaneados.controls.clear()
+        
+        tot = len(self.items_escaneados)
+        validados = sum(1 for x in self.items_escaneados if x["estado_validacion"] == "VALIDO")
+        pendientes = tot - validados
+
+        self.lbl_badge_total_escaneados.value = f"{tot} escaneados"
+        self.lbl_badge_validados.value = f"{validados} listos"
+        self.lbl_badge_pendientes_codigo.value = f"{pendientes} requieren código"
+
+        self.btn_guardar_todos_validados.visible = (validados > 0)
+        self.btn_limpiar_escaneados.visible = (tot > 0)
+
+        if tot == 0:
+            banner_vacio = ft.Container(
+                content=ft.Column([
+                    ft.Icon(ft.icons.DOCUMENT_SCANNER_OUTLINED, size=50, color=Config.COLOR_PRIMARY),
+                    ft.Text("Escaneo Inteligente de Formatos Físicos de Ajustes", weight="bold", size=15, color=Config.COLOR_PRIMARY),
+                    ft.Text("Digitaliza hojas de reporte de salidas, mermas, cortesías o sobrantes usando Gemini Flash.", size=12, color="grey700", text_align=ft.TextAlign.CENTER),
+                    ft.Container(height=6),
+                    ft.Row([
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Row([ft.Icon(ft.icons.LOOKS_ONE_ROUNDED, size=16, color=Config.COLOR_ACCENT), ft.Text("1. Toma una foto", weight="bold", size=12)]),
+                                ft.Text("Foto clara del formato con columnas: Fecha, Código, Nombre, Cant, Motivo.", size=11, color="grey600")
+                            ], spacing=2),
+                            padding=10, bgcolor="white", border_radius=8, border=ft.border.all(1, "#e2e8f0"), width=220
+                        ),
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Row([ft.Icon(ft.icons.LOOKS_TWO_ROUNDED, size=16, color=Config.COLOR_ACCENT), ft.Text("2. Sube la imagen", weight="bold", size=12)]),
+                                ft.Text("Presiona el botón de arriba para subir la foto o archivo PDF.", size=11, color="grey600")
+                            ], spacing=2),
+                            padding=10, bgcolor="white", border_radius=8, border=ft.border.all(1, "#e2e8f0"), width=220
+                        ),
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Row([ft.Icon(ft.icons.LOOKS_3_ROUNDED, size=16, color=Config.COLOR_ACCENT), ft.Text("3. Valida y Guarda", weight="bold", size=12)]),
+                                ft.Text("Si falta el código, búscalo inteligentemente y guarda individual o en lote.", size=11, color="grey600")
+                            ], spacing=2),
+                            padding=10, bgcolor="white", border_radius=8, border=ft.border.all(1, "#e2e8f0"), width=220
+                        ),
+                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=10)
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+                padding=35,
+                alignment=ft.alignment.center
+            )
+            self.lista_escaneados.controls.append(banner_vacio)
+        else:
+            for idx, it in enumerate(self.items_escaneados):
+                try:
+                    tarjeta = self._crear_tarjeta_escaneada(it, idx)
+                    self.lista_escaneados.controls.append(tarjeta)
+                except Exception as ex:
+                    print(f"Error renderizando tarjeta #{idx+1}: {ex}")
+
+        self.safe_update()
+
+    def _crear_tarjeta_escaneada(self, it: dict, index: int):
+        es_valido = (it["estado_validacion"] == "VALIDO")
+        es_entrada = "ENTRADA" in it.get("tipo_ajuste", "")
+        item_id = it["id"]
+
+        # 1. Cabecera de la Tarjeta
+        badge_idx = ft.Container(
+            content=ft.Text(f"#{index + 1}", size=11, weight="bold", color="white"),
+            bgcolor=Config.COLOR_PRIMARY,
+            padding=ft.padding.symmetric(horizontal=8, vertical=2),
+            border_radius=10
+        )
+
+        chip_fecha = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.CALENDAR_MONTH_ROUNDED, size=13, color="grey700"),
+                ft.Text(it["fecha"], size=11, weight="bold", color="grey800")
+            ], spacing=4),
+            padding=ft.padding.symmetric(horizontal=8, vertical=3),
+            bgcolor="#F1F5F9",
+            border_radius=6,
+            border=ft.border.all(1, "#CBD5E1")
+        )
+
+        if es_valido:
+            badge_estado = ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.CHECK_CIRCLE_ROUNDED, size=13, color="green700"),
+                    ft.Text("Listo para Guardar", size=11, weight="bold", color="green800")
+                ], spacing=4),
+                padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                bgcolor="#DCFCE7",
+                border_radius=12,
+                border=ft.border.all(1, "#86EFAC")
+            )
+        else:
+            badge_estado = ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.WARNING_AMBER_ROUNDED, size=13, color="orange800"),
+                    ft.Text("Requiere Código / Insumo", size=11, weight="bold", color="orange900")
+                ], spacing=4),
+                padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                bgcolor="#FEF3C7",
+                border_radius=12,
+                border=ft.border.all(1, "#FDE68A")
+            )
+
+        btn_descartar = ft.IconButton(
+            icon=ft.icons.CLOSE_ROUNDED,
+            icon_color="red400",
+            tooltip="Descartar este registro",
+            on_click=lambda e, i_id=item_id: self.descartar_item_escaneado(i_id)
+        )
+
+        fila_cabecera = ft.Row([
+            ft.Row([badge_idx, chip_fecha, badge_estado], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            btn_descartar
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+
+        # 2. Selector de Insumo con Buscador Inteligente
+        lv_suggs = ft.ListView(height=110, spacing=2, visible=False)
+
+        def on_search_insumo_change(e):
+            q = (e.control.value or "").strip().lower()
+            if not q or len(q) < 2:
+                lv_suggs.visible = False
+                lv_suggs.controls.clear()
+                self.safe_update()
+                return
+
+            tokens = q.split()
+            matches = []
+            for m in self.catalogo_completo:
+                c_txt = f"{m.get('codigo_insumo')} {m.get('nombre')}".lower()
+                if all(t in c_txt for t in tokens):
+                    matches.append(m)
+                    if len(matches) >= 8:
+                        break
+
+            lv_suggs.controls.clear()
+            for m in matches:
+                c_cod = str(m.get("codigo_insumo"))
+                c_nom = str(m.get("nombre"))
+                c_costo = float(m.get("costo_unitario") or 0)
+                
+                sugg_row = ft.Container(
+                    content=ft.Row([
+                        ft.Text(f"[{c_cod}]", size=11, weight="bold", color=Config.COLOR_PRIMARY),
+                        ft.Text(c_nom, size=11, weight="w500", expand=True, color="black87"),
+                        ft.Text(f"Costo: ${c_costo:,.0f}", size=10, color=Config.COLOR_TEXT_MUTED)
+                    ], spacing=6),
+                    padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                    bgcolor="#F8FAFC",
+                    border_radius=6,
+                    border=ft.border.all(1, "#E2E8F0"),
+                    on_click=lambda ev, chosen=m, i_id=item_id: self._seleccionar_insumo_para_item_escaneado(i_id, chosen)
+                )
+                lv_suggs.controls.append(sugg_row)
+
+            lv_suggs.visible = (len(matches) > 0)
+            self.safe_update()
+
+        txt_buscador_fila = ft.TextField(
+            value=f"[{it['codigo_insumo']}] {it['nombre']}" if es_valido else (it.get("nombre_extraido") or it.get("nombre") or ""),
+            hint_text="Escribe palabras del nombre o código para buscar en BD...",
+            prefix_icon=ft.icons.SEARCH_ROUNDED,
+            border_radius=8,
+            height=38,
+            text_size=12,
+            content_padding=10,
+            border_color=Config.COLOR_PRIMARY if es_valido else "orange700",
+            on_change=on_search_insumo_change
+        )
+
+        contenedor_buscador = ft.Column([
+            txt_buscador_fila,
+            lv_suggs
+        ], spacing=2)
+
+        # 3. Campos de Detalle (Cantidad, Tipo, Motivo, Costo, Impacto)
+        def on_cant_change(e):
+            try:
+                c_val = float(e.control.value.replace(',', '.') or 0)
+                it["cantidad"] = c_val
+                txt_impacto.value = f"${(c_val * it['costo_unitario']):,.0f}"
+                self.safe_update()
+            except ValueError:
+                pass
+
+        def on_costo_change(e):
+            try:
+                c_val = float(e.control.value.replace(',', '.') or 0)
+                it["costo_unitario"] = c_val
+                txt_impacto.value = f"${(it['cantidad'] * c_val):,.0f}"
+                self.safe_update()
+            except ValueError:
+                pass
+
+        def on_tipo_change(e):
+            n_tipo = e.control.value
+            it["tipo_ajuste"] = "AJUSTE_ENTRADA" if n_tipo == "ENTRADA" else "AJUSTE_SALIDA"
+            if n_tipo == "ENTRADA":
+                opts = ["Sobrante de Inventario", "Donación Entrante", "Devolución Cliente", "Otro (Entrada)"]
+                it["motivo_ui"] = "Sobrante de Inventario"
+            else:
+                opts = ["Consumo Cliente (Cortesía)", "Daño / Merma", "Vencimiento", "Pérdida", "Consumo Familiar", "Donación Saliente", "Otro (Salida)"]
+                it["motivo_ui"] = "Consumo Cliente (Cortesía)"
+            drop_motivo_item.options = [ft.dropdown.Option(x) for x in opts]
+            drop_motivo_item.value = it["motivo_ui"]
+            self.safe_update()
+
+        def on_motivo_change(e):
+            it["motivo_ui"] = e.control.value
+            it["tipo_ajuste"] = self.mapa_motivos.get(it["motivo_ui"], it["tipo_ajuste"])
+            self.safe_update()
+
+        txt_cant_item = ft.TextField(
+            label="Cantidad",
+            value=str(int(it["cantidad"]) if it["cantidad"].is_integer() else it["cantidad"]),
+            width=95,
+            height=38,
+            dense=True,
+            text_size=12,
+            border_radius=8,
+            text_align=ft.TextAlign.RIGHT,
+            on_change=on_cant_change
+        )
+
+        drop_tipo_item = ft.Dropdown(
+            label="Tipo",
+            options=[ft.dropdown.Option("ENTRADA"), ft.dropdown.Option("SALIDA")],
+            value="ENTRADA" if es_entrada else "SALIDA",
+            width=110,
+            height=38,
+            dense=True,
+            text_size=11,
+            border_radius=8,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
+            on_change=on_tipo_change
+        )
+
+        motivos_disp = ["Sobrante de Inventario", "Donación Entrante", "Devolución Cliente", "Otro (Entrada)"] if es_entrada else ["Consumo Cliente (Cortesía)", "Daño / Merma", "Vencimiento", "Pérdida", "Consumo Familiar", "Donación Saliente", "Otro (Salida)"]
+        drop_motivo_item = ft.Dropdown(
+            label="Motivo",
+            options=[ft.dropdown.Option(m) for m in motivos_disp],
+            value=it["motivo_ui"] if it["motivo_ui"] in motivos_disp else motivos_disp[0],
+            expand=True,
+            height=38,
+            dense=True,
+            text_size=11,
+            border_radius=8,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
+            on_change=on_motivo_change
+        )
+
+        txt_costo_item = ft.TextField(
+            label="Costo U. ($)",
+            value=str(int(it["costo_unitario"]) if it["costo_unitario"].is_integer() else it["costo_unitario"]),
+            width=115,
+            height=38,
+            dense=True,
+            text_size=12,
+            border_radius=8,
+            text_align=ft.TextAlign.RIGHT,
+            on_change=on_costo_change
+        )
+
+        val_impacto = it["cantidad"] * it["costo_unitario"]
+        txt_impacto = ft.Text(f"${val_impacto:,.0f}", size=13, weight="bold", color="green" if es_entrada else "red")
+
+        fila_detalles = ft.Row([
+            txt_cant_item,
+            drop_tipo_item,
+            drop_motivo_item,
+            txt_costo_item,
+            ft.Column([
+                ft.Text("Total Impacto:", size=10, color="grey600"),
+                txt_impacto
+            ], spacing=0, alignment=ft.MainAxisAlignment.CENTER)
+        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+        # 4. Observación y Botón de Guardado Individual
+        def on_obs_change(e):
+            it["observacion"] = e.control.value
+
+        txt_obs_item = ft.TextField(
+            label="Observación (Opcional)",
+            value=it.get("observacion", ""),
+            expand=True,
+            height=36,
+            dense=True,
+            text_size=11,
+            border_radius=8,
+            on_change=on_obs_change
+        )
+
+        btn_guardar_item = ft.ElevatedButton(
+            "Guardar Ajuste",
+            icon=ft.icons.CHECK_ROUNDED,
+            bgcolor=Config.COLOR_PRIMARY if es_valido else "grey400",
+            color="white",
+            height=34,
+            disabled=not es_valido,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=7)),
+            on_click=lambda e, i_id=item_id: self.guardar_item_escaneado(i_id)
+        )
+
+        fila_acciones = ft.Row([
+            txt_obs_item,
+            btn_guardar_item
+        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+        return ft.Container(
+            content=ft.Column([
+                fila_cabecera,
+                contenedor_buscador,
+                fila_detalles,
+                fila_acciones
+            ], spacing=8),
+            bgcolor="white",
+            padding=12,
+            border_radius=8,
+            border=ft.border.all(1, "#86EFAC" if es_valido else "#FDE68A"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.04, "black"))
+        )
+
+    def _seleccionar_insumo_para_item_escaneado(self, item_id: str, insumo_dict: dict):
+        for it in self.items_escaneados:
+            if it["id"] == item_id:
+                cod = str(insumo_dict.get("codigo_insumo"))
+                nom = str(insumo_dict.get("nombre"))
+                costo = float(insumo_dict.get("costo_unitario") or 0.0)
+
+                # Si el costo es 0, intentar buscar última compra
+                if costo <= 0:
+                    try:
+                        res_c = self.db._db.get(f"registro_compras?codigo_insumo=eq.{cod}&order=fecha.desc&limit=1&select=costo_unitario", timeout=4)
+                        if res_c and res_c.status_code == 200 and res_c.json():
+                            costo = float(res_c.json()[0].get("costo_unitario") or 0.0)
+                    except Exception:
+                        pass
+
+                it["codigo_insumo"] = cod
+                it["nombre"] = nom
+                it["costo_unitario"] = costo
+                it["estado_validacion"] = "VALIDO"
+                break
+
+        self.renderizar_lista_escaneados()
+
+    def descartar_item_escaneado(self, item_id: str):
+        self.items_escaneados = [x for x in self.items_escaneados if x["id"] != item_id]
+        self.renderizar_lista_escaneados()
+
+    def limpiar_lista_escaneados(self, e=None):
+        self.items_escaneados.clear()
+        self.renderizar_lista_escaneados()
+
+    def guardar_item_escaneado(self, item_id: str):
+        target = None
+        for it in self.items_escaneados:
+            if it["id"] == item_id:
+                target = it
+                break
+
+        if not target:
+            return
+
+        cod = target.get("codigo_insumo", "").strip()
+        cant = float(target.get("cantidad", 0))
+        costo = float(target.get("costo_unitario", 0))
+        motivo_ui = target.get("motivo_ui", "Otro (Salida)")
+        tipo_bd = self.mapa_motivos.get(motivo_ui, "AJUSTE_SALIDA")
+        obs = target.get("observacion", "").strip() or motivo_ui
+        fecha_val = target.get("fecha") or get_hoy_local_str()
+
+        if not cod:
+            self.mostrar_alerta("Debes seleccionar un insumo con código válido antes de guardar.", "orange")
+            return
+
+        if cant <= 0:
+            self.mostrar_alerta("La cantidad ajustada debe ser mayor a cero.", "red")
+            return
+
+        datos = {
+            "codigo_insumo": cod,
+            "tipo_ajuste": tipo_bd,
+            "cantidad": cant,
+            "costo_unitario_congelado": costo,
+            "costo_total_ajuste": cant * costo,
+            "motivo_observacion": obs,
+            "fecha_ajuste": fecha_val,
+            "estado_registro": "VÁLIDO"
+        }
+
+        if self.db.insert_ajuste_individual(datos):
+            registrar_accion(
+                accion=f"Registro de ajuste OCR ({tipo_bd}) para insumo [{cod}]: {cant} unds (Motivo: {motivo_ui})",
+                modulo="AJUSTES",
+                detalles=datos
+            )
+            self.descartar_item_escaneado(item_id)
+            self.mostrar_alerta(f"Ajuste [{cod}] guardado exitosamente.", "green")
+            self.load_data()
+        else:
+            self.mostrar_alerta(f"Error al guardar ajuste [{cod}] en la base de datos.", "red")
+
+    def guardar_todos_escaneados_validados(self, e=None):
+        validados = [x for x in self.items_escaneados if x["estado_validacion"] == "VALIDO" and x["cantidad"] > 0]
+        if not validados:
+            self.mostrar_alerta("No hay registros validados listos para guardar.", "orange")
+            return
+
+        lista_insert = []
+        for v in validados:
+            cod = v["codigo_insumo"].strip()
+            cant = float(v["cantidad"])
+            costo = float(v["costo_unitario"])
+            motivo_ui = v.get("motivo_ui", "Otro (Salida)")
+            tipo_bd = self.mapa_motivos.get(motivo_ui, "AJUSTE_SALIDA")
+            obs = v.get("observacion", "").strip() or motivo_ui
+            fecha_val = v.get("fecha") or get_hoy_local_str()
+
+            lista_insert.append({
+                "codigo_insumo": cod,
+                "tipo_ajuste": tipo_bd,
+                "cantidad": cant,
+                "costo_unitario_congelado": costo,
+                "costo_total_ajuste": cant * costo,
+                "motivo_observacion": obs,
+                "fecha_ajuste": fecha_val,
+                "estado_registro": "VÁLIDO"
+            })
+
+        if self.db.insert_ajustes_masivo(lista_insert):
+            ids_guardados = {x["id"] for x in validados}
+            self.items_escaneados = [x for x in self.items_escaneados if x["id"] not in ids_guardados]
+            registrar_accion(
+                accion=f"Guardado masivo OCR de {len(lista_insert)} ajustes de inventario",
+                modulo="AJUSTES",
+                detalles={"conteo": len(lista_insert)}
+            )
+            self.renderizar_lista_escaneados()
+            self.mostrar_alerta(f"¡{len(lista_insert)} ajustes guardados exitosamente!", "green")
+            self.load_data()
+        else:
+            self.mostrar_alerta("Error al guardar el lote de ajustes en la base de datos.", "red")
+
