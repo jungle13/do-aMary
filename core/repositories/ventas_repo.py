@@ -10,6 +10,7 @@ from core.database import BaseDatabase
 from core.logger import get_logger, log_error
 from core.audit_logger import registrar_accion
 from core.repositories.insumos_repo import InsumosRepository
+from core.repositories.clientes_repo import ClientesRepository
 
 logger = get_logger("VentasRepo")
 
@@ -18,6 +19,7 @@ class VentasRepository:
     def __init__(self, db: BaseDatabase | None = None):
         self.db = db or BaseDatabase()
         self.insumos_repo = InsumosRepository(self.db)
+        self.clientes_repo = ClientesRepository(self.db)
 
     def get_ventas(
         self,
@@ -237,11 +239,20 @@ class VentasRepository:
             return False
 
     def insert_ventas(self, ventas_list: list) -> bool:
-        """Inserta ventas por lotes y sincroniza precios de catálogo concurrentemente en background."""
+        """Inserta ventas por lotes optimizados y sincroniza clientes y catálogo masivamente."""
         if not ventas_list:
             return True
+
+        # 1. Asegurar y sincronizar todos los clientes de las ventas en 1 sola consulta batch
+        self.clientes_repo.asegurar_clientes_existen(ventas_list)
+
+        # 2. Construir payload en memoria ultrarrápido
         payload = []
         for v in ventas_list:
+            nom_cli = self.clientes_repo.normalizar_nombre_cliente(v.get("cliente") or v.get("nombre_cliente"))
+            cli_obj = self.clientes_repo.get_or_create_cliente(nom_cli)
+            id_cli = cli_obj.get("id_cliente")
+
             venta = {
                 "fecha": v.get("fecha"),
                 "factura_no": str(v.get("factura_no") or v.get("numero_factura", "")),
@@ -252,20 +263,36 @@ class VentasRepository:
                 "iva": float(v.get("iva", 0) or 0),
                 "total": float(v.get("total") if v.get("total") is not None else (v.get("costo_total", 0) or 0)),
                 "tipo_documento": str(v.get("tipo_documento", "Factura POS")),
-                "pagina_origen": int(v.get("pagina_origen", 1))
+                "pagina_origen": int(v.get("pagina_origen", 1)),
+                "cliente": nom_cli
             }
+            if id_cli:
+                venta["id_cliente"] = id_cli
             payload.append(venta)
 
         try:
+            # 3. Asegurar existencia de insumos en lote
             self.insumos_repo.asegurar_insumos_existen(payload)
-            chunk_size = 100
+
+            # 4. Inserción masiva en chunks grandes de 500 registros
+            chunk_size = 500
             for i in range(0, len(payload), chunk_size):
                 chunk = payload[i:i + chunk_size]
-                res = self.db.post("registro_ventas", json_data=chunk, timeout=30)
+                res = self.db.post("registro_ventas", json_data=chunk, timeout=40)
                 if not (res and res.status_code in (200, 201, 204)):
+                    # Si falla por columna cliente/id_cliente aún no presente en Supabase, reintentar sin ellas
                     err = res.text if res else "No response"
-                    logger.error(f"Error en insert_ventas chunk {i}: {err}")
-                    return False
+                    logger.warning(f"Error en chunk con cliente ({err}), reintentando formato base...")
+                    chunk_fallback = []
+                    for item in chunk:
+                        c_copy = dict(item)
+                        c_copy.pop("cliente", None)
+                        c_copy.pop("id_cliente", None)
+                        chunk_fallback.append(c_copy)
+                    res_fb = self.db.post("registro_ventas", json_data=chunk_fallback, timeout=40)
+                    if not (res_fb and res_fb.status_code in (200, 201, 204)):
+                        logger.error(f"Error crítico en insert_ventas: {res_fb.text if res_fb else 'No res'}")
+                        return False
 
             # Desduplicar y actualizar precio_venta en catalogo_insumos concurrentemente
             precios_map = {}

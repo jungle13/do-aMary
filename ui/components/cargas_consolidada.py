@@ -310,6 +310,17 @@ class CargasConsolidadaView(ft.Container):
             self.carga_data["facturas"].pop(f_idx)
             self._actualizar_contenido()
 
+        def guardar_esta_factura(e, f=fact):
+            if self.on_save_callback:
+                self.on_save_callback([f])
+
+        btn_guardar_individual = ft.IconButton(
+            icon=ft.icons.SAVE_ROUNDED,
+            icon_color="green700",
+            tooltip="Guardar solo este documento",
+            on_click=guardar_esta_factura
+        )
+
         btn_expand = ft.IconButton(
             icon=ft.icons.KEYBOARD_ARROW_UP_ROUNDED if is_expanded else ft.icons.KEYBOARD_ARROW_DOWN_ROUNDED,
             tooltip="Colapsar" if is_expanded else "Ver Insumos",
@@ -336,6 +347,7 @@ class CargasConsolidadaView(ft.Container):
             ),
             ft.Text(f"${total_val:,.2f}", weight="bold", size=13, color="teal800"),
             badge_estado,
+            btn_guardar_individual,
             btn_expand,
             btn_eliminar
         ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER)

@@ -270,6 +270,12 @@ def parse_ventas_remisiones_diarias(pdf_source: Union[str, bytes, io.BytesIO]) -
                 val_tot = parse_colombian_number(m_tot.group(1))
                 facturas_dict[current_rem_num]['total_factura'] = val_tot
                 continue
+
+            if current_rem_num and facturas_dict[current_rem_num]['cliente'] in ('', 'Clientes Varios'):
+                if not re.search(r'^(?:COD:|TOTAL:|SUBTOTAL|TIPO\s+NUMERO|PP\s+\d+)', line_str, re.IGNORECASE) and not re.match(r'^\d{3,5}', line_str):
+                    c_cand = clean_text(line_str)
+                    if c_cand and len(c_cand) > 2 and not any(kw in c_cand.upper() for kw in ('VALOR', 'PRECIO', 'CANTIDAD', 'PAGINA', 'FECHA')):
+                        facturas_dict[current_rem_num]['cliente'] = c_cand
                 
             m_subt = re.search(r'SUBTOTAL\s+([\d.,]+)', line_str, re.IGNORECASE)
             if m_subt:

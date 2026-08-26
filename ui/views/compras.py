@@ -1220,11 +1220,22 @@ class ComprasView(ft.Container):
             self.dlg_loading.open = False
             
             if exito:
-                self.vista_cargas_consolidada.set_data(None)
-                self.tabs.selected_index = 0 # Volver a la tabla principal de compras
+                total_en_vista = len(self.vista_cargas_consolidada.carga_data.get("facturas", [])) if (self.vista_cargas_consolidada and self.vista_cargas_consolidada.carga_data) else 0
+                if len(facturas_seleccionadas) >= total_en_vista or total_en_vista == 0:
+                    self.vista_cargas_consolidada.set_data(None)
+                    self.tabs.selected_index = 0 # Volver a la tabla principal de compras
+                else:
+                    facs_guardadas = set(str(f.get('numero_factura') or f.get('numero_entrada')) for f in facturas_seleccionadas)
+                    if self.vista_cargas_consolidada.carga_data and "facturas" in self.vista_cargas_consolidada.carga_data:
+                        self.vista_cargas_consolidada.carga_data["facturas"] = [
+                            f for f in self.vista_cargas_consolidada.carga_data["facturas"]
+                            if str(f.get('numero_factura') or f.get('numero_entrada')) not in facs_guardadas
+                        ]
+                        self.vista_cargas_consolidada._actualizar_contenido()
+
                 self.load_data()
                 self.load_summary()
-                self.mostrar_alerta(f"✓ {len(facturas_seleccionadas)} documentos ({len(payload)} insumos) guardados exitosamente.", "green700")
+                self.mostrar_alerta(f"✓ {len(facturas_seleccionadas)} documento(s) ({len(payload)} insumos) guardados exitosamente.", "green700")
             else:
                 self.mostrar_alerta("Error al guardar compras en la base de datos.", "red")
         except Exception as ex:

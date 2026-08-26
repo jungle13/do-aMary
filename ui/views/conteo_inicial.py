@@ -613,13 +613,155 @@ class ConteoInicialView(ft.Container):
 
     def abrir_modal_qr(self, e):
         iniciar_servidor_en_hilo(port=8550)
-        url = self.mobile_service.get_server_url(port=8550)
-        qr_b64 = self.mobile_service.get_qr_base64(port=8550)
+        url_local = self.mobile_service.get_server_url(port=8550)
+        qr_local_b64 = self.mobile_service.get_qr_base64(port=8550)
+
+        modo_actual = "LOCAL"
+
+        img_qr = ft.Image(src_base64=qr_local_b64, width=190, height=190, fit=ft.ImageFit.CONTAIN)
+        txt_url = ft.Text(url_local, size=12, weight="bold", color=Config.COLOR_ACCENT, selectable=True, expand=True)
+        badge_status_text = ft.Text("Servidor Web Activo en Red Local", size=11, weight="bold", color=Config.COLOR_SUCCESS)
+        badge_status_dot = ft.Container(width=8, height=8, bgcolor=Config.COLOR_SUCCESS, border_radius=4)
+        txt_explicacion = ft.Text(
+            f"Apunta con la cámara de cualquier teléfono conectado al Wi-Fi para registrar el stock inicial de {self.mes_seleccionado}.",
+            size=11, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.CENTER
+        )
+        
+        loading_tunnel = ft.Container(
+            content=ft.Row([
+                ft.ProgressRing(width=16, height=16, stroke_width=2, color=Config.COLOR_ACCENT),
+                ft.Text("Iniciando túnel seguro Cloudflare...", size=11, color=Config.COLOR_PRIMARY, weight="w500")
+            ], alignment=ft.MainAxisAlignment.CENTER, spacing=8),
+            visible=False
+        )
+
+        btn_activar_tunnel = ft.ElevatedButton(
+            "🌐 Activar Acceso por Internet (Cloudflare)",
+            icon=ft.icons.CLOUD_SYNC_ROUNDED,
+            bgcolor=Config.COLOR_PRIMARY,
+            color="white",
+            height=34,
+            visible=False,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+        )
+
+        def actualizar_vista_modo():
+            nonlocal modo_actual
+            if modo_actual == "LOCAL":
+                btn_tab_local.bgcolor = Config.COLOR_PRIMARY
+                btn_tab_local.color = "white"
+                btn_tab_internet.bgcolor = "#F1F5F9"
+                btn_tab_internet.color = "grey800"
+                
+                img_qr.src_base64 = qr_local_b64
+                img_qr.visible = True
+                txt_url.value = url_local
+                badge_status_text.value = "Servidor Web Activo en Red Local"
+                badge_status_text.color = Config.COLOR_SUCCESS
+                badge_status_dot.bgcolor = Config.COLOR_SUCCESS
+                txt_explicacion.value = f"Apunta con la cámara de cualquier teléfono conectado al Wi-Fi de bodega ({self.mes_seleccionado})."
+                loading_tunnel.visible = False
+                btn_activar_tunnel.visible = False
+            else:
+                btn_tab_local.bgcolor = "#F1F5F9"
+                btn_tab_local.color = "grey800"
+                btn_tab_internet.bgcolor = Config.COLOR_PRIMARY
+                btn_tab_internet.color = "white"
+                
+                pub_url = self.mobile_service.get_public_url()
+                if pub_url:
+                    qr_pub_b64 = self.mobile_service.get_qr_base64(custom_url=pub_url)
+                    img_qr.src_base64 = qr_pub_b64
+                    img_qr.visible = True
+                    txt_url.value = pub_url
+                    badge_status_text.value = "Enlace Cloudflare HTTPS Activo (Datos Móviles / 4G)"
+                    badge_status_text.color = "#2563EB"
+                    badge_status_dot.bgcolor = "#2563EB"
+                    txt_explicacion.value = "Escanea desde cualquier celular con datos móviles (4G/5G) o fuera del local."
+                    loading_tunnel.visible = False
+                    btn_activar_tunnel.visible = False
+                else:
+                    img_qr.visible = False
+                    txt_url.value = "Túnel no iniciado"
+                    badge_status_text.value = "Listo para conectar túnel seguro"
+                    badge_status_text.color = "orange800"
+                    badge_status_dot.bgcolor = "orange800"
+                    txt_explicacion.value = "Presiona el botón para generar un enlace público temporal con HTTPS."
+                    loading_tunnel.visible = False
+                    btn_activar_tunnel.visible = True
+            
+            if self.page:
+                self.page.update()
+
+        def on_activar_tunnel_click(ev):
+            btn_activar_tunnel.visible = False
+            loading_tunnel.visible = True
+            loading_tunnel.content.controls[1].value = "Iniciando túnel seguro Cloudflare..."
+            if self.page:
+                self.page.update()
+
+            def _on_ready(pub_url):
+                actualizar_vista_modo()
+
+            def _on_status(st, msg):
+                loading_tunnel.content.controls[1].value = msg
+                if self.page:
+                    self.page.update()
+
+            def _on_error(err_msg):
+                loading_tunnel.visible = False
+                btn_activar_tunnel.visible = True
+                if self.page:
+                    self.page.snack_bar = ft.SnackBar(ft.Text(f"Error en túnel: {err_msg}"), bgcolor="red")
+                    self.page.snack_bar.open = True
+                    self.page.update()
+
+            self.mobile_service.start_public_tunnel(
+                port=8550,
+                on_ready=_on_ready,
+                on_status=_on_status,
+                on_error=_on_error
+            )
+
+        btn_activar_tunnel.on_click = on_activar_tunnel_click
+
+        def set_modo_local(ev):
+            nonlocal modo_actual
+            modo_actual = "LOCAL"
+            actualizar_vista_modo()
+
+        def set_modo_internet(ev):
+            nonlocal modo_actual
+            modo_actual = "INTERNET"
+            pub_url = self.mobile_service.get_public_url()
+            if not pub_url:
+                on_activar_tunnel_click(None)
+            else:
+                actualizar_vista_modo()
+
+        btn_tab_local = ft.ElevatedButton(
+            "🏠 Wi-Fi Local",
+            bgcolor=Config.COLOR_PRIMARY,
+            color="white",
+            height=32,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), padding=ft.padding.symmetric(horizontal=12)),
+            on_click=set_modo_local
+        )
+
+        btn_tab_internet = ft.ElevatedButton(
+            "🌐 Datos Móviles (4G/5G)",
+            bgcolor="#F1F5F9",
+            color="grey800",
+            height=32,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), padding=ft.padding.symmetric(horizontal=12)),
+            on_click=set_modo_internet
+        )
 
         def copiar_url(ev):
-            if self.page:
-                self.page.set_clipboard(url)
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"Enlace copiado al portapapeles: {url}"), bgcolor=Config.COLOR_SUCCESS)
+            current_url = txt_url.value
+            if self.page and current_url and current_url.startswith("http"):
+                self.page.set_clipboard(current_url)
+                self.page.snack_bar = ft.SnackBar(ft.Text(f"Enlace copiado: {current_url}"), bgcolor=Config.COLOR_SUCCESS)
                 self.page.snack_bar.open = True
                 self.page.update()
 
@@ -634,14 +776,15 @@ class ConteoInicialView(ft.Container):
         dlg = ft.AlertDialog(
             title=ft.Row([
                 ft.Icon(ft.icons.PHONE_ANDROID_ROUNDED, color=Config.COLOR_ACCENT),
-                ft.Text("Conteo Móvil Wi-Fi (Bodega)", size=16, weight="bold", color=Config.COLOR_PRIMARY)
+                ft.Text("Conteo Móvil Multi-Dispositivo", size=16, weight="bold", color=Config.COLOR_PRIMARY)
             ]),
             content=ft.Column([
+                ft.Row([btn_tab_local, btn_tab_internet], alignment=ft.MainAxisAlignment.CENTER, spacing=8),
                 ft.Row([
                     ft.Container(
                         content=ft.Row([
-                            ft.Container(width=8, height=8, bgcolor=Config.COLOR_SUCCESS, border_radius=4),
-                            ft.Text("Servidor Activo en Red Local", size=11, weight="bold", color=Config.COLOR_SUCCESS)
+                            badge_status_dot,
+                            badge_status_text
                         ], spacing=6),
                         padding=ft.padding.symmetric(horizontal=10, vertical=4),
                         bgcolor=Config.COLOR_SUCCESS_BG,
@@ -649,8 +792,10 @@ class ConteoInicialView(ft.Container):
                         border=ft.border.all(1, ft.colors.with_opacity(0.3, Config.COLOR_SUCCESS))
                     )
                 ], alignment=ft.MainAxisAlignment.CENTER),
+                loading_tunnel,
+                btn_activar_tunnel,
                 ft.Container(
-                    content=ft.Image(src_base64=qr_b64, width=190, height=190, fit=ft.ImageFit.CONTAIN),
+                    content=img_qr,
                     alignment=ft.alignment.center,
                     padding=10,
                     bgcolor="white",
@@ -660,7 +805,7 @@ class ConteoInicialView(ft.Container):
                 ft.Container(
                     content=ft.Row([
                         ft.Icon(ft.icons.LINK_ROUNDED, size=16, color=Config.COLOR_ACCENT),
-                        ft.Text(url, size=13, weight="bold", color=Config.COLOR_ACCENT, selectable=True),
+                        txt_url,
                         ft.IconButton(icon=ft.icons.COPY_ALL_ROUNDED, icon_size=18, tooltip="Copiar enlace", on_click=copiar_url)
                     ], alignment=ft.MainAxisAlignment.CENTER),
                     padding=ft.padding.symmetric(horizontal=10, vertical=4),
@@ -668,11 +813,8 @@ class ConteoInicialView(ft.Container):
                     border=ft.border.all(1, Config.COLOR_BORDER),
                     border_radius=8
                 ),
-                ft.Text(
-                    f"Apunta con la cámara de cualquier teléfono conectado al Wi-Fi para registrar el stock inicial de {self.mes_seleccionado} sin cables.",
-                    size=11, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.CENTER
-                )
-            ], tight=True, spacing=10, width=380, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                txt_explicacion
+            ], tight=True, spacing=10, width=400, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             actions=[
                 ft.TextButton("Copiar Enlace", on_click=copiar_url),
                 ft.ElevatedButton("Cerrar", bgcolor=Config.COLOR_PRIMARY, color="white", on_click=lambda e: cerrar_dialogo(dlg))

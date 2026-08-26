@@ -20,6 +20,7 @@ def build():
         'core.gemini_parser',
         'core.mobile_server',
         'core.mobile_service',
+        'core.tunnel_manager',
         'zoneinfo',
         'tzdata',
         'core.repositories.compras_repo',
@@ -27,12 +28,15 @@ def build():
         'core.repositories.insumos_repo',
         'core.repositories.usuarios_repo',
         'core.repositories.cierres_repo',
+        'core.repositories.clientes_repo',
+        'core.repositories.cartera_repo',
         'ui.app',
         'ui.layout.sidebar',
         'ui.views.login',
         'ui.views.inventario',
         'ui.views.compras',
         'ui.views.ventas',
+        'ui.views.cartera',
         'ui.views.ajustes_inventario',
         'ui.views.cierre_inventario',
         'ui.views.conteo_inicial',
@@ -52,6 +56,8 @@ def build():
         'google.generativeai',
         'dotenv',
         'requests',
+        'pypdf',
+        'plotly',
     ]
 
     cmd = [

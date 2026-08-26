@@ -13,6 +13,7 @@ import qrcode
 from config import Config
 from core.database import BaseDatabase
 from core.logger import get_logger, log_error
+from core.tunnel_manager import TunnelManager
 
 logger = get_logger("MobileService")
 
@@ -29,6 +30,7 @@ class MobileCountingService:
             cls._instance.catalogo_cache = []
             cls._instance.last_cache_update = None
             cls._instance.historial_reciente = []
+            cls._instance.tunnel_manager = TunnelManager()
         return cls._instance
 
     def get_local_ip(self) -> str:
@@ -45,9 +47,13 @@ class MobileCountingService:
     def get_server_url(self, port: int = 8550) -> str:
         return f"http://{self.get_local_ip()}:{port}"
 
-    def get_qr_base64(self, port: int = 8550) -> str:
-        """Genera un código QR en base64 de la URL local para escanear con el celular."""
-        url = self.get_server_url(port)
+    def get_public_url(self) -> str | None:
+        """Retorna la URL pública HTTPS de Cloudflare si el túnel está activo."""
+        return self.tunnel_manager.get_public_url()
+
+    def get_qr_base64(self, port: int = 8550, custom_url: str = None) -> str:
+        """Genera un código QR en base64 de la URL indicada o de la IP local."""
+        url = custom_url or self.get_server_url(port)
         qr = qrcode.QRCode(version=1, box_size=8, border=2)
         qr.add_data(url)
         qr.make(fit=True)
@@ -56,6 +62,14 @@ class MobileCountingService:
         buf = io.BytesIO()
         img.save(buf)
         return base64.b64encode(buf.getvalue()).decode('utf-8')
+
+    def start_public_tunnel(self, port: int = 8550, on_ready=None, on_status=None, on_error=None):
+        """Inicia el túnel seguro de Cloudflare en segundo plano."""
+        self.tunnel_manager.start_tunnel(port=port, on_ready=on_ready, on_status=on_status, on_error=on_error)
+
+    def stop_public_tunnel(self):
+        """Detiene el túnel seguro de Cloudflare."""
+        self.tunnel_manager.stop_tunnel()
 
     def autenticar_operario(self, usuario: str, clave: str) -> dict | None:
         """Verifica credenciales del usuario para acceso a la Web Móvil."""

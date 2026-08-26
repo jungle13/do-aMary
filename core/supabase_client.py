@@ -9,6 +9,8 @@ from core.repositories.compras_repo import ComprasRepository
 from core.repositories.ventas_repo import VentasRepository
 from core.repositories.cierres_repo import CierresRepository
 from core.repositories.usuarios_repo import UsuariosRepository
+from core.repositories.clientes_repo import ClientesRepository
+from core.repositories.cartera_repo import CarteraRepository
 
 logger = get_logger("SupabaseClient")
 
@@ -39,6 +41,8 @@ class SupabaseClient:
         self.ventas_repo = VentasRepository(self._db)
         self.cierres_repo = CierresRepository(self._db)
         self.usuarios_repo = UsuariosRepository(self._db)
+        self.clientes_repo = ClientesRepository(self._db)
+        self.cartera_repo = CarteraRepository(self._db)
 
     def check_connection(self):
         return self._db.check_connection()

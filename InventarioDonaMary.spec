@@ -6,7 +6,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[('.env', '.')],
-    hiddenimports=['core', 'core.fecha_utils', 'core.supabase_client', 'core.database', 'core.audit_logger', 'core.logger', 'core.excel_manager', 'core.gemini_parser', 'core.mobile_server', 'core.mobile_service', 'zoneinfo', 'tzdata', 'core.repositories.compras_repo', 'core.repositories.ventas_repo', 'core.repositories.insumos_repo', 'core.repositories.usuarios_repo', 'core.repositories.cierres_repo', 'ui.app', 'ui.layout.sidebar', 'ui.views.login', 'ui.views.inventario', 'ui.views.compras', 'ui.views.ventas', 'ui.views.ajustes_inventario', 'ui.views.cierre_inventario', 'ui.views.conteo_inicial', 'ui.views.dashboard', 'ui.views.informes', 'ui.components.autocomplete', 'ui.components.forms', 'ui.components.metric_card', 'supabase', 'postgrest', 'gotrue', 'realtime', 'storage3', 'httpx', 'pandas', 'openpyxl', 'google.generativeai', 'dotenv', 'requests'],
+    hiddenimports=['core', 'core.fecha_utils', 'core.supabase_client', 'core.database', 'core.audit_logger', 'core.logger', 'core.excel_manager', 'core.gemini_parser', 'core.mobile_server', 'core.mobile_service', 'zoneinfo', 'tzdata', 'core.repositories.compras_repo', 'core.repositories.ventas_repo', 'core.repositories.insumos_repo', 'core.repositories.usuarios_repo', 'core.repositories.cierres_repo', 'ui.app', 'ui.layout.sidebar', 'ui.views.login', 'ui.views.inventario', 'ui.views.compras', 'ui.views.ventas', 'ui.views.ajustes_inventario', 'ui.views.cierre_inventario', 'ui.views.conteo_inicial', 'ui.views.dashboard', 'ui.views.informes', 'ui.components.autocomplete', 'ui.components.forms', 'ui.components.metric_card', 'supabase', 'postgrest', 'gotrue', 'realtime', 'storage3', 'httpx', 'pandas', 'openpyxl', 'google.generativeai', 'dotenv', 'requests', 'pypdf', 'plotly'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    version='C:/Users/Home/AppData/Local/Temp/91087239-6e9c-477a-a0af-cd76078c3e23',
+    version='C:/Users/Home/AppData/Local/Temp/2f6b78f2-5ea4-471c-89f8-b047399b92eb',
 )

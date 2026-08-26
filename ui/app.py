@@ -5,6 +5,7 @@ from ui.views.dashboard import DashboardView
 from ui.views.inventario import InventarioView
 from ui.views.compras import ComprasView
 from ui.views.ventas import VentasView
+from ui.views.cartera import CarteraView
 from ui.views.cierre_inventario import CierreInventarioView
 from ui.views.conteo_inicial import ConteoInicialView
 from ui.views.ajustes_inventario import AjustesInventarioView
@@ -86,6 +87,7 @@ class AppLayout(ft.Row):
                 elif route_name == "inventario": self.views[route_name] = InventarioView()
                 elif route_name == "compras": self.views[route_name] = ComprasView()
                 elif route_name == "ventas": self.views[route_name] = VentasView()
+                elif route_name == "cartera": self.views[route_name] = CarteraView()
                 elif route_name == "conteo": self.views[route_name] = ConteoInicialView()
                 elif route_name == "ajustes_inventario": self.views[route_name] = AjustesInventarioView()
                 elif route_name == "cierre_mes": self.views[route_name] = CierreInventarioView()

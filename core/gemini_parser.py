@@ -424,42 +424,42 @@ class GeminiParser:
             class FacturaVenta(TypedDict):
                 fecha: str
                 numero_factura: str
+                cliente: str
                 productos: list[ProductoVenta]
             
             if tipo_documento == "Factura POS":
                 prompt = """
-                Extrae los datos de ventas formato POS de este documento y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
-                Solo se requiere el numero de factura, codigo insumo, cantidad y precio unitario.
-                NO extraigas fechas (el sistema las asignará), ni nombres de clientes.
+                Extrae los datos de ventas formato POS (Facturas Diarias / WXManager) de este documento y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
                 
                 REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
-                1. BLOQUES DE FACTURA: Cada factura inicia debajo de la palabra "TIPO NUMERO" con el prefijo "PP" seguido del número (ej. "PP 26396"). Extrae SOLO los números.
-                2. PRODUCTOS: Debajo de "Clientes Varios", cada línea de producto tiene 3 valores separados por espacios. 
+                1. BLOQUES DE FACTURA: Cada factura inicia debajo de la palabra "TIPO NUMERO" con el prefijo "PP" seguido del número (ej. "PP 26396"). Extrae SOLO el número en "numero_factura".
+                2. CLIENTE: Extrae el nombre del cliente que aparece en la misma línea de 'PP XXXXX' o en la línea inmediatamente inferior (donde habitualmente dice 'Clientes Varios' o el nombre particular del cliente/empresa si fue registrado). Si no aparece o dice 'Clientes Varios', asigna 'CLIENTES VARIOS'.
+                3. PRODUCTOS: Debajo del cliente, cada línea de producto tiene 3 valores separados por espacios:
                    - "codigo_item": El primer número de la línea (ej. 2151).
                    - "cantidad": El segundo número (ej. 50.00).
                    - "precio_unitario": El tercer número (ej. 1900.00).
-                3. CÁLCULOS OBLIGATORIOS PARA EL JSON:
+                4. CÁLCULOS OBLIGATORIOS PARA EL JSON:
                    - "subtotal": DEBES multiplicar la "cantidad" por el "precio_unitario".
                    - "iva": Siempre será 0.0 para este formato.
                    - "costo_total": Será exactamente igual al "subtotal".
-                4. FORMATO NUMÉRICO: Todo valor monetario o cantidad debe ser número (float). Usa puntos (.) solo para decimales. NO uses comas.
+                5. FORMATO NUMÉRICO: Todo valor monetario o cantidad debe ser número (float). Usa puntos (.) solo para decimales. NO uses comas.
                 """
             else:
                 prompt = """
-                Extrae TODOS los datos de TODAS las páginas de este fragmento del reporte de facturas y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
-                NO extraigas el nombre del cliente ni la descripción del producto. Limítate a los datos numéricos y códigos.
+                Extrae TODOS los datos de TODAS las páginas de este reporte de facturas / remisiones y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
                 
                 REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
                 1. BLOQUES: Cada bloque de venta inicia con "Fact.No." seguido del número de factura. Procesa TODOS los que encuentres.
-                2. FECHA Y FACTURA: La "fecha" suele estar en la misma línea que el "Fact.No.". Extrae el número de factura.
-                3. PRODUCTOS: Extrae cada línea de insumo hasta llegar a "Total Factura:".
-                4. CAMPOS POR PRODUCTO:
+                2. CLIENTE: Ubica el encabezado de cada factura y extrae el texto que está inmediatamente después de "Cliente:" (ej. "Cliente: RESTAURANTE EL PAISA", "Cliente: JUAN PEREZ", "Cliente: Clientes Varios"). Si no figura o dice varios, asigna "CLIENTES VARIOS".
+                3. FECHA Y FACTURA: La "fecha" suele estar en la misma línea que el "Fact.No." después de "Fecha:". Extrae el número de factura en "numero_factura".
+                4. PRODUCTOS: Extrae cada línea de insumo hasta llegar a "Total Factura:".
+                5. CAMPOS POR PRODUCTO:
                    - "codigo_item": Código al extremo izquierdo.
                    - "cantidad": Dato bajo la columna 'Cantidad'.
                    - "subtotal": Dato bajo la columna 'Subtotal'. NO HAGAS NINGÚN CÁLCULO.
                    - "iva": Dato bajo la columna 'IVA' (Si está vacía, pon 0.0).
                    - "costo_total": Dato bajo la columna 'Total'.
-                5. FORMATO NUMÉRICO: Usa puntos (.) solo para decimales. NO uses comas (,).
+                6. FORMATO NUMÉRICO: Usa puntos (.) solo para decimales. NO uses comas (,).
                 """
             
             writer = PdfWriter()
