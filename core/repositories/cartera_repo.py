@@ -61,10 +61,11 @@ class CarteraRepository:
         self,
         search: str = "",
         filtro_saldo: str = "TODOS",
-        fecha_filtro: str = ""
+        fecha_filtro: str = "",
+        filtro_tipo_doc: str = "TODOS"
     ) -> tuple[dict, list[dict], list[dict]]:
         """
-        Descarga registro_ventas UNA SOLA VEZ y calcula en una pasada:
+        Descarga registro_ventas paginado con get_all y calcula en una pasada:
         - KPIs globales de cartera (total_ventas, total_recaudado, saldo, etc.)
         - Lista de clientes con saldos individuales para el panel izquierdo.
         - Lista de documentos (Remisiones & POS) con saldos individuales calculados FIFO.
@@ -80,14 +81,18 @@ class CarteraRepository:
             "clientes_con_deuda": 0
         }
         try:
-            # ─── 1. Una sola descarga de ventas ─────────────────────────────
-            res_v = self.db.get(
-                "registro_ventas?select=cliente,factura_no,fecha,total,tipo_documento",
-                timeout=15
+            # ─── 1. Descarga completa de ventas paginada ────────────────────
+            ventas_data = self.db.get_all(
+                "registro_ventas?select=cliente,factura_no,fecha,total,tipo_documento"
             )
-            ventas_data = res_v.json() if (res_v and res_v.status_code == 200) else []
 
-            # ─── 2. Pagos y detalles deduplicados (llamadas HTTP) ────────────
+            # Filtrar por Tipo de Documento si aplica
+            if filtro_tipo_doc == "REMISIÓN":
+                ventas_data = [v for v in ventas_data if "REMISIÓN" in str(v.get("tipo_documento") or "").upper()]
+            elif filtro_tipo_doc in ("FACTURA_POS", "POS"):
+                ventas_data = [v for v in ventas_data if "POS" in str(v.get("tipo_documento") or "").upper()]
+
+            # ─── 2. Pagos y detalles desde Supabase ─────────────────────────
             pagos_data = self._get_todos_pagos_deduplicados()
             detalles_data = self._get_detalles_deduplicados()
 
@@ -97,34 +102,18 @@ class CarteraRepository:
                 f_no = str(d.get("factura_no"))
                 abonos_directos_doc[f_no] = abonos_directos_doc.get(f_no, 0.0) + float(d.get("monto_aplicado") or 0.0)
 
-            # ─── 3. Catálogo de clientes (1 llamada HTTP) ────────────────────
-            res_c = self.db.get(
-                "clientes?select=id_cliente,nombre,telefono,direccion",
-                timeout=8
-            )
-            clientes_catalogo = {
-                c.get("nombre"): c
-                for c in (res_c.json() if res_c and res_c.status_code == 200 else [])
-            }
+            # ─── 3. Catálogo de clientes ────────────────────────────────────
+            res_c = self.db.get("clientes?select=id_cliente,nombre,telefono,direccion", timeout=8)
+            clientes_catalogo = {}
+            if res_c and res_c.status_code == 200 and res_c.json():
+                for c in res_c.json():
+                    nom_n = self.clientes_repo.normalizar_nombre_cliente(c.get("nombre"))
+                    clientes_catalogo[nom_n] = c
 
             # ─── 4. Consolidar ventas por cliente y por documento ────────────
             clientes_map: dict[str, dict] = {}
             documentos_map: dict[str, dict] = {}
 
-            # Inicializar con catálogo
-            for nom, c_data in clientes_catalogo.items():
-                clientes_map[nom] = {
-                    "id_cliente": c_data.get("id_cliente"),
-                    "nombre": nom,
-                    "telefono": c_data.get("telefono") or "",
-                    "total_facturado": 0.0,
-                    "total_abonado": 0.0,
-                    "saldo_pendiente": 0.0,
-                    "cantidad_facturas": 0,
-                    "facturas_set": set(),
-                    "ultima_fecha_venta": "",
-                    "estado": "AL_DIA"
-                }
 
             total_ventas = 0.0
 
@@ -266,6 +255,9 @@ class CarteraRepository:
             resultado_clientes = []
 
             for nom, c_obj in clientes_map.items():
+                if nom in clientes_catalogo:
+                    c_obj["id_cliente"] = clientes_catalogo[nom].get("id_cliente") or c_obj.get("id_cliente")
+                    c_obj["telefono"] = clientes_catalogo[nom].get("telefono") or c_obj.get("telefono") or ""
                 facturas_list = list(c_obj.pop("facturas_set", set()))
                 c_obj["facturas_list"] = facturas_list
                 c_obj["cantidad_facturas"] = len(facturas_list)

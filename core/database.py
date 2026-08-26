@@ -1,4 +1,4 @@
-﻿"""
+"""
 Módulo base de conexión HTTP con Supabase PostgREST.
 Proporciona manejo de sesiones, timeouts y logging centralizado de errores.
 """
@@ -63,6 +63,26 @@ class BaseDatabase:
         except Exception as ex:
             log_error(f"GET {endpoint}", ex)
             return None
+
+    def get_all(self, endpoint: str, page_size: int = 1000, timeout: int = 15) -> list[dict]:
+        """Descarga todos los registros paginados de un endpoint PostgREST."""
+        all_rows = []
+        offset = 0
+        sep = "&" if "?" in endpoint else "?"
+        while True:
+            p_endpoint = f"{endpoint}{sep}limit={page_size}&offset={offset}"
+            res = self.get(p_endpoint, timeout=timeout)
+            if not res or res.status_code != 200:
+                break
+            data = res.json()
+            if not data or not isinstance(data, list):
+                break
+            all_rows.extend(data)
+            if len(data) < page_size:
+                break
+            offset += page_size
+        return all_rows
+
 
     def post(self, endpoint: str, json_data: dict | list | None = None, custom_headers: dict | None = None, timeout: int = 10) -> requests.Response | None:
         try:

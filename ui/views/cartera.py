@@ -34,8 +34,10 @@ class CarteraView(ft.Container):
         self.historial_pagos = []
         self.cuotas_cliente = []
         self.filtro_saldo_actual = "TODOS"
+        self.filtro_tipo_doc_actual = "TODOS"
         self.busqueda_actual = ""
         self.fecha_filtro = ""
+        self.filtros_expandidos = True
         self.tab_activo = 0
         self._is_loading = False
         self._is_loading_subdatos = False
@@ -68,7 +70,7 @@ class CarteraView(ft.Container):
             self.card_clientes_deuda
         ], spacing=10, alignment=ft.MainAxisAlignment.START)
 
-        # 2. Panel Izquierdo: Rediseño Compacto (2 Niveles: Vista + Buscador/Fecha + Chips)
+        # 2. Panel Izquierdo: Rediseño Modular con Minimódulo de Filtros Colapsable
         self.seg_modo_vista = ft.SegmentedButton(
             selected={"CLIENTES"},
             allow_multiple_selection=False,
@@ -85,10 +87,126 @@ class CarteraView(ft.Container):
                 ),
             ],
             height=32,
+            expand=True,
             on_change=self._on_modo_vista_change
         )
 
-        # Buscador + Botón de Calendario Integrado
+        self.btn_toggle_filtros = ft.IconButton(
+            icon=ft.icons.TUNE_ROUNDED,
+            icon_size=17,
+            icon_color=Config.COLOR_PRIMARY,
+            tooltip="Ocultar / Mostrar filtros avanzados",
+            bgcolor=ft.colors.with_opacity(0.08, Config.COLOR_PRIMARY),
+            width=32,
+            height=32,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), padding=0),
+            on_click=self._toggle_filtros
+        )
+
+        # Chips de Estado
+        self.chip_todos = ft.Chip(
+            label=ft.Text("Todos", size=9.5),
+            selected=True,
+            on_select=lambda e: self._on_chip_filtro_select("TODOS")
+        )
+        self.chip_con_deuda = ft.Chip(
+            label=ft.Text("Con Deuda", size=9.5),
+            selected=False,
+            on_select=lambda e: self._on_chip_filtro_select("CON_DEUDA")
+        )
+        self.chip_al_dia = ft.Chip(
+            label=ft.Text("Al Día", size=9.5),
+            selected=False,
+            on_select=lambda e: self._on_chip_filtro_select("AL_DIA")
+        )
+
+        # Chips de Tipo de Documento
+        self.chip_tipo_todos = ft.Chip(
+            label=ft.Text("Todos", size=9.5),
+            selected=True,
+            on_select=lambda e: self._on_chip_tipo_select("TODOS")
+        )
+        self.chip_tipo_remision = ft.Chip(
+            label=ft.Text("Remisión", size=9.5),
+            selected=False,
+            on_select=lambda e: self._on_chip_tipo_select("REMISIÓN")
+        )
+        self.chip_tipo_pos = ft.Chip(
+            label=ft.Text("Factura POS", size=9.5),
+            selected=False,
+            on_select=lambda e: self._on_chip_tipo_select("FACTURA_POS")
+        )
+
+        # Filtro de Fecha
+        self.date_picker = ft.DatePicker(
+            on_change=self._on_date_picked,
+            help_text="Seleccionar fecha de factura"
+        )
+
+        self.btn_date_icon = ft.OutlinedButton(
+            text="Elegir fecha",
+            icon=ft.icons.CALENDAR_MONTH_ROUNDED,
+            height=28,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=6),
+                padding=ft.padding.symmetric(horizontal=8, vertical=2)
+            ),
+            on_click=self._abrir_date_picker
+        )
+
+        self.lbl_fecha_filtro = ft.Text("", size=9.5, weight="bold", color=Config.COLOR_PRIMARY)
+        self.btn_limpiar_fecha = ft.IconButton(
+            icon=ft.icons.CLOSE_ROUNDED,
+            icon_size=12,
+            icon_color="red600",
+            tooltip="Quitar filtro de fecha",
+            width=18,
+            height=18,
+            style=ft.ButtonStyle(padding=0),
+            on_click=self._limpiar_fecha
+        )
+
+        self.chip_fecha_activa = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.EVENT_ROUNDED, size=11, color=Config.COLOR_PRIMARY),
+                self.lbl_fecha_filtro,
+                self.btn_limpiar_fecha
+            ], spacing=2, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor=ft.colors.with_opacity(0.12, Config.COLOR_PRIMARY),
+            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+            border_radius=10,
+            visible=False
+        )
+
+        # Minimódulo de Filtros (Organizado en hileras con su propio fondo)
+        self.contenedor_filtros = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Text("Estado:", size=9.5, weight="bold", color="grey700", width=42),
+                    self.chip_todos,
+                    self.chip_con_deuda,
+                    self.chip_al_dia
+                ], spacing=3, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Row([
+                    ft.Text("Tipo:", size=9.5, weight="bold", color="grey700", width=42),
+                    self.chip_tipo_todos,
+                    self.chip_tipo_remision,
+                    self.chip_tipo_pos
+                ], spacing=3, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Row([
+                    ft.Text("Fecha:", size=9.5, weight="bold", color="grey700", width=42),
+                    self.btn_date_icon,
+                    self.chip_fecha_activa
+                ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ], spacing=4),
+            bgcolor="#F8FAFC",
+            border=ft.border.all(1, Config.COLOR_BORDER),
+            border_radius=8,
+            padding=ft.padding.symmetric(horizontal=8, vertical=6),
+            visible=True
+        )
+
+        # Buscador en fila completa debajo del minimódulo de filtros
         self.txt_buscador = ft.TextField(
             hint_text="Buscar cliente o No. doc...",
             prefix_icon=ft.icons.SEARCH_ROUNDED,
@@ -103,73 +221,6 @@ class CarteraView(ft.Container):
             expand=True
         )
 
-        self.date_picker = ft.DatePicker(
-            on_change=self._on_date_picked,
-            help_text="Seleccionar fecha de factura"
-        )
-
-        self.btn_date_icon = ft.IconButton(
-            icon=ft.icons.CALENDAR_MONTH_ROUNDED,
-            icon_size=18,
-            icon_color=Config.COLOR_PRIMARY,
-            tooltip="Filtrar por fecha",
-            bgcolor=ft.colors.with_opacity(0.08, Config.COLOR_PRIMARY),
-            width=36,
-            height=36,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), padding=0),
-            on_click=self._abrir_date_picker
-        )
-
-        # Chips de Estado Rápidos
-        self.chip_todos = ft.Chip(
-            label=ft.Text("Todos", size=10),
-            selected=True,
-            on_select=lambda e: self._on_chip_filtro_select("TODOS")
-        )
-        self.chip_con_deuda = ft.Chip(
-            label=ft.Text("Con Deuda", size=10),
-            selected=False,
-            on_select=lambda e: self._on_chip_filtro_select("CON_DEUDA")
-        )
-        self.chip_al_dia = ft.Chip(
-            label=ft.Text("Al Día", size=10),
-            selected=False,
-            on_select=lambda e: self._on_chip_filtro_select("AL_DIA")
-        )
-
-        # Indicador de Fecha Activa Compacto
-        self.lbl_fecha_filtro = ft.Text("", size=10, weight="bold", color=Config.COLOR_PRIMARY)
-        self.btn_limpiar_fecha = ft.IconButton(
-            icon=ft.icons.CLOSE_ROUNDED,
-            icon_size=13,
-            icon_color="red600",
-            tooltip="Quitar filtro de fecha",
-            width=20,
-            height=20,
-            style=ft.ButtonStyle(padding=0),
-            on_click=self._limpiar_fecha
-        )
-
-        self.chip_fecha_activa = ft.Container(
-            content=ft.Row([
-                ft.Icon(ft.icons.EVENT_ROUNDED, size=12, color=Config.COLOR_PRIMARY),
-                self.lbl_fecha_filtro,
-                self.btn_limpiar_fecha
-            ], spacing=2, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor=ft.colors.with_opacity(0.12, Config.COLOR_PRIMARY),
-            padding=ft.padding.symmetric(horizontal=6, vertical=2),
-            border_radius=12,
-            visible=False
-        )
-
-        self.fila_chips = ft.Row([
-            ft.Text("Estado:", size=10, color="grey600", weight="bold"),
-            self.chip_todos,
-            self.chip_con_deuda,
-            self.chip_al_dia,
-            self.chip_fecha_activa
-        ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO)
-
         self.lista_clientes_view = ft.ListView(
             expand=True,
             spacing=6,
@@ -178,9 +229,9 @@ class CarteraView(ft.Container):
 
         self.col_izquierda = ft.Container(
             content=ft.Column([
-                ft.Row([self.seg_modo_vista], alignment=ft.MainAxisAlignment.CENTER),
-                ft.Row([self.txt_buscador, self.btn_date_icon], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                self.fila_chips,
+                ft.Row([self.seg_modo_vista, self.btn_toggle_filtros], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                self.contenedor_filtros,
+                ft.Row([self.txt_buscador], expand=False),
                 ft.Divider(height=1, color=Config.COLOR_BORDER),
                 self.lista_clientes_view
             ], expand=True, spacing=6),
@@ -190,6 +241,7 @@ class CarteraView(ft.Container):
             border_radius=12,
             border=ft.border.all(1, Config.COLOR_BORDER)
         )
+
 
 
 
@@ -316,7 +368,8 @@ class CarteraView(ft.Container):
                 kpis, clientes, documentos = self.cartera_repo.get_resumen_cartera(
                     search=self.busqueda_actual,
                     filtro_saldo=self.filtro_saldo_actual,
-                    fecha_filtro=self.fecha_filtro
+                    fecha_filtro=self.fecha_filtro,
+                    filtro_tipo_doc=self.filtro_tipo_doc_actual
                 )
                 self.kpis_data = kpis
                 self.clientes_lista = clientes
@@ -500,6 +553,13 @@ class CarteraView(ft.Container):
             )
             self.lista_clientes_view.controls.append(item_card)
 
+    def _toggle_filtros(self, e=None):
+        self.filtros_expandidos = not self.filtros_expandidos
+        self.contenedor_filtros.visible = self.filtros_expandidos
+        self.btn_toggle_filtros.icon = ft.icons.KEYBOARD_ARROW_UP_ROUNDED if self.filtros_expandidos else ft.icons.TUNE_ROUNDED
+        self.btn_toggle_filtros.bgcolor = ft.colors.with_opacity(0.14, Config.COLOR_PRIMARY) if self.filtros_expandidos else ft.colors.with_opacity(0.04, Config.COLOR_PRIMARY)
+        self.safe_update()
+
     def _on_search_change(self, e):
         self.busqueda_actual = e.control.value
         self.load_data()
@@ -510,6 +570,14 @@ class CarteraView(ft.Container):
         self.chip_al_dia.selected = (valor == "AL_DIA")
         self.filtro_saldo_actual = valor
         self.load_data()
+
+    def _on_chip_tipo_select(self, valor: str):
+        self.chip_tipo_todos.selected = (valor == "TODOS")
+        self.chip_tipo_remision.selected = (valor == "REMISIÓN")
+        self.chip_tipo_pos.selected = (valor in ("FACTURA_POS", "POS"))
+        self.filtro_tipo_doc_actual = valor
+        self.load_data()
+
 
     def _abrir_date_picker(self, e):
         if self.page:
