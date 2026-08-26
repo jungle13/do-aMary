@@ -278,3 +278,169 @@ class SupabaseClient:
 
     def aprobar_cierre_mes(self, id_periodo: str, aprobado_por: str) -> dict:
         return self.cierres_repo.aprobar_cierre_mes(id_periodo, aprobado_por)
+
+    def get_detalle_diario_mes(self, mes: str) -> dict:
+        """
+        Descarga en paralelo los registros del mes para construir la vista
+        de Resumen Financiero por Día del Dashboard.
+
+        Retorna un dict con claves por día 'YYYY-MM-DD', cada una con:
+        {
+            'ventas_total': float,
+            'ventas_pos': float,
+            'ventas_remision': float,
+            'iva_ventas': float,
+            'compras': float,
+            'iva_compras': float,
+            'recaudado': float,
+            'recaudado_efectivo': float,
+            'recaudado_banco': float,
+            'ajustes_entrada_costo': float,
+            'ajustes_salida_costo': float,
+            'ajustes_entrada_count': int,
+            'ajustes_salida_count': int,
+        }
+
+        Args:
+            mes: Periodo en formato 'YYYY-MM'.
+
+        Returns:
+            Diccionario de días con KPIs financieros diarios.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        resultado: dict = {}
+
+        def _fetch_ventas():
+            try:
+                res = self._db.get_all(
+                    f"registro_ventas?select=fecha,total,iva,tipo_documento,estado_registro"
+                    f"&fecha=gte.{mes}-01&fecha=lt.{_mes_siguiente(mes)}-01"
+                    f"&estado_registro=neq.ANULADO"
+                )
+                return res or []
+            except Exception as ex:
+                log_error("get_detalle_diario_mes._fetch_ventas", ex)
+                return []
+
+        def _fetch_compras():
+            try:
+                res = self._db.get_all(
+                    f"registro_compras?select=fecha,costo_total,iva,valor_iva,estado_registro"
+                    f"&fecha=gte.{mes}-01&fecha=lt.{_mes_siguiente(mes)}-01"
+                    f"&estado_registro=neq.ANULADO"
+                )
+                return res or []
+            except Exception as ex:
+                log_error("get_detalle_diario_mes._fetch_compras", ex)
+                return []
+
+        def _fetch_pagos():
+            try:
+                res = self._db.get_all(
+                    f"pagos_cartera?select=fecha_pago,monto_total,metodo_pago,estado_registro"
+                    f"&fecha_pago=gte.{mes}-01&fecha_pago=lt.{_mes_siguiente(mes)}-01"
+                    f"&estado_registro=neq.ANULADO"
+                )
+                return res or []
+            except Exception as ex:
+                log_error("get_detalle_diario_mes._fetch_pagos", ex)
+                return []
+
+        def _fetch_ajustes():
+            try:
+                res = self._db.get_all(
+                    f"registro_ajustes_inventario"
+                    f"?select=fecha_ajuste,tipo_ajuste,costo_total_ajuste,estado_registro"
+                    f"&fecha_ajuste=gte.{mes}-01&fecha_ajuste=lt.{_mes_siguiente(mes)}-01"
+                    f"&estado_registro=neq.ANULADO"
+                )
+                return res or []
+            except Exception as ex:
+                log_error("get_detalle_diario_mes._fetch_ajustes", ex)
+                return []
+
+        def _mes_siguiente(m: str) -> str:
+            anio, mon = int(m[:4]), int(m[5:7])
+            if mon == 12:
+                return f"{anio + 1}-01"
+            return f"{anio}-{mon + 1:02d}"
+
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            f_v = ex.submit(_fetch_ventas)
+            f_c = ex.submit(_fetch_compras)
+            f_p = ex.submit(_fetch_pagos)
+            f_a = ex.submit(_fetch_ajustes)
+            ventas_raw = f_v.result()
+            compras_raw = f_c.result()
+            pagos_raw = f_p.result()
+            ajustes_raw = f_a.result()
+
+        _vacio = lambda: {
+            "ventas_total": 0.0, "ventas_pos": 0.0, "ventas_remision": 0.0,
+            "iva_ventas": 0.0, "compras": 0.0, "iva_compras": 0.0,
+            "recaudado": 0.0, "recaudado_efectivo": 0.0, "recaudado_banco": 0.0,
+            "ajustes_entrada_costo": 0.0, "ajustes_salida_costo": 0.0,
+            "ajustes_entrada_count": 0, "ajustes_salida_count": 0,
+        }
+
+        def _dia_key(fecha_str: str) -> str:
+            """Extrae la parte de fecha 'YYYY-MM-DD' de un timestamp."""
+            return str(fecha_str or "")[:10]
+
+        for v in ventas_raw:
+            dia = _dia_key(v.get("fecha", ""))
+            if not dia or not dia.startswith(mes):
+                continue
+            if dia not in resultado:
+                resultado[dia] = _vacio()
+            total = float(v.get("total") or 0.0)
+            iva = float(v.get("iva") or 0.0)
+            tipo = str(v.get("tipo_documento") or "").upper()
+            resultado[dia]["ventas_total"] += total
+            resultado[dia]["iva_ventas"] += iva
+            if "POS" in tipo:
+                resultado[dia]["ventas_pos"] += total
+            else:
+                resultado[dia]["ventas_remision"] += total
+
+        for c in compras_raw:
+            dia = _dia_key(c.get("fecha", ""))
+            if not dia or not dia.startswith(mes):
+                continue
+            if dia not in resultado:
+                resultado[dia] = _vacio()
+            costo = float(c.get("costo_total") or 0.0)
+            iva = float(c.get("valor_iva") or c.get("iva") or 0.0)
+            resultado[dia]["compras"] += costo
+            resultado[dia]["iva_compras"] += iva
+
+        for p in pagos_raw:
+            dia = _dia_key(p.get("fecha_pago", ""))
+            if not dia or not dia.startswith(mes):
+                continue
+            if dia not in resultado:
+                resultado[dia] = _vacio()
+            monto = float(p.get("monto_total") or 0.0)
+            metodo = str(p.get("metodo_pago") or "").upper()
+            resultado[dia]["recaudado"] += monto
+            if "EFECTIVO" in metodo or "CASH" in metodo:
+                resultado[dia]["recaudado_efectivo"] += monto
+            else:
+                resultado[dia]["recaudado_banco"] += monto
+
+        for a in ajustes_raw:
+            dia = _dia_key(a.get("fecha_ajuste", ""))
+            if not dia or not dia.startswith(mes):
+                continue
+            if dia not in resultado:
+                resultado[dia] = _vacio()
+            costo = float(a.get("costo_total_ajuste") or 0.0)
+            tipo = str(a.get("tipo_ajuste") or "").upper()
+            if "ENTRADA" in tipo or "SOBRANTE" in tipo:
+                resultado[dia]["ajustes_entrada_costo"] += costo
+                resultado[dia]["ajustes_entrada_count"] += 1
+            else:
+                resultado[dia]["ajustes_salida_costo"] += costo
+                resultado[dia]["ajustes_salida_count"] += 1
+
+        return resultado

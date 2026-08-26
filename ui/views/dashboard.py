@@ -105,6 +105,18 @@ class DashboardView(ft.Container):
             ft.Container(content=self._build_kpi_card("Cumplimiento Hoy", self.val_cumplimiento_hoy, ft.icons.CHECK_CIRCLE_OUTLINE_ROUNDED, subtext_control=self.sub_cumplimiento_hoy, card_color="#0d9488"), col={"xs": 12, "sm": 6, "md": 3}),
         ], spacing=12, run_spacing=12)
         
+        # SECCIÓN CARTERA (Total Recaudado y Saldo por Cobrar)
+        self.val_total_recaudado = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
+        self.sub_total_recaudado = ft.Text("Recaudo efectivo y bancos", size=10, color="grey600")
+
+        self.val_saldo_por_cobrar = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
+        self.sub_saldo_por_cobrar = ft.Text("Cartera pendiente a clientes", size=10, color="grey600")
+
+        self.kpi_cartera_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("Total Recaudado (Cartera)", self.val_total_recaudado, ft.icons.SAVINGS_ROUNDED, subtext_control=self.sub_total_recaudado, card_color="#059669"), col={"xs": 12, "sm": 6, "md": 6}),
+            ft.Container(content=self._build_kpi_card("Saldo por Cobrar (Cartera)", self.val_saldo_por_cobrar, ft.icons.WARNING_AMBER_ROUNDED, subtext_control=self.sub_saldo_por_cobrar, card_color="#d97706"), col={"xs": 12, "sm": 6, "md": 6}),
+        ], spacing=12, run_spacing=12)
+
         # Paso 3: Barra de Métricas Secundarias
         self.val_meta_diaria = ft.Text("$ 0 / día", size=13, weight="bold", color="teal700")
 
@@ -185,6 +197,7 @@ class DashboardView(ft.Container):
             header_kpis_row,
             self.kpi_costos_row,
             self.kpi_ventas_row,
+            self.kpi_cartera_row,
             self.kpi_secundarios
         ], spacing=10)
 
@@ -390,18 +403,15 @@ class DashboardView(ft.Container):
             table_ventas_container,
             table_costos_container
         ], spacing=15, run_spacing=15)
-        
+
         # Indicador de carga superior
         self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
 
-        # 2. Main content Column
-        self.content = ft.Column([
-            self.progress_bar, 
-            header_row,
-            ft.Divider(height=10, color="transparent"),
+        # ── TAB 1: Contenido del Resumen General (vista actual) ──────────────
+        self.tab1_content = ft.Column([
             self.seccion_kpis,
             ft.Divider(height=10, color="transparent"),
-            self.seccion_impuestos, # <-- Ubicación antes del impacto de ajustes
+            self.seccion_impuestos,
             ft.Divider(height=10, color="transparent"),
             self.seccion_ajustes,
             ft.Divider(height=10, color="transparent"),
@@ -410,8 +420,96 @@ class DashboardView(ft.Container):
             self.chart_container,
             ft.Divider(height=10, color="transparent"),
             self.tables_row,
-            ft.Container(height=30) # Bottom padding
+            ft.Container(height=30)
         ], scroll=ft.ScrollMode.AUTO, expand=True)
+
+        # ── TAB 2: Resumen Financiero por Día ────────────────────────────────
+        self.dias_grid = ft.ResponsiveRow(columns=12, spacing=14, run_spacing=14)
+        self._dias_cargados = False
+
+        self._tab2_loading = ft.Row(
+            [ft.ProgressRing(width=28, height=28, color=Config.COLOR_PRIMARY),
+             ft.Text("Cargando resumen diario...", size=13, color="grey600")],
+            alignment=ft.MainAxisAlignment.CENTER,
+            visible=False
+        )
+
+        self.tab2_content = ft.Column([
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.CALENDAR_MONTH_ROUNDED, size=20, color=Config.COLOR_PRIMARY),
+                    ft.Text("Matriz Financiera Diaria del Mes", size=16, weight="bold",
+                            color=Config.COLOR_PRIMARY),
+                    ft.Container(expand=True),
+                    ft.Text("Indicadores detallados día a día", size=12, color="grey600"),
+                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                bgcolor="white", padding=ft.padding.symmetric(horizontal=16, vertical=12),
+                border_radius=10,
+                border=ft.border.all(1, "#e8edf2"),
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=4,
+                                    color=ft.colors.with_opacity(0.04, "black")),
+                margin=ft.padding.only(bottom=8)
+            ),
+            self._tab2_loading,
+            self.dias_grid,
+            ft.Container(height=40)
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
+
+        # ── Selector de Pestañas (SegmentedButton) ────────────────────────────
+        self.tab_selector = ft.SegmentedButton(
+            selected={"GENERAL"},
+            allow_multiple_selection=False,
+            segments=[
+                ft.Segment(
+                    value="GENERAL",
+                    label=ft.Text("Resumen General", size=12.5, weight="w600"),
+                    icon=ft.Icon(ft.icons.DASHBOARD_ROUNDED, size=16)
+                ),
+                ft.Segment(
+                    value="DIAS",
+                    label=ft.Text("Resumen Financiero por Día", size=12.5, weight="w600"),
+                    icon=ft.Icon(ft.icons.CALENDAR_VIEW_MONTH_ROUNDED, size=16)
+                ),
+            ],
+            height=36,
+            on_change=self._on_tab_selector_change
+        )
+
+        self.tab1_content.visible = True
+        self.tab2_content.visible = False
+
+        # ── Layout raíz ───────────────────────────────────────────────────────
+        self.content = ft.Column([
+            self.progress_bar,
+            header_row,
+            ft.Container(
+                content=ft.Row([
+                    self.tab_selector,
+                    ft.Container(expand=True),
+                ]),
+                margin=ft.padding.only(top=4, bottom=6)
+            ),
+            self.tab1_content,
+            self.tab2_content,
+        ], expand=True)
+
+    def _on_tab_selector_change(self, e) -> None:
+        """Cambia el contenido activo entre Resumen General y Resumen por Día."""
+        sel = "GENERAL"
+        if e and hasattr(e, "control") and e.control.selected:
+            sel = list(e.control.selected)[0]
+
+        self.tab_selector.selected = {sel}
+        self.tab1_content.visible = (sel == "GENERAL")
+        self.tab2_content.visible = (sel == "DIAS")
+
+        # Cargar datos detallados del mes solo cuando la pestaña 'DIAS' es seleccionada por primera vez
+        if sel == "DIAS" and not self._dias_cargados:
+            self._tab2_loading.visible = True
+            self.safe_update()
+            threading.Thread(target=self._fetch_dias_worker, daemon=True).start()
+        else:
+            self.safe_update()
 
     def did_mount(self):
         if not hasattr(self, "overlay_added"):
@@ -420,18 +518,21 @@ class DashboardView(ft.Container):
         self.load_data()
 
     def safe_update(self):
-        """Actualiza la UI solo si el control sigue montado en la página."""
+        """Actualiza la UI con seguridad."""
         try:
-            if self.page and self.uid:
+            if self.page:
                 self.page.update()
+            elif self.uid:
+                self.update()
         except Exception:
             pass
 
     def load_data(self):
         """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
+        self._dias_cargados = False
         self.progress_bar.visible = True
         self.safe_update()
-            
+
         threading.Thread(target=self._fetch_data_worker, daemon=True).start()
 
     def on_fecha_dash_change(self, e):
@@ -512,7 +613,7 @@ class DashboardView(ft.Container):
         return tipos_entrada, tipos_salida, tot_cost_ent, tot_cost_sal, tot_cant_ent, tot_cant_sal, neto
 
     def _fetch_data_worker(self):
-        """Ejecuta todas las llamadas concurrentes con ThreadPoolExecutor y actualiza la UI."""
+        """Ejecuta consultas eficientes para la vista general sin sobrecargar la red ni la UI."""
         try:
             hoy_obj = (
                 datetime.datetime.strptime(self.fecha_filtro_dash, "%Y-%m-%d").date()
@@ -521,8 +622,8 @@ class DashboardView(ft.Container):
             )
             mes_actual = hoy_obj.strftime("%Y-%m")
 
-            # 1. Cargar todas las consultas independientes en paralelo
-            with ThreadPoolExecutor(max_workers=8) as executor:
+            # 1. Cargar consultas esenciales en un pool controlado de máximo 5 hilos
+            with ThreadPoolExecutor(max_workers=5) as executor:
                 f_cierre = executor.submit(self.db.obtener_estado_cierre, mes_actual)
                 f_cat_kpis = executor.submit(self.db.get_rendimiento_categorias_periodo, None, self.fecha_filtro_dash)
                 f_ven = executor.submit(self.db.get_ventas_summary, fecha_corte=self.fecha_filtro_dash)
@@ -532,6 +633,7 @@ class DashboardView(ft.Container):
                 f_tendencia = executor.submit(self.db.get_tendencia_diaria, fecha_corte=self.fecha_filtro_dash)
                 f_top_ventas = executor.submit(self.db.get_top_ventas_mes, limit=10, fecha_corte=self.fecha_filtro_dash)
                 f_top_costos = executor.submit(self.db.get_top_costo_inventario, limit=10, fecha_corte=self.fecha_filtro_dash)
+                f_cartera = executor.submit(self.db.cartera_repo.get_resumen_cartera, fecha_filtro=self.fecha_filtro_dash or "")
 
                 datos_cierre = f_cierre.result() or {}
                 kpis_cat = f_cat_kpis.result() or []
@@ -542,6 +644,7 @@ class DashboardView(ft.Container):
                 tendencia = f_tendencia.result() or {}
                 top_ventas = f_top_ventas.result() or []
                 top_costos = f_top_costos.result() or []
+                res_cartera_kpis, _, _ = f_cartera.result() or ({}, [], [])
 
             # 2. Contexto Temporal y Estado de Periodo
             estado_periodo = datos_cierre.get('periodo', {}).get('estado', 'ABIERTO') if datos_cierre and datos_cierre.get('periodo') else 'ABIERTO'
@@ -582,6 +685,19 @@ class DashboardView(ft.Container):
             self.val_iva_pagado_mes.value = f"$ {iva_pag_mes:,.0f}"
             self.val_iva_pagado_hoy.value = f"$ {iva_pag_hoy:,.0f}"
 
+            # 4. KPIs de Cartera y Recaudos
+            tot_recaudado = float(res_cartera_kpis.get('total_recaudado') or 0.0)
+            tot_efectivo = float(res_cartera_kpis.get('total_efectivo') or 0.0)
+            tot_transferencias = float(res_cartera_kpis.get('total_transferencias') or 0.0)
+            saldo_pendiente = float(res_cartera_kpis.get('total_saldo_pendiente') or 0.0)
+            clientes_deuda = int(res_cartera_kpis.get('clientes_con_deuda') or 0)
+
+            self.val_total_recaudado.value = f"$ {tot_recaudado:,.0f}"
+            self.sub_total_recaudado.value = f"Efectivo: ${tot_efectivo:,.0f} | Bancos: ${tot_transferencias:,.0f}"
+
+            self.val_saldo_por_cobrar.value = f"$ {saldo_pendiente:,.0f}"
+            self.sub_saldo_por_cobrar.value = f"{clientes_deuda} Clientes con saldo pendiente"
+
             rentabilidad = ((ingresos - compras) / ingresos * 100) if ingresos > 0 else 0.0
             self.val_rentabilidad.value = f"{rentabilidad:.1f}%"
             self.val_rentabilidad.color = "teal800" if rentabilidad >= 0 else "red700"
@@ -594,26 +710,23 @@ class DashboardView(ft.Container):
             self.val_proyeccion_rentabilidad.value = f"{proy_rent:.1f}%"
             self.val_proyeccion_rentabilidad.color = "teal800" if proy_rent >= 0 else "red700"
 
-            # Cumplimiento Mes: Ventas acumuladas / (Ventas acumuladas + Proyección Stock)
             meta_total_mes = ingresos + proyeccion_ventas
             pct_cumplimiento_mes = (ingresos / meta_total_mes * 100) if meta_total_mes > 0 else 0.0
             self.val_cumplimiento_mes.value = f"{pct_cumplimiento_mes:.1f}%"
             self.val_cumplimiento_mes.color = "teal800" if pct_cumplimiento_mes >= 100 else ("blue800" if pct_cumplimiento_mes >= 50 else "amber800")
             self.sub_cumplimiento_mes.value = f"Capacidad total: $ {meta_total_mes:,.0f}"
 
-            # Cumplimiento Hoy y Meta Diaria (Uso nativo de calendar)
             dias_en_mes = calendar.monthrange(hoy_obj.year, hoy_obj.month)[1]
             dias_restantes = max(1, dias_en_mes - hoy_obj.day + 1)
             meta_diaria = (proyeccion_ventas / dias_restantes) if dias_restantes > 0 and proyeccion_ventas > 0 else 0.0
             self.val_meta_diaria.value = f"$ {meta_diaria:,.0f} / día"
-            self.val_meta_diaria.tooltip = f"Meta calculada para alcanzar la proyección de stock ($ {proyeccion_ventas:,.0f}) en los {dias_restantes} días restantes del mes"
 
             pct_cumplimiento_hoy = (ventas_hoy / meta_diaria * 100) if meta_diaria > 0 else 0.0
             self.val_cumplimiento_hoy.value = f"{pct_cumplimiento_hoy:.1f}%"
             self.val_cumplimiento_hoy.color = "teal800" if pct_cumplimiento_hoy >= 100 else ("blue800" if pct_cumplimiento_hoy > 0 else "grey700")
             self.sub_cumplimiento_hoy.value = f"Meta diaria: $ {meta_diaria:,.0f}"
 
-            # 4. Clasificación y Renderizado de Ajustes
+            # 5. Ajustes e Indicadores
             tipos_ent, tipos_sal, tot_cost_ent, tot_cost_sal, tot_cant_ent, tot_cant_sal, neto = self._clasificar_ajustes(ajustes_bd)
 
             if neto > 0:
@@ -636,11 +749,6 @@ class DashboardView(ft.Container):
                         ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
                         ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#2ecca0")
                     ])
-                )
-            filas_faltantes = len(tipos_sal) - len(tipos_ent)
-            for _ in range(max(0, filas_faltantes)):
-                self.col_ajustes_entrada.controls.append(
-                    ft.Container(height=18, content=ft.Text(""))
                 )
             self.col_ajustes_entrada.controls.append(ft.Divider(color="black12", height=10))
             self.col_ajustes_entrada.controls.append(
@@ -668,7 +776,7 @@ class DashboardView(ft.Container):
                 ])
             )
 
-            # 5. Gráfico de Barras Comparativo y Tarjetas de Detalle Diario
+            # 6. Gráfico de Barras y Tira Diaria
             meta_diaria_base = (meta_total_mes / dias_en_mes) if (dias_en_mes > 0 and meta_total_mes > 0) else 0.0
             dias_ordenados = sorted(tendencia.keys())
             
@@ -677,7 +785,6 @@ class DashboardView(ft.Container):
             suma_ventas_activos = 0.0
             mejor_dia_fecha = ""
             mejor_dia_venta = 0.0
-
             max_val_y = meta_diaria_base
             bar_groups = []
             etiquetas_x = []
@@ -701,43 +808,20 @@ class DashboardView(ft.Container):
 
                 pct_dia = (v / m * 100) if m > 0 else 0.0
                 col_v = "#10b981" if pct_dia >= 100 else ("#3b82f6" if v > 0 else "#cbd5e1")
-
                 dt = datetime.datetime.strptime(dia, "%Y-%m-%d").date()
-                dias_semana = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-                dia_tag = f"{dias_semana[dt.weekday()]} {dt.day:02d}"
 
-                tt_v = f"{dia} ({dias_semana[dt.weekday()]})\n💰 Ventas: ${v:,.0f} ({pct_dia:.1f}% Meta)"
-                tt_m = f"{dia}\n🎯 Meta: ${m:,.0f}"
-                tt_c = f"{dia}\n🛒 Compras: ${c:,.0f}"
-
-                rod_v = ft.BarChartRod(
-                    from_y=0, to_y=v, color=col_v, width=8,
-                    border_radius=ft.border_radius.vertical(top=4),
-                    tooltip=tt_v
-                )
-                rod_m = ft.BarChartRod(
-                    from_y=0, to_y=m, color="#a78bfa", width=8,
-                    border_radius=ft.border_radius.vertical(top=4),
-                    tooltip=tt_m
-                )
-                rod_c = ft.BarChartRod(
-                    from_y=0, to_y=c, color="#06b6d4", width=8,
-                    border_radius=ft.border_radius.vertical(top=4),
-                    tooltip=tt_c
-                )
+                rod_v = ft.BarChartRod(from_y=0, to_y=v, color=col_v, width=8, border_radius=ft.border_radius.vertical(top=4))
+                rod_m = ft.BarChartRod(from_y=0, to_y=m, color="#a78bfa", width=8, border_radius=ft.border_radius.vertical(top=4))
+                rod_c = ft.BarChartRod(from_y=0, to_y=c, color="#06b6d4", width=8, border_radius=ft.border_radius.vertical(top=4))
 
                 bar_groups.append(ft.BarChartGroup(x=i, bar_rods=[rod_v, rod_m, rod_c]))
                 etiquetas_x.append(
                     ft.ChartAxisLabel(
                         value=i,
-                        label=ft.Container(
-                            content=ft.Text(f"{dt.day:02d}", size=9, color="grey700"),
-                            padding=ft.padding.only(top=5)
-                        )
+                        label=ft.Container(content=ft.Text(f"{dt.day:02d}", size=9, color="grey700"), padding=ft.padding.only(top=5))
                     )
                 )
 
-            # Actualizar Badges de Resumen del Gráfico
             pct_dias_cumplidos = (dias_cumplidos / dias_activos * 100) if dias_activos > 0 else 0.0
             self.badge_dias_cumplidos.value = f"{dias_cumplidos} / {dias_activos} días ({pct_dias_cumplidos:.0f}%)"
             
@@ -749,7 +833,6 @@ class DashboardView(ft.Container):
             self.badge_promedio_diario.value = f"${prom_v:,.0f} / día"
             self.badge_meta_promedio.value = f"${meta_diaria_base:,.0f} / día"
 
-            # Configurar Ejes y Cuadrícula del BarChart
             self.bar_chart.bar_groups = bar_groups
             self.bar_chart.max_y = max_val_y * 1.15 if max_val_y > 0 else 1000.0
 
@@ -768,14 +851,6 @@ class DashboardView(ft.Container):
             self.bar_chart.bottom_axis.labels = etiquetas_x
             self.bar_chart.bottom_axis.labels_interval = 1
 
-            self.bar_chart.horizontal_grid_lines = ft.ChartGridLines(
-                interval=intervalo_y,
-                color=ft.colors.with_opacity(0.05, "black"),
-                width=1,
-                dash_pattern=[4, 4]
-            )
-
-            # Llenar la Tira de Tarjetas Diarias (Daily Tracker)
             self.cards_diarias_row.controls.clear()
             for dia in dias_ordenados:
                 v_dia = float(tendencia[dia]["ventas"])
@@ -783,7 +858,7 @@ class DashboardView(ft.Container):
                 card = self._crear_card_dia(dia, v_dia, c_dia, meta_diaria_base)
                 self.cards_diarias_row.controls.append(card)
 
-            # 6. Tablas y Tarjetas de Rendimiento
+            # 7. Tablas
             self.dt_ventas.rows.clear()
             for item in top_ventas:
                 self.dt_ventas.rows.append(
@@ -816,6 +891,186 @@ class DashboardView(ft.Container):
         finally:
             self.progress_bar.visible = False
             self.safe_update()
+
+    # ─── TAB 2: Carga y Renderizado del Resumen por Día ────────────────────────
+
+    def _render_dias_grid(
+        self,
+        detalle_mes: dict,
+        hoy_obj: datetime.date,
+        meta_diaria: float,
+        costo_inv_global: float,
+    ) -> None:
+        """Construye y agrega las tarjetas de cada día del mes a la cuadrícula."""
+        try:
+            dias_en_mes = calendar.monthrange(hoy_obj.year, hoy_obj.month)[1]
+            dias_semana = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+            cards = []
+            for num_dia in range(1, dias_en_mes + 1):
+                fecha_obj = datetime.date(hoy_obj.year, hoy_obj.month, num_dia)
+                dia_key = fecha_obj.strftime("%Y-%m-%d")
+                datos_dia = detalle_mes.get(dia_key, {})
+                nombre_dia = dias_semana[fecha_obj.weekday()]
+                es_futuro = fecha_obj > hoy_obj
+
+                card = self._build_card_dia_resumen(
+                    fecha_obj=fecha_obj,
+                    nombre_dia=nombre_dia,
+                    datos=datos_dia,
+                    meta_diaria=meta_diaria,
+                    costo_inv_global=costo_inv_global,
+                    es_futuro=es_futuro,
+                )
+                cards.append(
+                    ft.Container(content=card, col={"xs": 12, "sm": 12, "md": 6, "lg": 6})
+                )
+
+            self.dias_grid.controls = cards
+            self._dias_cargados = True
+            self._tab2_loading.visible = False
+        except Exception as ex:
+            import traceback
+            traceback.print_exc()
+
+    def _fetch_dias_worker(self) -> None:
+        """
+        Descarga los datos diarios del mes desde Supabase y renderiza
+        la cuadrícula de tarjetas del Resumen Financiero por Día.
+        """
+        try:
+            self._tab2_loading.visible = True
+            self.safe_update()
+
+            hoy_obj = (
+                datetime.datetime.strptime(self.fecha_filtro_dash, "%Y-%m-%d").date()
+                if self.fecha_filtro_dash
+                else datetime.date.today()
+            )
+            mes_actual = hoy_obj.strftime("%Y-%m")
+            dias_en_mes = calendar.monthrange(hoy_obj.year, hoy_obj.month)[1]
+
+            # Calcular meta diaria
+            try:
+                ing_raw = self.val_ingresos.value.replace("$", "").replace(",", "").strip()
+                ingresos = float(ing_raw) if ing_raw else 0.0
+            except (ValueError, AttributeError):
+                ingresos = 0.0
+
+            try:
+                proyeccion_raw = self.val_proyeccion_ventas.value.replace("$", "").replace(",", "").strip()
+                proyeccion = float(proyeccion_raw) if proyeccion_raw else 0.0
+            except (ValueError, AttributeError):
+                proyeccion = 0.0
+
+            meta_total_mes = ingresos + proyeccion
+            meta_diaria = (meta_total_mes / dias_en_mes) if (dias_en_mes > 0 and meta_total_mes > 0) else ((proyeccion / dias_en_mes) if dias_en_mes > 0 else 0.0)
+
+            # Costo de inventario global (snapshot actual)
+            try:
+                inv_raw = self.val_inventario.value.replace("$", "").replace(",", "").strip()
+                costo_inv_global = float(inv_raw) if inv_raw else 0.0
+            except (ValueError, AttributeError):
+                costo_inv_global = 0.0
+
+            # Descargar detalle diario del mes en paralelo
+            detalle_mes = self.db.get_detalle_diario_mes(mes_actual)
+
+            self._render_dias_grid(detalle_mes, hoy_obj, meta_diaria, costo_inv_global)
+        except Exception as ex:
+            import traceback
+            traceback.print_exc()
+        finally:
+            self._tab2_loading.visible = False
+            self.safe_update()
+
+    def _build_card_dia_resumen(
+        self,
+        fecha_obj: datetime.date,
+        nombre_dia: str,
+        datos: dict,
+        meta_diaria: float,
+        costo_inv_global: float,
+        es_futuro: bool = False,
+    ) -> ft.Container:
+        """Construye una tarjeta liviana y de alto rendimiento para cada día del mes."""
+        v_total = float(datos.get("ventas_total") or 0.0)
+        v_pos = float(datos.get("ventas_pos") or 0.0)
+        v_rem = float(datos.get("ventas_remision") or 0.0)
+        iva_ven = float(datos.get("iva_ventas") or 0.0)
+        compras = float(datos.get("compras") or 0.0)
+        iva_com = float(datos.get("iva_compras") or 0.0)
+        recaudado = float(datos.get("recaudado") or 0.0)
+        rec_efec = float(datos.get("recaudado_efectivo") or 0.0)
+        rec_banco = float(datos.get("recaudado_banco") or 0.0)
+        aj_ent_costo = float(datos.get("ajustes_entrada_costo") or 0.0)
+        aj_sal_costo = float(datos.get("ajustes_salida_costo") or 0.0)
+
+        tiene_datos = bool(datos and (v_total > 0 or compras > 0 or recaudado > 0 or aj_ent_costo > 0 or aj_sal_costo > 0))
+        pct_meta = (v_total / meta_diaria * 100) if meta_diaria > 0 else 0.0
+
+        if es_futuro:
+            badge_txt, badge_bg, badge_col = "Pendiente", "#f1f5f9", "#94a3b8"
+        elif not tiene_datos:
+            badge_txt, badge_bg, badge_col = "Sin datos", "#f8fafc", "#94a3b8"
+        elif pct_meta >= 100:
+            badge_txt, badge_bg, badge_col = f"✓ {pct_meta:.0f}% meta", "#ecfdf5", "#059669"
+        elif pct_meta >= 60:
+            badge_txt, badge_bg, badge_col = f"◑ {pct_meta:.0f}% meta", "#eff6ff", "#2563eb"
+        else:
+            badge_txt, badge_bg, badge_col = f"↓ {pct_meta:.0f}% meta", "#fff7ed", "#c2410c"
+
+        def _fmt(val: float) -> str:
+            return f"${val:,.0f}"
+
+        def _fila_métrica(label: str, valor: str, color_val: str = "black87", subtext: str = None) -> ft.Row:
+            return ft.Row([
+                ft.Text(label, size=11, color="grey700", expand=True),
+                ft.Column([
+                    ft.Text(valor, size=12, weight="bold", color=color_val, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(subtext, size=9, color="grey500", text_align=ft.TextAlign.RIGHT) if subtext else ft.Container()
+                ], spacing=0, horizontal_alignment=ft.CrossAxisAlignment.END)
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+        es_finde = fecha_obj.weekday() >= 5
+        hdr_bg = "#f0fdf4" if (tiene_datos and pct_meta >= 100) else ("#f0f9ff" if es_finde else "#f8fafc")
+
+        return ft.Container(
+            padding=12,
+            bgcolor="white",
+            border_radius=10,
+            border=ft.border.all(1, "#e2e8f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.04, "black")),
+            opacity=0.6 if es_futuro else 1.0,
+            content=ft.Column([
+                # Cabecera del día
+                ft.Container(
+                    padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                    bgcolor=hdr_bg,
+                    border_radius=8,
+                    content=ft.Row([
+                        ft.Row([
+                            ft.Text(f"{nombre_dia}", size=12, weight="bold", color="grey700"),
+                            ft.Text(f"{fecha_obj.day:02d}", size=18, weight="bold", color="black87"),
+                        ], spacing=6),
+                        ft.Container(
+                            content=ft.Text(badge_txt, size=10, weight="bold", color=badge_col),
+                            bgcolor=badge_bg,
+                            padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                            border_radius=12
+                        )
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                ),
+                ft.Divider(height=4, color="transparent"),
+                # Métricas simplificadas en tarjetas de 2 columnas
+                _fila_métrica("Ventas Total:", _fmt(v_total), "teal800", f"POS: {_fmt(v_pos)} | Rem: {_fmt(v_rem)}" if v_total > 0 else None),
+                _fila_métrica("Meta Diaria:", _fmt(meta_diaria), "blue800"),
+                _fila_métrica("Compras del Día:", _fmt(compras), "purple800" if compras > 0 else "grey600"),
+                _fila_métrica("Total Recaudado:", _fmt(recaudado), "green800", f"Efec: {_fmt(rec_efec)} | Banco: {_fmt(rec_banco)}" if recaudado > 0 else None),
+                _fila_métrica("Impuestos (IVA):", f"Gen: {_fmt(iva_ven)}", "blue700", f"Pagado: {_fmt(iva_com)}"),
+                _fila_métrica("Ajustes Inv.:", f"+{_fmt(aj_ent_costo)}", "green700", f"-{_fmt(aj_sal_costo)}" if aj_sal_costo > 0 else None),
+            ], spacing=6)
+        )
+
 
     def _build_kpi_card(self, title, value_control, icon, subtext_control=None, card_color=None):
         accent = card_color or Config.COLOR_ACCENT
@@ -989,6 +1244,9 @@ class DashboardView(ft.Container):
             f"  • Total Ventas (Mes): {self.val_ingresos.value}\n"
             f"  • Ventas (Hoy): {self.val_ventas_hoy.value}\n"
             f"  • Margen Rentabilidad: {self.val_rentabilidad.value}\n\n"
+            f"💳 CARTERA Y RECAUDOS:\n"
+            f"  • Total Recaudado: {self.val_total_recaudado.value}\n"
+            f"  • Saldo por Cobrar: {self.val_saldo_por_cobrar.value}\n\n"
             f"🎯 OBJETIVOS Y PROYECCIONES:\n"
             f"  • Proy. Ventas Stock: {self.val_proyeccion_ventas.value}\n"
             f"  • Proy. Rentabilidad: {self.val_proyeccion_rentabilidad.value}\n"

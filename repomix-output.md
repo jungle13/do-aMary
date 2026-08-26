@@ -52,7 +52,9 @@ backups/
   backup_snapshot_seguridad_20260824_195546.json
 core/
   repositories/
+    cartera_repo.py
     cierres_repo.py
+    clientes_repo.py
     compras_repo.py
     insumos_repo.py
     usuarios_repo.py
@@ -84,6 +86,7 @@ scratch/
   refactor.py
 scripts/
   crear_backup.py
+  crear_tablas_cartera.sql
   restaurar_backup.py
 supabase/
   .gitignore
@@ -110,6 +113,7 @@ ui/
     sidebar.py
   views/
     ajustes_inventario.py
+    cartera.py
     cierre_inventario.py
     compras.py
     conteo_inicial.py
@@ -128,246 +132,11 @@ InventarioDonaMary.spec
 main.py
 openapi.json
 Sistema_Dona_Mary.spec
+skills-lock.json
 supabase_schema.sql
 ````
 
 # Files
-
-## File: core/tunnel_manager.py
-````python
-import os
-import sys
-import re
-import atexit
-import shutil
-import threading
-import subprocess
-import urllib.request
-from typing import Callable, Optional
-from core.logger import get_logger, log_error
-
-logger = get_logger('TunnelManager')
-
-CLOUDFLARED_DOWNLOAD_URL = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe'
-
-class TunnelManager:
-    _instance = None
-    _lock = threading.Lock()
-
-    def __new__(cls):
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super(TunnelManager, cls).__new__(cls)
-                cls._instance._init_manager()
-            return cls._instance
-
-    def _init_manager(self):
-        self.process: Optional[subprocess.Popen] = None
-        self.public_url: Optional[str] = None
-        self.is_running = False
-        self.is_downloading = False
-        self.status = 'DETENIDO'
-        self.status_message = 'Túnel no iniciado'
-        self._reader_thread = None
-        
-        base_dir = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA') or os.path.expanduser('~')
-        self.bin_dir = os.path.join(base_dir, 'DonaMaryApp', 'bin')
-        self.binary_path = os.path.join(self.bin_dir, 'cloudflared.exe')
-
-        atexit.register(self.stop_tunnel)
-
-    def get_binary_path(self) -> Optional[str]:
-        system_bin = shutil.which('cloudflared')
-        if system_bin:
-            return system_bin
-        
-        if os.path.exists(self.binary_path) and os.path.getsize(self.binary_path) > 1000000:
-            return self.binary_path
-
-        return None
-
-    def download_cloudflared(self, on_progress: Optional[Callable[[float, str], None]] = None) -> bool:
-        try:
-            self.is_downloading = True
-            self.status = 'DESCARGANDO'
-            self.status_message = 'Descargando componente de conexión segura...'
-            os.makedirs(self.bin_dir, exist_ok=True)
-
-            logger.info('Descargando cloudflared...')
-            
-            temp_path = self.binary_path + '.tmp'
-            
-            def _reporthook(block_num, block_size, total_size):
-                if total_size > 0:
-                    percent = min(1.0, (block_num * block_size) / total_size)
-                    mb_descargados = (block_num * block_size) / (1024 * 1024)
-                    mb_totales = total_size / (1024 * 1024)
-                    pct_int = int(percent * 100)
-                    msg = f'Descargando Cloudflare Tunnel: {mb_descargados:.1f} MB / {mb_totales:.1f} MB ({pct_int} pct)'
-                    if on_progress:
-                        on_progress(percent, msg)
-
-            urllib.request.urlretrieve(CLOUDFLARED_DOWNLOAD_URL, temp_path, _reporthook)
-
-            if os.path.exists(temp_path) and os.path.getsize(temp_path) > 1000000:
-                if os.path.exists(self.binary_path):
-                    try:
-                        os.remove(self.binary_path)
-                    except Exception:
-                        pass
-                os.rename(temp_path, self.binary_path)
-                logger.info('Cloudflared instalado en cache local.')
-                self.is_downloading = False
-                return True
-            else:
-                raise RuntimeError('Archivo descargado incompleto o corrupto.')
-
-        except Exception as ex:
-            log_error(f'Error descargando cloudflared: {ex}', 'TunnelManager')
-            self.status = 'ERROR'
-            self.status_message = f'Error en descarga: {str(ex)}'
-            self.is_downloading = False
-            return False
-
-    def start_tunnel(
-        self,
-        port: int = 8550,
-        on_ready: Optional[Callable[[str], None]] = None,
-        on_status: Optional[Callable[[str, str], None]] = None,
-        on_error: Optional[Callable[[str], None]] = None
-    ):
-        def _worker():
-            with self._lock:
-                if self.is_running and self.public_url:
-                    if on_ready:
-                        on_ready(self.public_url)
-                    return
-
-                bin_path = self.get_binary_path()
-                if not bin_path:
-                    if on_status:
-                        on_status('DESCARGANDO', 'Preparando módulo de conexión segura (primera vez)...')
-                    
-                    def _progress_cb(pct, msg):
-                        if on_status:
-                            on_status('DESCARGANDO', msg)
-
-                    if not self.download_cloudflared(on_progress=_progress_cb):
-                        if on_error:
-                            on_error('No se pudo descargar el componente Cloudflare Tunnel.')
-                        return
-                    
-                    bin_path = self.get_binary_path()
-
-                if not bin_path or not os.path.exists(bin_path):
-                    if on_error:
-                        on_error('No se encontró el ejecutable de Cloudflare Tunnel.')
-                    return
-
-                self.status = 'CONECTANDO'
-                self.status_message = 'Estableciendo túnel seguro con Cloudflare...'
-                if on_status:
-                    on_status('CONECTANDO', self.status_message)
-
-                try:
-                    cmd = [
-                        bin_path,
-                        'tunnel',
-                        '--url', f'http://127.0.0.1:{port}',
-                        '--no-autoupdate'
-                    ]
-
-                    creationflags = 0
-                    if sys.platform == 'win32':
-                        creationflags = subprocess.CREATE_NO_WINDOW
-
-                    self.process = subprocess.Popen(
-                        cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        bufsize=1,
-                        creationflags=creationflags
-                    )
-
-                    logger.info(f'Proceso cloudflared iniciado (PID: {self.process.pid})')
-
-                    url_found = None
-                    url_pattern = re.compile(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com')
-
-                    def _read_output(stream):
-                        nonlocal url_found
-                        try:
-                            for line in iter(stream.readline, ''):
-                                if not line:
-                                    break
-                                line_str = line.strip()
-                                match = url_pattern.search(line_str)
-                                if match and not url_found:
-                                    url_found = match.group(0)
-                                    self.public_url = url_found
-                                    self.is_running = True
-                                    self.status = 'ACTIVO'
-                                    self.status_message = f'Túnel activo: {self.public_url}'
-                                    logger.info(f'URL Pública Cloudflare Tunnel: {self.public_url}')
-                                    if on_ready:
-                                        on_ready(self.public_url)
-                                    if on_status:
-                                        on_status('ACTIVO', self.status_message)
-                        except Exception:
-                            pass
-
-                    t_err = threading.Thread(target=_read_output, args=(self.process.stderr,), daemon=True)
-                    t_out = threading.Thread(target=_read_output, args=(self.process.stdout,), daemon=True)
-                    t_err.start()
-                    t_out.start()
-
-                    for _ in range(50):
-                        if url_found:
-                            break
-                        if self.process.poll() is not None:
-                            break
-                        threading.Event().wait(0.5)
-
-                    if not url_found:
-                        self.status = 'ERROR'
-                        self.status_message = 'Tiempo de espera agotado al conectar con Cloudflare.'
-                        if on_error:
-                            on_error('No se pudo obtener la dirección pública de Cloudflare a tiempo.')
-                        self.stop_tunnel()
-
-                except Exception as ex:
-                    log_error(f'Error al iniciar proceso de túnel: {ex}', 'TunnelManager')
-                    self.status = 'ERROR'
-                    self.status_message = f'Error: {str(ex)}'
-                    if on_error:
-                        on_error(str(ex))
-                    self.stop_tunnel()
-
-        threading.Thread(target=_worker, daemon=True).start()
-
-    def stop_tunnel(self):
-        with self._lock:
-            if self.process:
-                try:
-                    logger.info(f'Deteniendo Cloudflare Tunnel (PID: {self.process.pid})...')
-                    self.process.terminate()
-                    self.process.wait(timeout=3)
-                except Exception:
-                    try:
-                        self.process.kill()
-                    except Exception:
-                        pass
-                self.process = None
-
-            self.public_url = None
-            self.is_running = False
-            self.status = 'DETENIDO'
-            self.status_message = 'Túnel detenido'
-
-    def get_public_url(self) -> Optional[str]:
-        return self.public_url if self.is_running else None
-````
 
 ## File: .agents/skills/analytics/evals/evals.json
 ````json
@@ -317295,6 +317064,247 @@ if __name__ == "__main__":
 }
 ````
 
+## File: core/repositories/clientes_repo.py
+````python
+"""
+Repositorio para la gestión de Clientes del Sistema Doña Mary.
+Maneja normalización de nombres, búsqueda difusa, caché en memoria y auto-creación sin duplicados.
+"""
+import re
+import urllib.parse
+import threading
+from core.database import BaseDatabase
+from core.logger import get_logger, log_error
+
+logger = get_logger("ClientesRepo")
+
+class ClientesRepository:
+    _cache_clientes = {}
+    _cache_lock = threading.Lock()
+
+    def __init__(self, db: BaseDatabase | None = None):
+        self.db = db or BaseDatabase()
+
+    @staticmethod
+    def normalizar_nombre_cliente(nombre_raw: str | None) -> str:
+        """
+        Limpia y estandariza el nombre del cliente para evitar duplicaciones.
+        - Elimina prefijos comunes (Cliente:, Señores:, etc.)
+        - Colapsa espacios múltiples
+        - Estandariza 'CLIENTES VARIOS' / 'CONSUMIDOR FINAL' / 'VARIOS'
+        - Retorna texto en MAYÚSCULAS limpio.
+        """
+        if not nombre_raw:
+            return "CLIENTES VARIOS"
+        
+        texto = str(nombre_raw).strip()
+        # Quitar prefijos comunes
+        texto = re.sub(r'^(cliente|se[ñn]ores|se[ñn]or\(a\)|sr\(a\)|razon social|r\.s\.|sr|sra)[\s:\.\-]+', '', texto, flags=re.IGNORECASE)
+        # Quitar NITs o identificaciones pegadas al nombre si las hay
+        texto = re.sub(r'\s+(nit|c\.c\.|cc|rut)[\s:\.\-]*\d+.*$', '', texto, flags=re.IGNORECASE)
+        # Colapsar espacios múltiples
+        texto = re.sub(r'\s+', ' ', texto).strip().upper()
+
+        if not texto or texto in ("VARIOS", "CLIENTE VARIOS", "CLIENTES VARIOS", "CONSUMIDOR FINAL", "PUBLICO GENERAL", "SIN NOMBRE"):
+            return "CLIENTES VARIOS"
+
+        return texto
+
+    def asegurar_clientes_existen(self, items_or_names_list: list):
+        """
+        Verifica y auto-registra clientes en lote (batch) de forma hiper-optimizada.
+        Reduce cientos de peticiones HTTP a solo 1 o 2 peticiones masivas.
+        """
+        if not items_or_names_list:
+            return
+
+        # 1. Extraer y normalizar nombres únicos entrantes
+        nombres_entrantes = set()
+        for item in items_or_names_list:
+            if isinstance(item, str):
+                nom = self.normalizar_nombre_cliente(item)
+            elif isinstance(item, dict):
+                nom = self.normalizar_nombre_cliente(item.get("cliente") or item.get("nombre_cliente") or item.get("nombre"))
+            else:
+                continue
+            if nom:
+                nombres_entrantes.add(nom)
+
+        if not nombres_entrantes:
+            return
+
+        # 2. Filtrar los que ya están en caché local
+        with self._cache_lock:
+            faltan_en_cache = [nom for nom in nombres_entrantes if nom not in self._cache_clientes]
+
+        if not faltan_en_cache:
+            return
+
+        # 3. Consultar en Supabase en lotes (chunks) de 50 nombres
+        existentes_en_db = {}
+        chunk_size = 50
+        for i in range(0, len(faltan_en_cache), chunk_size):
+            chk = faltan_en_cache[i:i + chunk_size]
+            noms_str = ",".join([urllib.parse.quote(nom) for nom in chk])
+            try:
+                res = self.db.get(f"clientes?select=id_cliente,nombre,tipo_cliente&nombre=in.({noms_str})", timeout=10)
+                if res and res.status_code == 200:
+                    for row in res.json():
+                        nom_db = row.get("nombre")
+                        if nom_db:
+                            existentes_en_db[nom_db] = row
+            except Exception as ex:
+                logger.warning(f"Error consultando clientes chunk {i}: {ex}")
+
+        # Actualizar caché con los encontrados
+        with self._cache_lock:
+            for nom, c_data in existentes_en_db.items():
+                self._cache_clientes[nom] = c_data
+
+        # 4. Insertar en lote todos los clientes que realmente no existen en la base de datos
+        nuevos_a_crear = [nom for nom in faltan_en_cache if nom not in existentes_en_db]
+        if nuevos_a_crear:
+            nuevos_payload = []
+            for nom in nuevos_a_crear:
+                es_varios = (nom == "CLIENTES VARIOS")
+                nuevos_payload.append({
+                    "nombre": nom,
+                    "tipo_cliente": "CLIENTES_VARIOS" if es_varios else "REGULAR",
+                    "limite_credito": 0.0
+                })
+
+            for i in range(0, len(nuevos_payload), chunk_size):
+                sub_nuevos = nuevos_payload[i:i + chunk_size]
+                try:
+                    res_post = self.db.post("clientes", json_data=sub_nuevos, timeout=12)
+                    if res_post and res_post.status_code in (200, 201, 204):
+                        sub_noms = [x["nombre"] for x in sub_nuevos]
+                        sub_noms_str = ",".join([urllib.parse.quote(nom) for nom in sub_noms])
+                        res_get = self.db.get(f"clientes?select=id_cliente,nombre,tipo_cliente&nombre=in.({sub_noms_str})", timeout=10)
+                        if res_get and res_get.status_code == 200:
+                            with self._cache_lock:
+                                for row in res_get.json():
+                                    if row.get("nombre"):
+                                        self._cache_clientes[row["nombre"]] = row
+                    else:
+                        with self._cache_lock:
+                            for item in sub_nuevos:
+                                self._cache_clientes[item["nombre"]] = {"id_cliente": None, "nombre": item["nombre"], "tipo_cliente": item["tipo_cliente"]}
+                except Exception as ex:
+                    logger.warning(f"Error insertando clientes nuevos en lote: {ex}")
+                    with self._cache_lock:
+                        for item in sub_nuevos:
+                            self._cache_clientes[item["nombre"]] = {"id_cliente": None, "nombre": item["nombre"], "tipo_cliente": item["tipo_cliente"]}
+
+            logger.info(f"Sincronizados en lote {len(nuevos_a_crear)} clientes nuevos en catálogo.")
+
+    def get_or_create_cliente(self, nombre_raw: str | None) -> dict:
+        """
+        Busca un cliente por su nombre normalizado. Si no existe, lo crea automáticamente en Supabase.
+        """
+        nombre_clean = self.normalizar_nombre_cliente(nombre_raw)
+
+        with self._cache_lock:
+            if nombre_clean in self._cache_clientes:
+                return self._cache_clientes[nombre_clean]
+
+        try:
+            nom_enc = urllib.parse.quote(nombre_clean)
+            endpoint = f"clientes?nombre=eq.{nom_enc}&limit=1"
+            res = self.db.get(endpoint, timeout=5)
+
+            if res and res.status_code == 200 and res.json():
+                cliente = res.json()[0]
+                with self._cache_lock:
+                    self._cache_clientes[nombre_clean] = cliente
+                return cliente
+
+            # Si no existe, crearlo
+            es_varios = (nombre_clean == "CLIENTES VARIOS")
+            nuevo_payload = {
+                "nombre": nombre_clean,
+                "tipo_cliente": "CLIENTES_VARIOS" if es_varios else "REGULAR",
+                "limite_credito": 0.0
+            }
+
+            res_post = self.db.post("clientes", json_data=nuevo_payload, timeout=5)
+            if res_post and res_post.status_code in (200, 201):
+                res_get = self.db.get(f"clientes?nombre=eq.{nom_enc}&limit=1", timeout=5)
+                if res_get and res_get.status_code == 200 and res_get.json():
+                    cliente_creado = res_get.json()[0]
+                    with self._cache_lock:
+                        self._cache_clientes[nombre_clean] = cliente_creado
+                    logger.info(f"Nuevo cliente registrado automáticamente: {nombre_clean}")
+                    return cliente_creado
+
+            fallback = {"id_cliente": None, "nombre": nombre_clean, "tipo_cliente": "REGULAR"}
+            with self._cache_lock:
+                self._cache_clientes[nombre_clean] = fallback
+            return fallback
+
+        except Exception as ex:
+            log_error(f"get_or_create_cliente({nombre_clean})", ex)
+            return {"id_cliente": None, "nombre": nombre_clean, "tipo_cliente": "REGULAR"}
+
+    def get_clientes(self, search: str = "") -> list[dict]:
+        """Retorna la lista de todos los clientes registrados."""
+        try:
+            endpoint = "clientes?order=nombre.asc"
+            if search:
+                s_clean = urllib.parse.quote(search.strip().upper())
+                endpoint += f"&nombre=ilike.*{s_clean}*"
+            
+            res = self.db.get(endpoint, timeout=10)
+            if res and res.status_code == 200:
+                data = res.json()
+                with self._cache_lock:
+                    for c in data:
+                        if c.get("nombre"):
+                            self._cache_clientes[c["nombre"]] = c
+                return data
+            return []
+        except Exception as ex:
+            log_error("get_clientes", ex)
+            return []
+
+    def crear_cliente(self, datos: dict) -> dict | None:
+        """Crea un cliente manual con todos sus datos."""
+        try:
+            nombre = self.normalizar_nombre_cliente(datos.get("nombre"))
+            payload = {
+                "nombre": nombre,
+                "tipo_cliente": datos.get("tipo_cliente", "REGULAR"),
+                "telefono": (datos.get("telefono") or "").strip(),
+                "direccion": (datos.get("direccion") or "").strip(),
+                "email": (datos.get("email") or "").strip(),
+                "limite_credito": float(datos.get("limite_credito") or 0.0),
+                "notas": (datos.get("notas") or "").strip()
+            }
+            res = self.db.post("clientes", json_data=payload, timeout=8)
+            if res and res.status_code in (200, 201):
+                nom_enc = urllib.parse.quote(nombre)
+                res_get = self.db.get(f"clientes?nombre=eq.{nom_enc}&limit=1", timeout=5)
+                if res_get and res_get.status_code == 200 and res_get.json():
+                    created = res_get.json()[0]
+                    with self._cache_lock:
+                        self._cache_clientes[nombre] = created
+                    return created
+            return None
+        except Exception as ex:
+            log_error("crear_cliente", ex)
+            return None
+
+    def actualizar_cliente(self, id_cliente: str, datos: dict) -> bool:
+        """Actualiza datos de un cliente existente."""
+        try:
+            id_enc = urllib.parse.quote(str(id_cliente))
+            res = self.db.patch(f"clientes?id_cliente=eq.{id_enc}", json_data=datos, timeout=8)
+            return bool(res and res.status_code in (200, 204))
+        except Exception as ex:
+            log_error(f"actualizar_cliente({id_cliente})", ex)
+            return False
+````
+
 ## File: core/repositories/usuarios_repo.py
 ````python
 """
@@ -317439,111 +317449,6 @@ class PdfService:
         except Exception as ex:
             log_error(f"PdfService.extract_pages({pdf_path})", ex)
             return []
-````
-
-## File: core/database.py
-````python
-"""
-Módulo base de conexión HTTP con Supabase PostgREST.
-Proporciona manejo de sesiones, timeouts y logging centralizado de errores.
-"""
-import requests
-import json
-from config import Config
-from core.logger import get_logger, log_error
-
-logger = get_logger("Database")
-
-class BaseDatabase:
-    """Cliente HTTP centralizado para comunicarse con la API PostgREST de Supabase."""
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(BaseDatabase, cls).__new__(cls)
-            cls._instance._init_connection()
-        return cls._instance
-
-    def _init_connection(self):
-        self.url = Config.SUPABASE_URL
-        self.key = Config.SUPABASE_KEY
-
-        if self.url and self.url.endswith('/'):
-            self.url = self.url[:-1]
-        if self.url and not self.url.endswith('/rest/v1'):
-            self.url = self.url + "/rest/v1"
-
-        self.session = requests.Session()
-        self.headers = {
-            "apikey": self.key,
-            "Authorization": f"Bearer {self.key}",
-            "Content-Type": "application/json"
-        }
-        self.session.headers.update(self.headers)
-        logger.info("Sesión HTTP de base de datos inicializada correctamente.")
-
-    def check_connection(self) -> tuple[bool, str]:
-        if not self.url or not self.key:
-            return False, "Faltan credenciales de Supabase en configuración (.env)"
-        try:
-            res = self.session.get(f"{self.url}/catalogo_insumos?limit=1", headers=self.headers, timeout=10)
-            if res.status_code == 200:
-                return True, "Conexión exitosa con Supabase"
-            return False, f"Error del servidor HTTP {res.status_code}: {res.text}"
-        except requests.exceptions.RequestException as req_e:
-            msg = log_error("check_connection", req_e)
-            return False, msg
-        except Exception as e:
-            msg = log_error("check_connection_generico", e)
-            return False, msg
-
-    def get(self, endpoint: str, params: dict | None = None, custom_headers: dict | None = None, timeout: int = 10) -> requests.Response | None:
-        try:
-            url = f"{self.url}/{endpoint}" if not endpoint.startswith("http") else endpoint
-            headers = self.headers.copy()
-            if custom_headers:
-                headers.update(custom_headers)
-            response = self.session.get(url, params=params, headers=headers, timeout=timeout)
-            return response
-        except Exception as ex:
-            log_error(f"GET {endpoint}", ex)
-            return None
-
-    def post(self, endpoint: str, json_data: dict | list | None = None, custom_headers: dict | None = None, timeout: int = 10) -> requests.Response | None:
-        try:
-            url = f"{self.url}/{endpoint}" if not endpoint.startswith("http") else endpoint
-            headers = self.headers.copy()
-            if custom_headers:
-                headers.update(custom_headers)
-            response = self.session.post(url, json=json_data, headers=headers, timeout=timeout)
-            return response
-        except Exception as ex:
-            log_error(f"POST {endpoint}", ex)
-            return None
-
-    def patch(self, endpoint: str, json_data: dict | list | None = None, custom_headers: dict | None = None, timeout: int = 10) -> requests.Response | None:
-        try:
-            url = f"{self.url}/{endpoint}" if not endpoint.startswith("http") else endpoint
-            headers = self.headers.copy()
-            if custom_headers:
-                headers.update(custom_headers)
-            response = self.session.patch(url, json=json_data, headers=headers, timeout=timeout)
-            return response
-        except Exception as ex:
-            log_error(f"PATCH {endpoint}", ex)
-            return None
-
-    def delete(self, endpoint: str, custom_headers: dict | None = None, timeout: int = 10) -> requests.Response | None:
-        try:
-            url = f"{self.url}/{endpoint}" if not endpoint.startswith("http") else endpoint
-            headers = self.headers.copy()
-            if custom_headers:
-                headers.update(custom_headers)
-            response = self.session.delete(url, headers=headers, timeout=timeout)
-            return response
-        except Exception as ex:
-            log_error(f"DELETE {endpoint}", ex)
-            return None
 ````
 
 ## File: core/excel_manager.py
@@ -317735,487 +317640,240 @@ def log_error(context: str, error: Exception, extra_info: dict | None = None) ->
     return f"Ocurrió un error en [{context}]: {str(error)}"
 ````
 
-## File: core/pdf_native_parser.py
+## File: core/tunnel_manager.py
 ````python
-"""
-core/pdf_native_parser.py
-Motor de extraccion determinista y de alto rendimiento en Python puro (pypdf en modo layout)
-para los reportes contables PDF de Dona Mary:
-  1. Compras / Entradas de Almacen (EA / ES)
-  2. Ventas POS Detalladas (Facturas FV)
-  3. Ventas Diarias / Remisiones (Tipo PP)
-"""
-import io
+import os
+import sys
 import re
-import pypdf
-from typing import Union, List, Dict, Any, Optional
+import atexit
+import shutil
+import threading
+import subprocess
+import urllib.request
+from typing import Callable, Optional
+from core.logger import get_logger, log_error
 
-SPECIAL_3DIGIT_CODES = {'964', '965', '966', '967', '968', '969', '970', '971', '972', '973'}
+logger = get_logger('TunnelManager')
 
-def parse_colombian_number(val: Any) -> float:
-    """Convierte un string numerico con formato colombiano a float."""
-    if val is None:
-        return 0.0
-    if isinstance(val, (int, float)):
-        return float(val)
-    
-    s = str(val).strip().replace('$', '').replace(' ', '')
-    if not s or s == '-' or s.lower() == 'nan':
-        return 0.0
-    
-    if '.' in s and ',' in s:
-        if s.rfind(',') > s.rfind('.'):
-            s = s.replace('.', '').replace(',', '.')
-        else:
-            s = s.replace(',', '')
-    elif ',' in s:
-        parts = s.split(',')
-        if len(parts) == 2 and len(parts[1]) <= 2:
-            s = parts[0] + '.' + parts[1]
-        else:
-            s = s.replace(',', '')
-    elif '.' in s:
-        parts = s.split('.')
-        if len(parts) == 2 and len(parts[1]) == 2 and float(parts[0] or 0) < 1000:
-            s = parts[0] + '.' + parts[1]
-        else:
-            s = s.replace('.', '')
-            
-    try:
-        return float(s)
-    except Exception:
-        return 0.0
+CLOUDFLARED_DOWNLOAD_URL = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe'
 
-def clean_text(s: Any) -> str:
-    """Limpia caracteres especiales, signos corruptos y espacios extra."""
-    if not s or str(s).lower() == 'nan':
-        return ''
-    txt = str(s)
-    txt = txt.replace(chr(0xa5), 'Ñ').replace('¥', 'Ñ')
-    txt = ' '.join(txt.split()).strip()
-    return txt
+class TunnelManager:
+    _instance = None
+    _lock = threading.Lock()
 
-def format_codigo_insumo(raw_cod: str) -> str:
-    """Aplica las reglas de 4 digitos y las excepciones de 3 digitos."""
-    cod = clean_text(raw_cod)
-    if '-' in cod:
-        return cod
-    if cod.isdigit():
-        num = int(cod)
-        cod_str = str(num)
-        if cod_str in SPECIAL_3DIGIT_CODES:
-            return cod_str
-        return cod_str.zfill(4)
-    return cod
+    def __new__(cls):
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super(TunnelManager, cls).__new__(cls)
+                cls._instance._init_manager()
+            return cls._instance
 
-def get_pdf_reader(pdf_source: Union[str, bytes, io.BytesIO]) -> pypdf.PdfReader:
-    if isinstance(pdf_source, (bytes, bytearray)):
-        return pypdf.PdfReader(io.BytesIO(pdf_source))
-    elif isinstance(pdf_source, io.BytesIO):
-        return pypdf.PdfReader(pdf_source)
-    else:
-        return pypdf.PdfReader(pdf_source)
-
-
-# ==============================================================================
-# 1. PARSER DE VENTAS POS DETALLADAS (Reporte Detallado de Facturas FV)
-# ==============================================================================
-def parse_ventas_pos_detallado(pdf_source: Union[str, bytes, io.BytesIO]) -> Dict[str, Any]:
-    reader = get_pdf_reader(pdf_source)
-    total_pages = len(reader.pages)
-    facturas_dict: Dict[str, Dict[str, Any]] = {}
-    facturas_order: List[str] = []
-    current_fact_num: Optional[str] = None
-    
-    rango_desde = ''
-    rango_hasta = ''
-    total_reporte_pie = 0.0
-    
-    for p_idx, page in enumerate(reader.pages):
-        page_num = p_idx + 1
-        text = page.extract_text(extraction_mode='layout')
-        lines = text.split('\n')
+    def _init_manager(self):
+        self.process: Optional[subprocess.Popen] = None
+        self.public_url: Optional[str] = None
+        self.is_running = False
+        self.is_downloading = False
+        self.status = 'DETENIDO'
+        self.status_message = 'Túnel no iniciado'
+        self._reader_thread = None
         
-        for line in lines:
-            line_str = line.strip()
-            if not line_str:
-                continue
-                
-            if not rango_desde:
-                m_rango = re.search(r'Desde\s+Hasta\s+(\d{2}/\d{2}/\d{4})\s+(\d{2}/\d{2}/\d{4})', line_str, re.IGNORECASE)
-                if m_rango:
-                    rango_desde = m_rango.group(1)
-                    rango_hasta = m_rango.group(2)
-                else:
-                    m_fec = re.findall(r'(\d{2}/\d{2}/\d{4})', line_str)
-                    if len(m_fec) >= 2:
-                        rango_desde = m_fec[0]
-                        rango_hasta = m_fec[1]
+        base_dir = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA') or os.path.expanduser('~')
+        self.bin_dir = os.path.join(base_dir, 'DonaMaryApp', 'bin')
+        self.binary_path = os.path.join(self.bin_dir, 'cloudflared.exe')
 
-            m_fact = re.search(r'Fact\.No\.\s*([\w-]+)\s+Fecha:\s*(\d{2}/\d{2}/\d{4})\s+Cliente:\s*(.+)', line_str, re.IGNORECASE)
-            if m_fact:
-                num_fact = clean_text(m_fact.group(1))
-                fecha_fact = m_fact.group(2).strip()
-                cliente = clean_text(m_fact.group(3))
-                
-                parts_f = fecha_fact.split('/')
-                fecha_iso = f"{parts_f[2]}-{parts_f[1]}-{parts_f[0]}" if len(parts_f) == 3 else fecha_fact
-                
-                if num_fact not in facturas_dict:
-                    facturas_dict[num_fact] = {
-                        'id_temporal': f"remi_{num_fact}_{fecha_iso}",
-                        'factura_no': num_fact,
-                        'fecha': fecha_iso,
-                        'fecha_display': fecha_fact,
-                        'cliente': cliente,
-                        'tipo_documento': 'Remisión',
-                        'pagina_origen': page_num,
-                        'items': [],
-                        'total_factura': 0.0,
-                        'subtotal_factura': 0.0,
-                        'iva_factura': 0.0
-                    }
-                    facturas_order.append(num_fact)
-                current_fact_num = num_fact
-                continue
-                
-            m_tot = re.search(r'Total Factura:\s*([\d.,]+)', line_str, re.IGNORECASE)
-            if m_tot and current_fact_num:
-                val_tot = parse_colombian_number(m_tot.group(1))
-                facturas_dict[current_fact_num]['total_factura'] = val_tot
-                continue
-                
-            m_pie = re.search(r'TOTAL\s+([\d.,]+)', line_str, re.IGNORECASE)
-            if m_pie:
-                total_reporte_pie = parse_colombian_number(m_pie.group(1))
-                continue
+        atexit.register(self.stop_tunnel)
 
-            m_item = re.match(r'^(\d{3,5}(?:-\d+)?)\s+(.+?)\s+([\d.,]+)\s+([\d.,]+)(?:\s+([\d.,]+))?(?:\s+([\d.,]+))?$', line_str)
-            if m_item and current_fact_num:
-                raw_cod = m_item.group(1)
-                cod_final = format_codigo_insumo(raw_cod)
-                desc = clean_text(m_item.group(2))
-                cant = parse_colombian_number(m_item.group(3))
-                
-                nums = [m_item.group(4), m_item.group(5), m_item.group(6)]
-                valid_nums = [parse_colombian_number(x) for x in nums if x is not None]
-                
-                if len(valid_nums) == 1:
-                    subtot_val = valid_nums[0]
-                    iva_val = 0.0
-                    tot_val = subtot_val
-                elif len(valid_nums) == 2:
-                    subtot_val = valid_nums[0]
-                    iva_val = 0.0
-                    tot_val = valid_nums[1]
-                else:
-                    subtot_val = valid_nums[0]
-                    iva_val = valid_nums[1]
-                    tot_val = valid_nums[2]
-                    
-                facturas_dict[current_fact_num]['items'].append({
-                    'codigo_insumo': cod_final,
-                    'descripcion': desc,
-                    'cantidad': cant,
-                    'subtotal': subtot_val,
-                    'iva': iva_val,
-                    'total': tot_val
-                })
-            elif current_fact_num and facturas_dict[current_fact_num]['items'] and not any(k in line_str for k in ['**', 'REPORTE', 'Desde', 'ITEM', 'TIPO', 'Total', 'Fecha:', 'Hora:', 'Pagina:']):
-                if len(line_str) < 45 and not re.search(r'\d{3,}', line_str):
-                    facturas_dict[current_fact_num]['items'][-1]['descripcion'] = clean_text(facturas_dict[current_fact_num]['items'][-1]['descripcion'] + ' ' + line_str)
-
-    facturas = [facturas_dict[k] for k in facturas_order]
-    for f in facturas:
-        calc_subtot = sum(it.get('subtotal', 0.0) for it in f['items'])
-        calc_iva = sum(it.get('iva', 0.0) for it in f['items'])
-        calc_tot = sum(it.get('total', 0.0) for it in f['items'])
-        f['subtotal_factura'] = calc_subtot
-        f['iva_factura'] = calc_iva
-        if f['total_factura'] == 0.0:
-            f['total_factura'] = calc_tot
-
-    total_calculado = sum(f['total_factura'] for f in facturas)
-    
-    return {
-        'tipo_reporte': 'VENTAS_REMISIÓN',
-        'rango_desde': rango_desde,
-        'rango_hasta': rango_hasta,
-        'total_paginas': total_pages,
-        'total_facturas': len(facturas),
-        'total_insumos': sum(len(f['items']) for f in facturas),
-        'total_general': total_calculado,
-        'total_reporte_pie': total_reporte_pie if total_reporte_pie > 0 else total_calculado,
-        'facturas': facturas
-    }
-
-
-# ==============================================================================
-# 2. PARSER DE VENTAS DIARIAS / REMISIONES (WXMANAGER - Tipo PP)
-# ==============================================================================
-def parse_ventas_remisiones_diarias(pdf_source: Union[str, bytes, io.BytesIO]) -> Dict[str, Any]:
-    reader = get_pdf_reader(pdf_source)
-    total_pages = len(reader.pages)
-    facturas_dict: Dict[str, Dict[str, Any]] = {}
-    facturas_order: List[str] = []
-    current_rem_num: Optional[str] = None
-    
-    fecha_reporte = ''
-    total_reporte_pie = 0.0
-    
-    for p_idx, page in enumerate(reader.pages):
-        page_num = p_idx + 1
-        text = page.extract_text(extraction_mode='layout')
-        lines = text.split('\n')
+    def get_binary_path(self) -> Optional[str]:
+        system_bin = shutil.which('cloudflared')
+        if system_bin:
+            return system_bin
         
-        for line in lines:
-            line_str = line.strip()
-            if not line_str:
-                continue
-                
-            if not fecha_reporte:
-                m_fec = re.search(r'(\d{2}/\d{2}/\d{4})', line_str)
-                if m_fec:
-                    fecha_reporte = m_fec.group(1)
+        if os.path.exists(self.binary_path) and os.path.getsize(self.binary_path) > 1000000:
+            return self.binary_path
 
-            m_pp = re.search(r'^(?:TIPO\s+NUMERO\s+)?PP\s+(\d+)\s*(.*)$', line_str, re.IGNORECASE)
-            if m_pp:
-                num_rem = m_pp.group(1).strip()
-                cliente_rem = clean_text(m_pp.group(2)) or 'Clientes Varios'
-                
-                parts_f = fecha_reporte.split('/') if fecha_reporte else []
-                fecha_iso = f"{parts_f[2]}-{parts_f[1]}-{parts_f[0]}" if len(parts_f) == 3 else fecha_reporte
-                
-                if num_rem not in facturas_dict:
-                    facturas_dict[num_rem] = {
-                        'id_temporal': f"pos_{num_rem}_{fecha_iso}",
-                        'factura_no': num_rem,
-                        'fecha': fecha_iso,
-                        'fecha_display': fecha_reporte,
-                        'cliente': cliente_rem,
-                        'tipo_documento': 'Factura POS',
-                        'pagina_origen': page_num,
-                        'items': [],
-                        'total_factura': 0.0,
-                        'subtotal_factura': 0.0,
-                        'iva_factura': 0.0
-                    }
-                    facturas_order.append(num_rem)
-                current_rem_num = num_rem
-                continue
-                
-            m_tot = re.search(r'TOTAL:\s*([\d.,]+)', line_str, re.IGNORECASE)
-            if m_tot and current_rem_num:
-                val_tot = parse_colombian_number(m_tot.group(1))
-                facturas_dict[current_rem_num]['total_factura'] = val_tot
-                continue
-                
-            m_subt = re.search(r'SUBTOTAL\s+([\d.,]+)', line_str, re.IGNORECASE)
-            if m_subt:
-                total_reporte_pie = parse_colombian_number(m_subt.group(1))
-                continue
+        return None
 
-            m_cod = re.search(r'COD:\s*(\d{3,5}(?:-\d+)?)', line_str, re.IGNORECASE)
-            if m_cod and current_rem_num:
-                raw_cod = m_cod.group(1)
-                cod_final = format_codigo_insumo(raw_cod)
-                
-                nums_match = re.findall(r'([\d]+(?:[.,]\d+)?)', line_str.replace(f"COD: {raw_cod}", "").replace(f"COD:{raw_cod}", ""))
-                cant = 1.0
-                tot = 0.0
-                if len(nums_match) >= 2:
-                    cant = parse_colombian_number(nums_match[0])
-                    tot = parse_colombian_number(nums_match[1])
-                elif len(nums_match) == 1:
-                    tot = parse_colombian_number(nums_match[0])
-                    
-                facturas_dict[current_rem_num]['items'].append({
-                    'codigo_insumo': cod_final,
-                    'descripcion': '',
-                    'cantidad': cant,
-                    'subtotal': tot,
-                    'iva': 0.0,
-                    'total': tot
-                })
-                continue
-                
-            if current_rem_num and facturas_dict[current_rem_num]['items'] and not facturas_dict[current_rem_num]['items'][-1]['descripcion']:
-                if not any(k in line_str for k in ['TIPO', 'NUMERO', 'PP', 'DES/NTO', 'TOTAL:', 'WXMANAGER']):
-                    facturas_dict[current_rem_num]['items'][-1]['descripcion'] = clean_text(line_str)
-                    
-    facturas = [facturas_dict[k] for k in facturas_order]
-    for f in facturas:
-        calc_tot = sum(it.get('total', 0.0) for it in f['items'])
-        f['subtotal_factura'] = calc_tot
-        if f['total_factura'] == 0.0:
-            f['total_factura'] = calc_tot
-
-    total_calculado = sum(f['total_factura'] for f in facturas)
-    
-    return {
-        'tipo_reporte': 'VENTAS_POS',
-        'rango_desde': fecha_reporte,
-        'rango_hasta': fecha_reporte,
-        'total_paginas': total_pages,
-        'total_facturas': len(facturas),
-        'total_insumos': sum(len(f['items']) for f in facturas),
-        'total_general': total_calculado,
-        'total_reporte_pie': total_reporte_pie if total_reporte_pie > 0 else total_calculado,
-        'facturas': facturas
-    }
-
-
-# ==============================================================================
-# 3. PARSER DE COMPRAS / ENTRADAS DE ALMACÉN (Reporte Detallado de Entradas EA)
-# ==============================================================================
-def parse_compras_entradas(pdf_source: Union[str, bytes, io.BytesIO]) -> Dict[str, Any]:
-    reader = get_pdf_reader(pdf_source)
-    total_pages = len(reader.pages)
-    entradas_dict: Dict[str, Dict[str, Any]] = {}
-    entradas_order: List[str] = []
-    current_entry_key: Optional[str] = None
-    
-    rango_desde = ''
-    rango_hasta = ''
-    total_reporte_pie = 0.0
-    
-    for p_idx, page in enumerate(reader.pages):
-        page_num = p_idx + 1
-        text = page.extract_text(extraction_mode='layout')
-        lines = text.split('\n')
-        
-        for line in lines:
-            line_str = line.strip()
-            if not line_str:
-                continue
-                
-            if not rango_desde:
-                m_fec = re.findall(r'(\d{2}/\d{2}/\d{4})', line_str)
-                if len(m_fec) >= 2:
-                    rango_desde = m_fec[0]
-                    rango_hasta = m_fec[1]
-
-            # Detectar Cabecera de Entrada: EA - 9269 01/08/2026 Factura No.89832 DISDECOL SAS
-            m_ea = re.search(r'^(E[AS]\s*-\s*\d+)\s+(\d{2}/\d{2}/\d{4})\s+(?:Factura\s*(?:No\.([\w-]+))?)?\s*(.+)?$', line_str, re.IGNORECASE)
-            if m_ea:
-                num_ea = clean_text(m_ea.group(1)).replace(' ', '')
-                fecha_ea = m_ea.group(2).strip()
-                fact_no = clean_text(m_ea.group(3)) if m_ea.group(3) else ''
-                prov = clean_text(m_ea.group(4)) or 'Proveedor General'
-                
-                parts_f = fecha_ea.split('/')
-                fecha_iso = f"{parts_f[2]}-{parts_f[1]}-{parts_f[0]}" if len(parts_f) == 3 else fecha_ea
-                
-                if num_ea not in entradas_dict:
-                    entradas_dict[num_ea] = {
-                        'id_temporal': f"compra_{num_ea}_{fact_no}_{fecha_iso}",
-                        'numero_entrada': num_ea,
-                        'numero_factura': fact_no or num_ea,
-                        'fecha': fecha_iso,
-                        'fecha_display': fecha_ea,
-                        'proveedor': prov,
-                        'pagina_origen': page_num,
-                        'items': [],
-                        'total_entrada': 0.0,
-                        'iva_entrada': 0.0,
-                        'subtotal_entrada': 0.0
-                    }
-                    entradas_order.append(num_ea)
-                elif fact_no and not entradas_dict[num_ea]['numero_factura']:
-                    entradas_dict[num_ea]['numero_factura'] = fact_no
-                if prov and entradas_dict[num_ea]['proveedor'] == 'Proveedor General':
-                    entradas_dict[num_ea]['proveedor'] = prov
-                    
-                current_entry_key = num_ea
-                continue
-                
-            m_tot_ea = re.search(r'Totales de Entrada:\s*([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)', line_str, re.IGNORECASE)
-            if m_tot_ea and current_entry_key:
-                entradas_dict[current_entry_key]['subtotal_entrada'] = parse_colombian_number(m_tot_ea.group(2))
-                entradas_dict[current_entry_key]['iva_entrada'] = parse_colombian_number(m_tot_ea.group(3))
-                entradas_dict[current_entry_key]['total_entrada'] = parse_colombian_number(m_tot_ea.group(4))
-                continue
-                
-            m_pie = re.search(r'TOTAL:\s*([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)', line_str, re.IGNORECASE)
-            if m_pie:
-                total_reporte_pie = parse_colombian_number(m_pie.group(3))
-                continue
-
-            m_item = re.match(r'^(\d{3,5}(?:-\d+)?)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)(?:\s+([\d.,]+))?\s+([\d.,]+)$', line_str)
-            if m_item and current_entry_key:
-                raw_cod = m_item.group(1)
-                cod_final = format_codigo_insumo(raw_cod)
-                desc = clean_text(m_item.group(2))
-                bodega = m_item.group(3).strip()
-                cant = parse_colombian_number(m_item.group(4))
-                costo_u = parse_colombian_number(m_item.group(5))
-                iva_val = parse_colombian_number(m_item.group(6)) if m_item.group(6) else 0.0
-                tot_val = parse_colombian_number(m_item.group(7))
-                
-                entradas_dict[current_entry_key]['items'].append({
-                    'codigo_insumo': cod_final,
-                    'descripcion': desc,
-                    'bodega': f"Bodega {bodega}",
-                    'cantidad': cant,
-                    'costo_unitario': costo_u,
-                    'valor_iva': iva_val,
-                    'costo_total': tot_val
-                })
-            elif current_entry_key and entradas_dict[current_entry_key]['items'] and not any(k in line_str for k in ['**', 'REPORTE', 'Desde', 'Item', 'Totales de Entrada', 'TOTAL:', 'Fecha:']):
-                if len(line_str) < 45 and not re.search(r'\d{3,}', line_str):
-                    entradas_dict[current_entry_key]['items'][-1]['descripcion'] = clean_text(entradas_dict[current_entry_key]['items'][-1]['descripcion'] + ' ' + line_str)
-
-    entradas = [entradas_dict[k] for k in entradas_order]
-    for e in entradas:
-        calc_tot = sum(it.get('costo_total', 0.0) for it in e['items'])
-        calc_iva = sum(it.get('valor_iva', 0.0) for it in e['items'])
-        calc_subtot = calc_tot - calc_iva
-        e['subtotal_entrada'] = calc_subtot
-        e['iva_entrada'] = calc_iva
-        if e['total_entrada'] == 0.0:
-            e['total_entrada'] = calc_tot
-
-    total_calculado = sum(e['total_entrada'] for e in entradas)
-    
-    return {
-        'tipo_reporte': 'COMPRAS_ENTRADAS',
-        'rango_desde': rango_desde,
-        'rango_hasta': rango_hasta,
-        'total_paginas': total_pages,
-        'total_facturas': len(entradas),
-        'total_insumos': sum(len(e['items']) for e in entradas),
-        'total_general': total_calculado,
-        'total_reporte_pie': total_reporte_pie if total_reporte_pie > 0 else total_calculado,
-        'facturas': entradas
-    }
-
-
-# ==============================================================================
-# 4. AUTODETECTAR Y PARSEAR CUALQUIER PDF
-# ==============================================================================
-def detectar_y_parsear_pdf(pdf_source: Union[str, bytes, io.BytesIO]) -> Dict[str, Any]:
-    """Detecta automaticamente el tipo de reporte contable y ejecuta el parser adecuado."""
-    reader = get_pdf_reader(pdf_source)
-    if not reader.pages:
-        raise ValueError('El archivo PDF esta vacio o no contiene paginas legibles.')
-        
-    sample_text = reader.pages[0].extract_text() or ''
-    sample_upper = sample_text.upper()
-    
-    if 'ENTRADAS DE ALMACEN' in sample_upper or 'EA -' in sample_upper or 'ES -' in sample_upper:
-        return parse_compras_entradas(pdf_source)
-    elif 'WXMANAGER' in sample_upper or 'RELACION DE VENTAS DIARIAS' in sample_upper or 'TIPO NUMERO' in sample_upper:
-        return parse_ventas_remisiones_diarias(pdf_source)
-    elif 'REPORTE DETALLADO DE FACTURAS' in sample_upper or 'TIPO FV' in sample_upper:
-        return parse_ventas_pos_detallado(pdf_source)
-    else:
+    def download_cloudflared(self, on_progress: Optional[Callable[[float, str], None]] = None) -> bool:
         try:
-            res = parse_ventas_pos_detallado(pdf_source)
-            if res['total_facturas'] > 0:
-                return res
-        except Exception:
-            pass
-        return parse_compras_entradas(pdf_source)
+            self.is_downloading = True
+            self.status = 'DESCARGANDO'
+            self.status_message = 'Descargando componente de conexión segura...'
+            os.makedirs(self.bin_dir, exist_ok=True)
+
+            logger.info('Descargando cloudflared...')
+            
+            temp_path = self.binary_path + '.tmp'
+            
+            def _reporthook(block_num, block_size, total_size):
+                if total_size > 0:
+                    percent = min(1.0, (block_num * block_size) / total_size)
+                    mb_descargados = (block_num * block_size) / (1024 * 1024)
+                    mb_totales = total_size / (1024 * 1024)
+                    pct_int = int(percent * 100)
+                    msg = f'Descargando Cloudflare Tunnel: {mb_descargados:.1f} MB / {mb_totales:.1f} MB ({pct_int} pct)'
+                    if on_progress:
+                        on_progress(percent, msg)
+
+            urllib.request.urlretrieve(CLOUDFLARED_DOWNLOAD_URL, temp_path, _reporthook)
+
+            if os.path.exists(temp_path) and os.path.getsize(temp_path) > 1000000:
+                if os.path.exists(self.binary_path):
+                    try:
+                        os.remove(self.binary_path)
+                    except Exception:
+                        pass
+                os.rename(temp_path, self.binary_path)
+                logger.info('Cloudflared instalado en cache local.')
+                self.is_downloading = False
+                return True
+            else:
+                raise RuntimeError('Archivo descargado incompleto o corrupto.')
+
+        except Exception as ex:
+            log_error(f'Error descargando cloudflared: {ex}', 'TunnelManager')
+            self.status = 'ERROR'
+            self.status_message = f'Error en descarga: {str(ex)}'
+            self.is_downloading = False
+            return False
+
+    def start_tunnel(
+        self,
+        port: int = 8550,
+        on_ready: Optional[Callable[[str], None]] = None,
+        on_status: Optional[Callable[[str, str], None]] = None,
+        on_error: Optional[Callable[[str], None]] = None
+    ):
+        def _worker():
+            with self._lock:
+                if self.is_running and self.public_url:
+                    if on_ready:
+                        on_ready(self.public_url)
+                    return
+
+                bin_path = self.get_binary_path()
+                if not bin_path:
+                    if on_status:
+                        on_status('DESCARGANDO', 'Preparando módulo de conexión segura (primera vez)...')
+                    
+                    def _progress_cb(pct, msg):
+                        if on_status:
+                            on_status('DESCARGANDO', msg)
+
+                    if not self.download_cloudflared(on_progress=_progress_cb):
+                        if on_error:
+                            on_error('No se pudo descargar el componente Cloudflare Tunnel.')
+                        return
+                    
+                    bin_path = self.get_binary_path()
+
+                if not bin_path or not os.path.exists(bin_path):
+                    if on_error:
+                        on_error('No se encontró el ejecutable de Cloudflare Tunnel.')
+                    return
+
+                self.status = 'CONECTANDO'
+                self.status_message = 'Estableciendo túnel seguro con Cloudflare...'
+                if on_status:
+                    on_status('CONECTANDO', self.status_message)
+
+                try:
+                    cmd = [
+                        bin_path,
+                        'tunnel',
+                        '--url', f'http://127.0.0.1:{port}',
+                        '--no-autoupdate'
+                    ]
+
+                    creationflags = 0
+                    if sys.platform == 'win32':
+                        creationflags = subprocess.CREATE_NO_WINDOW
+
+                    self.process = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        bufsize=1,
+                        creationflags=creationflags
+                    )
+
+                    logger.info(f'Proceso cloudflared iniciado (PID: {self.process.pid})')
+
+                    url_found = None
+                    url_pattern = re.compile(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com')
+
+                    def _read_output(stream):
+                        nonlocal url_found
+                        try:
+                            for line in iter(stream.readline, ''):
+                                if not line:
+                                    break
+                                line_str = line.strip()
+                                match = url_pattern.search(line_str)
+                                if match and not url_found:
+                                    url_found = match.group(0)
+                                    self.public_url = url_found
+                                    self.is_running = True
+                                    self.status = 'ACTIVO'
+                                    self.status_message = f'Túnel activo: {self.public_url}'
+                                    logger.info(f'URL Pública Cloudflare Tunnel: {self.public_url}')
+                                    if on_ready:
+                                        on_ready(self.public_url)
+                                    if on_status:
+                                        on_status('ACTIVO', self.status_message)
+                        except Exception:
+                            pass
+
+                    t_err = threading.Thread(target=_read_output, args=(self.process.stderr,), daemon=True)
+                    t_out = threading.Thread(target=_read_output, args=(self.process.stdout,), daemon=True)
+                    t_err.start()
+                    t_out.start()
+
+                    for _ in range(50):
+                        if url_found:
+                            break
+                        if self.process.poll() is not None:
+                            break
+                        threading.Event().wait(0.5)
+
+                    if not url_found:
+                        self.status = 'ERROR'
+                        self.status_message = 'Tiempo de espera agotado al conectar con Cloudflare.'
+                        if on_error:
+                            on_error('No se pudo obtener la dirección pública de Cloudflare a tiempo.')
+                        self.stop_tunnel()
+
+                except Exception as ex:
+                    log_error(f'Error al iniciar proceso de túnel: {ex}', 'TunnelManager')
+                    self.status = 'ERROR'
+                    self.status_message = f'Error: {str(ex)}'
+                    if on_error:
+                        on_error(str(ex))
+                    self.stop_tunnel()
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def stop_tunnel(self):
+        with self._lock:
+            if self.process:
+                try:
+                    logger.info(f'Deteniendo Cloudflare Tunnel (PID: {self.process.pid})...')
+                    self.process.terminate()
+                    self.process.wait(timeout=3)
+                except Exception:
+                    try:
+                        self.process.kill()
+                    except Exception:
+                        pass
+                self.process = None
+
+            self.public_url = None
+            self.is_running = False
+            self.status = 'DETENIDO'
+            self.status_message = 'Túnel detenido'
+
+    def get_public_url(self) -> Optional[str]:
+        return self.public_url if self.is_running else None
 ````
 
 ## File: EXCELES PRINCIPALES/actualizar_costos_y_precios_ultimas_facturas.sql
@@ -325091,6 +324749,90 @@ if __name__ == "__main__":
     crear_copia_seguridad(sufijo)
 ````
 
+## File: scripts/crear_tablas_cartera.sql
+````sql
+-- =========================================================================
+-- MÓDULO DE CARTERA Y CUENTAS POR COBRAR - SISTEMA DOÑA MARY
+-- Ejecuta este script en el SQL Editor de tu panel de Supabase
+-- =========================================================================
+
+-- 1. Tabla de Clientes
+CREATE TABLE IF NOT EXISTS public.clientes (
+    id_cliente UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    nombre TEXT UNIQUE NOT NULL,
+    tipo_cliente TEXT DEFAULT 'REGULAR', -- 'REGULAR', 'CLIENTES_VARIOS'
+    telefono TEXT,
+    direccion TEXT,
+    email TEXT,
+    limite_credito NUMERIC(14,2) DEFAULT 0,
+    notas TEXT,
+    fecha_creacion TIMESTAMPTZ DEFAULT timezone('America/Bogota'::text, now())
+);
+
+-- Insertar cliente predeterminado para ventas generales
+INSERT INTO public.clientes (nombre, tipo_cliente)
+VALUES ('CLIENTES VARIOS', 'CLIENTES_VARIOS')
+ON CONFLICT (nombre) DO NOTHING;
+
+-- 2. Asegurar columnas de cliente en registro_ventas (Sintaxis nativa segura)
+ALTER TABLE public.registro_ventas ADD COLUMN IF NOT EXISTS cliente TEXT DEFAULT 'CLIENTES VARIOS';
+ALTER TABLE public.registro_ventas ADD COLUMN IF NOT EXISTS id_cliente UUID REFERENCES public.clientes(id_cliente);
+
+-- 3. Tabla de Pagos / Recaudos de Cartera (Cabecera)
+CREATE TABLE IF NOT EXISTS public.pagos_cartera (
+    id_pago UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id_cliente UUID REFERENCES public.clientes(id_cliente) ON DELETE SET NULL,
+    nombre_cliente TEXT NOT NULL,
+    fecha_pago TIMESTAMPTZ DEFAULT timezone('America/Bogota'::text, now()),
+    monto_total NUMERIC(14,2) NOT NULL CHECK (monto_total > 0),
+    metodo_pago TEXT NOT NULL CHECK (metodo_pago IN ('EFECTIVO', 'TRANSFERENCIA')),
+    banco_origen TEXT, -- 'Bancolombia', 'Nequi', 'Daviplata', 'Davivienda', 'BBVA', 'Banco de Bogotá', 'Dale', 'Otro'
+    referencia_comprobante TEXT,
+    observaciones TEXT,
+    usuario_registro TEXT DEFAULT 'admin',
+    estado_registro TEXT DEFAULT 'VÁLIDO' CHECK (estado_registro IN ('VÁLIDO', 'ANULADO')),
+    created_at TIMESTAMPTZ DEFAULT timezone('America/Bogota'::text, now())
+);
+
+-- 4. Tabla de Detalle de Pagos Aplicados a Facturas
+CREATE TABLE IF NOT EXISTS public.detalle_pagos_cartera (
+    id_detalle UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id_pago UUID REFERENCES public.pagos_cartera(id_pago) ON DELETE CASCADE,
+    factura_no TEXT NOT NULL,
+    monto_aplicado NUMERIC(14,2) NOT NULL CHECK (monto_aplicado > 0),
+    saldo_anterior NUMERIC(14,2) DEFAULT 0,
+    saldo_restante NUMERIC(14,2) DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT timezone('America/Bogota'::text, now())
+);
+
+-- 5. Tabla de Plan de Cuotas y Fechas de Cobro
+CREATE TABLE IF NOT EXISTS public.cuotas_cartera (
+    id_cuota UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id_cliente UUID REFERENCES public.clientes(id_cliente) ON DELETE CASCADE,
+    nombre_cliente TEXT NOT NULL,
+    numero_cuota INT NOT NULL,
+    total_cuotas INT NOT NULL,
+    monto_cuota NUMERIC(14,2) NOT NULL,
+    fecha_cobro_sugerida DATE NOT NULL,
+    estado TEXT DEFAULT 'PENDIENTE' CHECK (estado IN ('PENDIENTE', 'COBRADO', 'ANULADO')),
+    observacion TEXT,
+    created_at TIMESTAMPTZ DEFAULT timezone('America/Bogota'::text, now())
+);
+
+-- 6. Desactivar RLS para acceso fluido de la app
+ALTER TABLE public.clientes DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.pagos_cartera DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.detalle_pagos_cartera DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cuotas_cartera DISABLE ROW LEVEL SECURITY;
+
+-- 7. Índices de rendimiento
+CREATE INDEX IF NOT EXISTS idx_registro_ventas_cliente ON public.registro_ventas (cliente);
+CREATE INDEX IF NOT EXISTS idx_registro_ventas_factura ON public.registro_ventas (factura_no);
+CREATE INDEX IF NOT EXISTS idx_pagos_cartera_cliente ON public.pagos_cartera (nombre_cliente);
+CREATE INDEX IF NOT EXISTS idx_detalle_pagos_factura ON public.detalle_pagos_cartera (factura_no);
+CREATE INDEX IF NOT EXISTS idx_cuotas_cartera_cliente ON public.cuotas_cartera (id_cliente);
+````
+
 ## File: scripts/restaurar_backup.py
 ````python
 """
@@ -327032,6 +326774,628 @@ if __name__ == "__main__":
     procesar_carpeta(args.carpeta)
 ````
 
+## File: .gitignore
+````
+# Entornos virtuales
+venv/
+env/
+.env
+
+# Archivos de caché y logs
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.log
+
+# Archivos pesados o temporales
+*.pdf
+*.xlsx
+*.csv
+~$*.xlsx
+
+# Configuración del IDE/Sistema
+.vscode/
+.idea/
+.DS_Store
+.kiro/
+
+# Carpetas de dependencias y compilación
+build/
+dist/
+node_modules/
+````
+
+## File: openapi.json
+````json
+{"code": "PGRST125", "details": null, "hint": null, "message": "Invalid path specified in request URL"}
+````
+
+## File: Sistema_Dona_Mary.spec
+````
+# -*- mode: python ; coding: utf-8 -*-
+
+
+a = Analysis(
+    ['main.py'],
+    pathex=[],
+    binaries=[],
+    datas=[('.env', '.')],
+    hiddenimports=[],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+    optimize=0,
+)
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas,
+    [],
+    name='Sistema_Dona_Mary',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    version='C:/Users/Home/AppData/Local/Temp/8eefa800-9c76-474d-b9a1-33f4a3d6fe9b',
+)
+````
+
+## File: skills-lock.json
+````json
+{
+  "version": 1,
+  "skills": {
+    "supabase": {
+      "source": "supabase/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/supabase/SKILL.md",
+      "computedHash": "a6260582f48df8ba53380bb9b9e870ed2ae5fe147799e90ed783b8aa25167d50"
+    },
+    "supabase-postgres-best-practices": {
+      "source": "supabase/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/supabase-postgres-best-practices/SKILL.md",
+      "computedHash": "128fac78002d916c8ca908245d398e634f540d8bcf20915b2b2359aeb18eba59"
+    }
+  }
+}
+````
+
+## File: supabase_schema.sql
+````sql
+-- Script de Creación de Base de Datos para Dashboard Abarrotes Mary
+-- Ejecuta este script en el "SQL Editor" de tu panel de Supabase
+
+-- 1. Tabla: Catalogo_Insumos (El Maestro de Productos)
+CREATE TABLE IF NOT EXISTS public.Catalogo_Insumos (
+    id_insumo UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    codigo TEXT UNIQUE NOT NULL,
+    nombre TEXT NOT NULL,
+    descripcion TEXT,
+    categoria TEXT,
+    costo_unitario DECIMAL(10,2) DEFAULT 0,
+    precio_venta DECIMAL(10,2) DEFAULT 0,
+    stock_actual INTEGER DEFAULT 0,
+    stock_minimo INTEGER DEFAULT 5,
+    estado BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- 2. Tabla: Registro_Compras (Entradas)
+CREATE TABLE IF NOT EXISTS public.Registro_Compras (
+    id_compra UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    fecha TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    id_insumo UUID REFERENCES public.Catalogo_Insumos(id_insumo),
+    insumo TEXT NOT NULL,
+    cantidad INTEGER NOT NULL,
+    proveedor TEXT,
+    estado_registro TEXT DEFAULT 'VÁLIDO' CHECK (estado_registro IN ('VÁLIDO', 'ANULADO'))
+);
+
+-- 3. Tabla: Registro_Ventas (Salidas)
+CREATE TABLE IF NOT EXISTS public.Registro_Ventas (
+    id_venta UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    factura_no TEXT,
+    fecha TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+    codigo_item TEXT REFERENCES public.Catalogo_Insumos(codigo),
+    descripcion TEXT,
+    cantidad INTEGER NOT NULL,
+    subtotal DECIMAL(10,2) DEFAULT 0,
+    descuento DECIMAL(10,2) DEFAULT 0,
+    iva DECIMAL(10,2) DEFAULT 0,
+    total DECIMAL(10,2) DEFAULT 0,
+    estado_registro TEXT DEFAULT 'VÁLIDO' CHECK (estado_registro IN ('VÁLIDO', 'ANULADO'))
+);
+
+-- Configuración de Seguridad (Opcional por ahora, pero recomendado)
+-- Desactivamos RLS para que la app pueda acceder fácilmente (al ser de escritorio admin)
+ALTER TABLE public.Catalogo_Insumos DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.Registro_Compras DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.Registro_Ventas DISABLE ROW LEVEL SECURITY;
+````
+
+## File: core/audit_logger.py
+````python
+"""
+Módulo de Auditoría y Registro de Acciones de Usuario para Doña Mary App.
+Registra: fecha, hora, nombre_usuario y acción realizada en cada módulo.
+Mantiene persistencia en logs/auditoria_acciones.jsonl y en memoria para consultas rápidas.
+"""
+import os
+import json
+import datetime
+import threading
+from core.logger import get_logger, log_error
+
+logger = get_logger("AuditLogger")
+
+# Almacén de usuario actual en sesión
+_CURRENT_USER = {"usuario": "admin", "nombre": "Administrador", "rol": "ADMINISTRADOR"}
+_LOCK = threading.Lock()
+_LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
+_LOG_FILE = os.path.join(_LOG_DIR, "auditoria_acciones.jsonl")
+
+def set_current_user(usuario_data: dict):
+    global _CURRENT_USER
+    with _LOCK:
+        if usuario_data:
+            _CURRENT_USER = {
+                "usuario": usuario_data.get("usuario") or usuario_data.get("username") or "admin",
+                "nombre": usuario_data.get("nombre") or usuario_data.get("usuario") or "Usuario",
+                "rol": usuario_data.get("rol") or "OPERADOR"
+            }
+
+def get_current_user_name() -> str:
+    with _LOCK:
+        return _CURRENT_USER.get("usuario", "admin")
+
+def registrar_accion(accion: str, modulo: str = "GENERAL", usuario: str = None, detalles: dict = None):
+    """
+    Registra una acción de usuario en el historial de auditoría.
+    
+    Args:
+        accion: Descripción clara de la acción realizada (ej: 'Registro manual de compra #FAC-123')
+        modulo: Módulo del sistema (COMPRAS, VENTAS, AJUSTES, CONTEO, INVENTARIO)
+        usuario: Nombre del usuario (opcional, si es None toma el usuario en sesión activa)
+        detalles: Diccionario opcional con metadatos extra
+    """
+    def _worker():
+        try:
+            from core.fecha_utils import get_ahora_local
+            ahora = get_ahora_local()
+            fecha_str = ahora.strftime("%Y-%m-%d")
+            hora_str = ahora.strftime("%H:%M:%S")
+            
+            user_final = usuario or get_current_user_name()
+            
+            registro = {
+                "fecha": fecha_str,
+                "hora": hora_str,
+                "timestamp": ahora.isoformat(),
+                "nombre_usuario": user_final,
+                "modulo": modulo.upper(),
+                "accion": accion,
+                "detalles": detalles or {}
+            }
+            
+            # Asegurar directorio de logs
+            os.makedirs(_LOG_DIR, exist_ok=True)
+            
+            # Escribir en archivo JSON Lines (respaldo local garantizado)
+            with _LOCK:
+                with open(_LOG_FILE, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(registro, ensure_ascii=False) + "\n")
+            
+            # Sincronizar en Supabase si la tabla historial_acciones_usuario está creada
+            try:
+                from core.supabase_client import get_client
+                db = get_client()
+                db._db.post("historial_acciones_usuario", json_data=[registro], timeout=4)
+            except Exception:
+                pass
+
+            logger.info(f"[AUDITORIA] [{fecha_str} {hora_str}] [{user_final}] [{modulo}] {accion}")
+        except Exception as ex:
+            log_error("AuditLogger.registrar_accion", ex)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+def obtener_historial_acciones(limit: int = 100, modulo: str = None, fecha: str = None, usuario: str = None) -> list:
+    """
+    Lee las últimas acciones registradas. Intenta primero desde Supabase y si no, desde el respaldo local.
+    """
+    # 1. Intentar consultar desde Supabase
+    try:
+        from core.supabase_client import get_client
+        db = get_client()
+        endpoint = f"historial_acciones_usuario?order=timestamp.desc&limit={limit}"
+        if modulo and modulo.upper() != "TODOS":
+            endpoint += f"&modulo=eq.{modulo.upper()}"
+        if fecha:
+            endpoint += f"&fecha=eq.{fecha}"
+        if usuario:
+            endpoint += f"&nombre_usuario=ilike.*{usuario}*"
+        res = db._db.get(endpoint, timeout=5)
+        if res and res.status_code == 200 and isinstance(res.json(), list) and len(res.json()) > 0:
+            return res.json()
+    except Exception:
+        pass
+
+    # 2. Respaldo local desde archivo JSON Lines
+    if not os.path.exists(_LOG_FILE):
+        return []
+    
+    registros = []
+    try:
+        with _LOCK:
+            with open(_LOG_FILE, "r", encoding="utf-8") as f:
+                lineas = f.readlines()
+                
+        for line in reversed(lineas):
+            if not line.strip():
+                continue
+            try:
+                item = json.loads(line.strip())
+                if modulo and modulo.upper() != "TODOS" and item.get("modulo") != modulo.upper():
+                    continue
+                if fecha and item.get("fecha") != fecha:
+                    continue
+                if usuario and usuario.lower() not in item.get("nombre_usuario", "").lower():
+                    continue
+                registros.append(item)
+                if len(registros) >= limit:
+                    break
+            except json.JSONDecodeError:
+                continue
+    except Exception as ex:
+        log_error("AuditLogger.obtener_historial_acciones", ex)
+        
+    return registros
+````
+
+## File: core/database.py
+````python
+"""
+Módulo base de conexión HTTP con Supabase PostgREST.
+Proporciona manejo de sesiones, timeouts y logging centralizado de errores.
+"""
+import requests
+import json
+from config import Config
+from core.logger import get_logger, log_error
+
+logger = get_logger("Database")
+
+class BaseDatabase:
+    """Cliente HTTP centralizado para comunicarse con la API PostgREST de Supabase."""
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(BaseDatabase, cls).__new__(cls)
+            cls._instance._init_connection()
+        return cls._instance
+
+    def _init_connection(self):
+        self.url = Config.SUPABASE_URL
+        self.key = Config.SUPABASE_KEY
+
+        if self.url and self.url.endswith('/'):
+            self.url = self.url[:-1]
+        if self.url and not self.url.endswith('/rest/v1'):
+            self.url = self.url + "/rest/v1"
+
+        self.session = requests.Session()
+        self.headers = {
+            "apikey": self.key,
+            "Authorization": f"Bearer {self.key}",
+            "Content-Type": "application/json"
+        }
+        self.session.headers.update(self.headers)
+        logger.info("Sesión HTTP de base de datos inicializada correctamente.")
+
+    def check_connection(self) -> tuple[bool, str]:
+        if not self.url or not self.key:
+            return False, "Faltan credenciales de Supabase en configuración (.env)"
+        try:
+            res = self.session.get(f"{self.url}/catalogo_insumos?limit=1", headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                return True, "Conexión exitosa con Supabase"
+            return False, f"Error del servidor HTTP {res.status_code}: {res.text}"
+        except requests.exceptions.RequestException as req_e:
+            msg = log_error("check_connection", req_e)
+            return False, msg
+        except Exception as e:
+            msg = log_error("check_connection_generico", e)
+            return False, msg
+
+    def get(self, endpoint: str, params: dict | None = None, custom_headers: dict | None = None, timeout: int = 10) -> requests.Response | None:
+        try:
+            url = f"{self.url}/{endpoint}" if not endpoint.startswith("http") else endpoint
+            headers = self.headers.copy()
+            if custom_headers:
+                headers.update(custom_headers)
+            response = self.session.get(url, params=params, headers=headers, timeout=timeout)
+            return response
+        except Exception as ex:
+            log_error(f"GET {endpoint}", ex)
+            return None
+
+    def get_all(self, endpoint: str, page_size: int = 1000, timeout: int = 15) -> list[dict]:
+        """Descarga todos los registros paginados de un endpoint PostgREST."""
+        all_rows = []
+        offset = 0
+        sep = "&" if "?" in endpoint else "?"
+        while True:
+            p_endpoint = f"{endpoint}{sep}limit={page_size}&offset={offset}"
+            res = self.get(p_endpoint, timeout=timeout)
+            if not res or res.status_code != 200:
+                break
+            data = res.json()
+            if not data or not isinstance(data, list):
+                break
+            all_rows.extend(data)
+            if len(data) < page_size:
+                break
+            offset += page_size
+        return all_rows
+
+
+    def post(self, endpoint: str, json_data: dict | list | None = None, custom_headers: dict | None = None, timeout: int = 10) -> requests.Response | None:
+        try:
+            url = f"{self.url}/{endpoint}" if not endpoint.startswith("http") else endpoint
+            headers = self.headers.copy()
+            if custom_headers:
+                headers.update(custom_headers)
+            response = self.session.post(url, json=json_data, headers=headers, timeout=timeout)
+            return response
+        except Exception as ex:
+            log_error(f"POST {endpoint}", ex)
+            return None
+
+    def patch(self, endpoint: str, json_data: dict | list | None = None, custom_headers: dict | None = None, timeout: int = 10) -> requests.Response | None:
+        try:
+            url = f"{self.url}/{endpoint}" if not endpoint.startswith("http") else endpoint
+            headers = self.headers.copy()
+            if custom_headers:
+                headers.update(custom_headers)
+            response = self.session.patch(url, json=json_data, headers=headers, timeout=timeout)
+            return response
+        except Exception as ex:
+            log_error(f"PATCH {endpoint}", ex)
+            return None
+
+    def delete(self, endpoint: str, custom_headers: dict | None = None, timeout: int = 10) -> requests.Response | None:
+        try:
+            url = f"{self.url}/{endpoint}" if not endpoint.startswith("http") else endpoint
+            headers = self.headers.copy()
+            if custom_headers:
+                headers.update(custom_headers)
+            response = self.session.delete(url, headers=headers, timeout=timeout)
+            return response
+        except Exception as ex:
+            log_error(f"DELETE {endpoint}", ex)
+            return None
+````
+
+## File: ui/components/autocomplete.py
+````python
+"""
+Componente Autocompletado nativo compatible con Flet 0.21.2.
+Diseño moderno con botón de limpieza instantánea, cierre automático y sincronización en tiempo real.
+"""
+import flet as ft
+from config import Config
+
+class CustomAutoComplete(ft.Container):
+    def __init__(self, hint_text="Buscar por código o nombre...", on_select=None, text_size=12, height=40, expand=False):
+        super().__init__()
+        self.on_select = on_select
+        self.suggestions = []
+        self.expand = expand
+        
+        self.search_input_text = ft.TextField(visible=False)
+        
+        self.btn_clear = ft.IconButton(
+            icon=ft.icons.CLOSE_ROUNDED,
+            icon_size=16,
+            icon_color="grey600",
+            tooltip="Limpiar búsqueda",
+            visible=False,
+            on_click=self.clear
+        )
+
+        self.search_input = ft.TextField(
+            hint_text=hint_text,
+            prefix_icon=ft.icons.SEARCH_ROUNDED,
+            suffix=self.btn_clear,
+            border_radius=8,
+            dense=True,
+            height=height,
+            text_size=text_size,
+            bgcolor="white",
+            content_padding=10,
+            border_color=Config.COLOR_BORDER,
+            focused_border_color=Config.COLOR_ACCENT,
+            cursor_color=Config.COLOR_ACCENT,
+            on_change=self._on_text_change,
+            on_submit=self._on_submit
+        )
+
+        self.sug_list = ft.ListView(expand=True, spacing=0, height=160)
+        self.sug_container = ft.Container(
+            content=self.sug_list,
+            visible=False,
+            bgcolor="white",
+            border_radius=8,
+            border=ft.border.all(1, Config.COLOR_BORDER),
+            shadow=ft.BoxShadow(
+                spread_radius=1,
+                blur_radius=8,
+                color=ft.colors.with_opacity(0.12, "black"),
+                offset=ft.Offset(0, 4)
+            )
+        )
+        
+        self.content = ft.Column(
+            controls=[
+                self.search_input,
+                self.sug_container
+            ],
+            spacing=0,
+            tight=True
+        )
+
+    def _safe_update(self):
+        try:
+            if self.page:
+                self.update()
+        except Exception:
+            pass
+
+    def clear(self, e=None):
+        """Limpia el texto, oculta las sugerencias y notifica el reset de búsqueda."""
+        self.search_input.value = ""
+        self.search_input_text.value = ""
+        self.btn_clear.visible = False
+        self.sug_container.visible = False
+        self._safe_update()
+
+        class MockSelection:
+            def __init__(self):
+                self.key = ""
+                self.value = ""
+
+        class MockEvent:
+            def __init__(self, ctrl):
+                self.selection = MockSelection()
+                self.control = ctrl
+
+        if self.on_select:
+            try:
+                self.on_select(MockEvent(self.search_input))
+            except Exception:
+                pass
+
+    def _on_text_change(self, e):
+        raw_val = self.search_input.value or ""
+        query = raw_val.strip().lower()
+        self.sug_list.controls.clear()
+        self.btn_clear.visible = bool(raw_val)
+
+        if query and self.suggestions:
+            matches = 0
+            for item in self.suggestions:
+                val = item.get("value", "")
+                if query in val.lower():
+                    self.sug_list.controls.append(
+                        ft.ListTile(
+                            title=ft.Text(val, size=12, color=Config.COLOR_TEXT),
+                            hover_color=ft.colors.with_opacity(0.06, Config.COLOR_ACCENT),
+                            on_click=self._create_on_click_handler(item),
+                            dense=True,
+                        )
+                    )
+                    matches += 1
+                    if matches >= 20:  # Limitar para fluidez
+                        break
+            self.sug_container.visible = len(self.sug_list.controls) > 0
+        else:
+            # Si el texto está vacío, cerrar el desplegable de sugerencias y refrescar búsqueda global
+            self.sug_container.visible = False
+            self.search_input_text.value = ""
+            if not raw_val and self.on_select:
+                class MockSelection:
+                    def __init__(self):
+                        self.key = ""
+                        self.value = ""
+
+                class MockEvent:
+                    def __init__(self, ctrl):
+                        self.selection = MockSelection()
+                        self.control = ctrl
+                try:
+                    self.on_select(MockEvent(self.search_input))
+                except Exception:
+                    pass
+
+        self._safe_update()
+
+    def _create_on_click_handler(self, item):
+        def handler(e):
+            val = item.get("value", "")
+            self.search_input.value = val
+            self.btn_clear.visible = bool(val)
+            self.sug_container.visible = False
+            self._safe_update()
+            
+            class MockSelection:
+                def __init__(self, key, value):
+                    self.key = key
+                    self.value = value
+            
+            class MockEvent:
+                def __init__(self, key, value, control):
+                    self.selection = MockSelection(key, value)
+                    self.control = control
+            
+            if self.on_select:
+                try:
+                    self.on_select(MockEvent(item.get("key"), val, self.search_input))
+                except Exception:
+                    pass
+        return handler
+
+    def _on_submit(self, e):
+        self.sug_container.visible = False
+        self._safe_update()
+        
+        val = self.search_input.value or ""
+        class MockSelection:
+            def __init__(self, value):
+                self.key = value
+                self.value = value
+
+        class MockEvent:
+            def __init__(self, value, control):
+                self.selection = MockSelection(value)
+                self.control = control
+                
+        if self.on_select:
+            try:
+                self.on_select(MockEvent(val, self.search_input))
+            except Exception:
+                pass
+
+    @property
+    def value(self):
+        return self.search_input.value
+        
+    @value.setter
+    def value(self, new_value):
+        self.search_input.value = new_value
+        self.btn_clear.visible = bool(new_value)
+        if not new_value:
+            self.sug_container.visible = False
+            self.search_input_text.value = ""
+        self._safe_update()
+````
+
 ## File: ui/components/cargas_consolidada.py
 ````python
 """
@@ -327346,6 +327710,17 @@ class CargasConsolidadaView(ft.Container):
             self.carga_data["facturas"].pop(f_idx)
             self._actualizar_contenido()
 
+        def guardar_esta_factura(e, f=fact):
+            if self.on_save_callback:
+                self.on_save_callback([f])
+
+        btn_guardar_individual = ft.IconButton(
+            icon=ft.icons.SAVE_ROUNDED,
+            icon_color="green700",
+            tooltip="Guardar solo este documento",
+            on_click=guardar_esta_factura
+        )
+
         btn_expand = ft.IconButton(
             icon=ft.icons.KEYBOARD_ARROW_UP_ROUNDED if is_expanded else ft.icons.KEYBOARD_ARROW_DOWN_ROUNDED,
             tooltip="Colapsar" if is_expanded else "Ver Insumos",
@@ -327372,6 +327747,7 @@ class CargasConsolidadaView(ft.Container):
             ),
             ft.Text(f"${total_val:,.2f}", weight="bold", size=13, color="teal800"),
             badge_estado,
+            btn_guardar_individual,
             btn_expand,
             btn_eliminar
         ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -327553,948 +327929,6 @@ class CargasConsolidadaView(ft.Container):
         self.on_save_callback(seleccionadas)
 ````
 
-## File: .gitignore
-````
-# Entornos virtuales
-venv/
-env/
-.env
-
-# Archivos de caché y logs
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.log
-
-# Archivos pesados o temporales
-*.pdf
-*.xlsx
-*.csv
-~$*.xlsx
-
-# Configuración del IDE/Sistema
-.vscode/
-.idea/
-.DS_Store
-.kiro/
-
-# Carpetas de dependencias y compilación
-build/
-dist/
-node_modules/
-````
-
-## File: openapi.json
-````json
-{"code": "PGRST125", "details": null, "hint": null, "message": "Invalid path specified in request URL"}
-````
-
-## File: Sistema_Dona_Mary.spec
-````
-# -*- mode: python ; coding: utf-8 -*-
-
-
-a = Analysis(
-    ['main.py'],
-    pathex=[],
-    binaries=[],
-    datas=[('.env', '.')],
-    hiddenimports=[],
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=[],
-    noarchive=False,
-    optimize=0,
-)
-pyz = PYZ(a.pure)
-
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
-    [],
-    name='Sistema_Dona_Mary',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
-    console=False,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    version='C:/Users/Home/AppData/Local/Temp/8eefa800-9c76-474d-b9a1-33f4a3d6fe9b',
-)
-````
-
-## File: supabase_schema.sql
-````sql
--- Script de Creación de Base de Datos para Dashboard Abarrotes Mary
--- Ejecuta este script en el "SQL Editor" de tu panel de Supabase
-
--- 1. Tabla: Catalogo_Insumos (El Maestro de Productos)
-CREATE TABLE IF NOT EXISTS public.Catalogo_Insumos (
-    id_insumo UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    codigo TEXT UNIQUE NOT NULL,
-    nombre TEXT NOT NULL,
-    descripcion TEXT,
-    categoria TEXT,
-    costo_unitario DECIMAL(10,2) DEFAULT 0,
-    precio_venta DECIMAL(10,2) DEFAULT 0,
-    stock_actual INTEGER DEFAULT 0,
-    stock_minimo INTEGER DEFAULT 5,
-    estado BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
-);
-
--- 2. Tabla: Registro_Compras (Entradas)
-CREATE TABLE IF NOT EXISTS public.Registro_Compras (
-    id_compra UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    fecha TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
-    id_insumo UUID REFERENCES public.Catalogo_Insumos(id_insumo),
-    insumo TEXT NOT NULL,
-    cantidad INTEGER NOT NULL,
-    proveedor TEXT,
-    estado_registro TEXT DEFAULT 'VÁLIDO' CHECK (estado_registro IN ('VÁLIDO', 'ANULADO'))
-);
-
--- 3. Tabla: Registro_Ventas (Salidas)
-CREATE TABLE IF NOT EXISTS public.Registro_Ventas (
-    id_venta UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    factura_no TEXT,
-    fecha TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
-    codigo_item TEXT REFERENCES public.Catalogo_Insumos(codigo),
-    descripcion TEXT,
-    cantidad INTEGER NOT NULL,
-    subtotal DECIMAL(10,2) DEFAULT 0,
-    descuento DECIMAL(10,2) DEFAULT 0,
-    iva DECIMAL(10,2) DEFAULT 0,
-    total DECIMAL(10,2) DEFAULT 0,
-    estado_registro TEXT DEFAULT 'VÁLIDO' CHECK (estado_registro IN ('VÁLIDO', 'ANULADO'))
-);
-
--- Configuración de Seguridad (Opcional por ahora, pero recomendado)
--- Desactivamos RLS para que la app pueda acceder fácilmente (al ser de escritorio admin)
-ALTER TABLE public.Catalogo_Insumos DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.Registro_Compras DISABLE ROW LEVEL SECURITY;
-ALTER TABLE public.Registro_Ventas DISABLE ROW LEVEL SECURITY;
-````
-
-## File: core/audit_logger.py
-````python
-"""
-Módulo de Auditoría y Registro de Acciones de Usuario para Doña Mary App.
-Registra: fecha, hora, nombre_usuario y acción realizada en cada módulo.
-Mantiene persistencia en logs/auditoria_acciones.jsonl y en memoria para consultas rápidas.
-"""
-import os
-import json
-import datetime
-import threading
-from core.logger import get_logger, log_error
-
-logger = get_logger("AuditLogger")
-
-# Almacén de usuario actual en sesión
-_CURRENT_USER = {"usuario": "admin", "nombre": "Administrador", "rol": "ADMINISTRADOR"}
-_LOCK = threading.Lock()
-_LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
-_LOG_FILE = os.path.join(_LOG_DIR, "auditoria_acciones.jsonl")
-
-def set_current_user(usuario_data: dict):
-    global _CURRENT_USER
-    with _LOCK:
-        if usuario_data:
-            _CURRENT_USER = {
-                "usuario": usuario_data.get("usuario") or usuario_data.get("username") or "admin",
-                "nombre": usuario_data.get("nombre") or usuario_data.get("usuario") or "Usuario",
-                "rol": usuario_data.get("rol") or "OPERADOR"
-            }
-
-def get_current_user_name() -> str:
-    with _LOCK:
-        return _CURRENT_USER.get("usuario", "admin")
-
-def registrar_accion(accion: str, modulo: str = "GENERAL", usuario: str = None, detalles: dict = None):
-    """
-    Registra una acción de usuario en el historial de auditoría.
-    
-    Args:
-        accion: Descripción clara de la acción realizada (ej: 'Registro manual de compra #FAC-123')
-        modulo: Módulo del sistema (COMPRAS, VENTAS, AJUSTES, CONTEO, INVENTARIO)
-        usuario: Nombre del usuario (opcional, si es None toma el usuario en sesión activa)
-        detalles: Diccionario opcional con metadatos extra
-    """
-    def _worker():
-        try:
-            from core.fecha_utils import get_ahora_local
-            ahora = get_ahora_local()
-            fecha_str = ahora.strftime("%Y-%m-%d")
-            hora_str = ahora.strftime("%H:%M:%S")
-            
-            user_final = usuario or get_current_user_name()
-            
-            registro = {
-                "fecha": fecha_str,
-                "hora": hora_str,
-                "timestamp": ahora.isoformat(),
-                "nombre_usuario": user_final,
-                "modulo": modulo.upper(),
-                "accion": accion,
-                "detalles": detalles or {}
-            }
-            
-            # Asegurar directorio de logs
-            os.makedirs(_LOG_DIR, exist_ok=True)
-            
-            # Escribir en archivo JSON Lines (respaldo local garantizado)
-            with _LOCK:
-                with open(_LOG_FILE, "a", encoding="utf-8") as f:
-                    f.write(json.dumps(registro, ensure_ascii=False) + "\n")
-            
-            # Sincronizar en Supabase si la tabla historial_acciones_usuario está creada
-            try:
-                from core.supabase_client import get_client
-                db = get_client()
-                db._db.post("historial_acciones_usuario", json_data=[registro], timeout=4)
-            except Exception:
-                pass
-
-            logger.info(f"[AUDITORIA] [{fecha_str} {hora_str}] [{user_final}] [{modulo}] {accion}")
-        except Exception as ex:
-            log_error("AuditLogger.registrar_accion", ex)
-
-    threading.Thread(target=_worker, daemon=True).start()
-
-def obtener_historial_acciones(limit: int = 100, modulo: str = None, fecha: str = None, usuario: str = None) -> list:
-    """
-    Lee las últimas acciones registradas. Intenta primero desde Supabase y si no, desde el respaldo local.
-    """
-    # 1. Intentar consultar desde Supabase
-    try:
-        from core.supabase_client import get_client
-        db = get_client()
-        endpoint = f"historial_acciones_usuario?order=timestamp.desc&limit={limit}"
-        if modulo and modulo.upper() != "TODOS":
-            endpoint += f"&modulo=eq.{modulo.upper()}"
-        if fecha:
-            endpoint += f"&fecha=eq.{fecha}"
-        if usuario:
-            endpoint += f"&nombre_usuario=ilike.*{usuario}*"
-        res = db._db.get(endpoint, timeout=5)
-        if res and res.status_code == 200 and isinstance(res.json(), list) and len(res.json()) > 0:
-            return res.json()
-    except Exception:
-        pass
-
-    # 2. Respaldo local desde archivo JSON Lines
-    if not os.path.exists(_LOG_FILE):
-        return []
-    
-    registros = []
-    try:
-        with _LOCK:
-            with open(_LOG_FILE, "r", encoding="utf-8") as f:
-                lineas = f.readlines()
-                
-        for line in reversed(lineas):
-            if not line.strip():
-                continue
-            try:
-                item = json.loads(line.strip())
-                if modulo and modulo.upper() != "TODOS" and item.get("modulo") != modulo.upper():
-                    continue
-                if fecha and item.get("fecha") != fecha:
-                    continue
-                if usuario and usuario.lower() not in item.get("nombre_usuario", "").lower():
-                    continue
-                registros.append(item)
-                if len(registros) >= limit:
-                    break
-            except json.JSONDecodeError:
-                continue
-    except Exception as ex:
-        log_error("AuditLogger.obtener_historial_acciones", ex)
-        
-    return registros
-````
-
-## File: core/invoice_classifier.py
-````python
-"""
-Módulo clasificador, extractor inteligente y organizador de facturas PDF.
-Identifica y extrae 3 formatos:
-  1. Venta POS (TIPO PP - Relación de Ventas Diarias)
-  2. Venta Remisión (TIPO FV - Reporte Detallado de Facturas)
-  3. Compra (EA - Reporte Detallado de Entradas de Almacén)
-
-Incluye deduplicación automática y archivo por fecha.
-"""
-import os
-import re
-import shutil
-import datetime
-import json
-import requests
-from config import Config
-from core.logger import get_logger, log_error
-from core.supabase_client import get_client
-
-logger = get_logger("InvoiceClassifier")
-
-def parse_num(s):
-    if not s or s == '-': return 0.0
-    s = str(s).strip().replace('$', '')
-    if '.' in s and ',' in s:
-        s = s.replace('.', '').replace(',', '.')
-    elif ',' in s:
-        parts = s.split(',')
-        if len(parts) == 2 and len(parts[1]) in (1, 2):
-            s = parts[0].replace('.', '') + '.' + parts[1]
-        else:
-            s = s.replace(',', '')
-    elif '.' in s:
-        parts = s.split('.')
-        if len(parts) == 2 and len(parts[1]) in (1, 2):
-            s = s
-        else:
-            s = s.replace('.', '')
-    try:
-        return float(s)
-    except:
-        return 0.0
-
-def parse_fecha(f_str):
-    if not f_str: return datetime.date.today().strftime("%Y-%m-%d")
-    f_str = f_str.strip().replace('-', '/')
-    parts = f_str.split('/')
-    if len(parts) == 3:
-        if len(parts[2]) == 4:
-            return f"{parts[2]}-{parts[1].zfill(2)}-{parts[0].zfill(2)}"
-        elif len(parts[0]) == 4:
-            return f"{parts[0]}-{parts[1].zfill(2)}-{parts[2].zfill(2)}"
-    return f_str
-
-def detectar_tipo_documento(texto: str) -> str:
-    """
-    Analiza el texto de un PDF para clasificar su formato exacto.
-    Retorna: 'VENTA_POS' | 'VENTA_REMISION' | 'COMPRA' | 'DESCONOCIDO'
-    """
-    t = texto.upper()
-    if "ENTRADAS DE ALMACEN" in t or "EA -" in t or "EA-" in t or "BODEGA" in t and "COSTO" in t:
-        return "COMPRA"
-    elif "RELACION DE VENTAS DIARIAS" in t or "TIPO PP" in t or "VENTAS DEL DIA" in t or "INVERIONES B&G" in t:
-        return "VENTA_POS"
-    elif "REPORTE DETALLADO DE FACTURAS" in t or "TIPO FV" in t or "DOÑA MARY" in t:
-        return "VENTA_REMISION"
-    return "DESCONOCIDO"
-
-def obtener_documentos_registrados(db, tipo: str, fecha: str | None = None) -> set:
-    """
-    Obtiene los números de factura o entrada ya existentes en la BD.
-    """
-    registrados = set()
-    try:
-        if tipo in ("VENTA_POS", "VENTA_REMISION"):
-            endpoint = "registro_ventas?select=factura_no"
-            if fecha:
-                endpoint += f"&fecha=gte.{fecha}T00:00:00&fecha=lte.{fecha}T23:59:59"
-            res = db._db.get(endpoint, timeout=10)
-            if res and res.status_code == 200:
-                for item in res.json():
-                    if item.get("factura_no"):
-                        registrados.add(str(item["factura_no"]).strip())
-        elif tipo == "COMPRA":
-            endpoint = "registro_compras?select=numero_entrada,numero_factura"
-            if fecha:
-                endpoint += f"&fecha=gte.{fecha}T00:00:00&fecha=lte.{fecha}T23:59:59"
-            res = db._db.get(endpoint, timeout=10)
-            if res and res.status_code == 200:
-                for item in res.json():
-                    if item.get("numero_entrada"):
-                        registrados.add(str(item["numero_entrada"]).strip())
-                    if item.get("numero_factura"):
-                        registrados.add(str(item["numero_factura"]).strip())
-    except Exception as ex:
-        log_error("obtener_documentos_registrados", ex)
-    return registrados
-
-def parsear_venta_pos(lineas: list[str], docs_existentes: set) -> tuple[dict, int, int]:
-    """
-    Parsea formato VENTA POS (TIPO PP).
-    Retorna: (datos_extraidos, facturas_nuevas, facturas_omitidas)
-    """
-    invoices = []
-    curr_factura = None
-    curr_fecha = None
-    curr_cliente = "Clientes Varios"
-    facturas_omitidas = 0
-    facturas_procesadas = set()
-    
-    # Buscar fecha general
-    for l in lineas[:15]:
-        m_f = re.search(r'(\d{2}/\d{2}/\d{4})', l)
-        if m_f:
-            curr_fecha = parse_fecha(m_f.group(1))
-            break
-    if not curr_fecha:
-        curr_fecha = datetime.date.today().strftime("%Y-%m-%d")
-
-    curr_invoice_data = None
-
-    for l in lineas:
-        line = l.strip()
-        if not line: continue
-        if line.startswith("TOTAL DIA") or line.startswith("RELACION") or line.startswith("INVERIONES"):
-            continue
-
-        # Detectar inicio de documento: PP 26396 Clientes Varios
-        m_pp = re.search(r'PP\s+(\d+)\s*(.*)', line)
-        if m_pp:
-            if curr_invoice_data and curr_invoice_data["productos"]:
-                invoices.append(curr_invoice_data)
-                curr_invoice_data = None
-
-            fact_num = m_pp.group(1).strip()
-            facturas_procesadas.add(fact_num)
-
-            # Verificar deduplicación
-            if fact_num in docs_existentes:
-                facturas_omitidas += 1
-                curr_factura = None
-                continue
-
-            curr_factura = fact_num
-            cli = m_pp.group(2).strip() or "Clientes Varios"
-            curr_invoice_data = {
-                "factura": curr_factura,
-                "fecha": curr_fecha,
-                "cliente": cli,
-                "tipo_doc": "Factura POS",
-                "productos": []
-            }
-            continue
-
-        # Si estamos dentro de una factura nueva válida, extraer items
-        if curr_invoice_data and curr_factura:
-            parts = line.split()
-            if len(parts) >= 2:
-                cod_token = parts[0]
-                if (cod_token.isdigit() and len(cod_token) in (3, 4)) or ('-' in cod_token and len(cod_token) <= 7):
-                    cod = cod_token.zfill(4) if cod_token.isdigit() else cod_token
-                    nums = [p for p in parts[1:] if any(c.isdigit() for c in p)]
-                    if len(nums) >= 2:
-                        cant = parse_num(nums[0])
-                        p_unit = parse_num(nums[1])
-                        tot = cant * p_unit if len(nums) == 2 else parse_num(nums[-1])
-                        curr_invoice_data["productos"].append({
-                            "codigo_item": cod,
-                            "descripcion": f"INSUMO {cod}",
-                            "cantidad": cant,
-                            "subtotal": tot,
-                            "iva": 0.0,
-                            "total": tot
-                        })
-
-    if curr_invoice_data and curr_invoice_data["productos"]:
-        invoices.append(curr_invoice_data)
-
-    return {
-        "tipo": "VENTAS_POS",
-        "fecha": curr_fecha,
-        "invoices": invoices
-    }, len(invoices), facturas_omitidas
-
-def parsear_venta_remision(lineas: list[str], docs_existentes: set) -> tuple[dict, int, int]:
-    """
-    Parsea formato VENTA REMISIÓN (TIPO FV).
-    """
-    invoices = []
-    curr_factura = None
-    curr_fecha = None
-    curr_cliente = None
-    curr_page = 1
-    facturas_omitidas = 0
-    curr_invoice_data = None
-
-    for l in lineas:
-        line = l.strip()
-        if not line: continue
-        if line.startswith("page "):
-            p_m = re.search(r'page\s+(\d+)', line)
-            if p_m: curr_page = int(p_m.group(1))
-            continue
-
-        if line.startswith("Fact.No."):
-            if curr_invoice_data and curr_invoice_data["productos"]:
-                invoices.append(curr_invoice_data)
-                curr_invoice_data = None
-
-            m_fact = re.search(r'Fact\.No\.\s*([^\s]+)', line)
-            m_fec = re.search(r'Fecha:\s*(\d{2}/\d{2}/\d{4})', line)
-            m_cli = re.search(r'Cliente:\s*(.*)', line)
-
-            fact_num = m_fact.group(1).strip() if m_fact else "S/N"
-            fec_str = parse_fecha(m_fec.group(1)) if m_fec else datetime.date.today().strftime("%Y-%m-%d")
-            cli_str = m_cli.group(1).strip() if m_cli else "Clientes Varios"
-
-            if fact_num in docs_existentes:
-                facturas_omitidas += 1
-                curr_factura = None
-                continue
-
-            curr_factura = fact_num
-            curr_fecha = fec_str
-            curr_cliente = cli_str
-            curr_invoice_data = {
-                "factura": curr_factura,
-                "fecha": curr_fecha,
-                "cliente": curr_cliente,
-                "tipo_doc": "Remisión",
-                "pagina_origen": curr_page,
-                "productos": []
-            }
-            continue
-
-        if curr_invoice_data and curr_factura:
-            if line.startswith("Total Factura:") or line.startswith("Total Tipo:") or line.startswith("TOTAL"):
-                continue
-
-            parts = line.split()
-            if len(parts) >= 4:
-                cod_token = parts[0]
-                if (cod_token.isdigit() and len(cod_token) in (3, 4)) or ('-' in cod_token and len(cod_token) <= 7):
-                    cod = cod_token.zfill(4) if cod_token.isdigit() else cod_token
-                    nums = []
-                    words = []
-                    for token in reversed(parts[1:]):
-                        cleaned = token.replace('.', '').replace(',', '')
-                        if cleaned.isdigit() and len(nums) < 4:
-                            nums.insert(0, token)
-                        else:
-                            words.insert(0, token)
-
-                    desc = ' '.join(words)
-                    if len(nums) >= 2:
-                        cant = parse_num(nums[0])
-                        subt = parse_num(nums[1])
-                        iva = parse_num(nums[2]) if len(nums) >= 3 else 0.0
-                        tot = parse_num(nums[3]) if len(nums) == 4 else subt + iva
-                        curr_invoice_data["productos"].append({
-                            "codigo_item": cod,
-                            "descripcion": desc,
-                            "cantidad": cant,
-                            "subtotal": subt,
-                            "iva": iva,
-                            "total": tot
-                        })
-
-    if curr_invoice_data and curr_invoice_data["productos"]:
-        invoices.append(curr_invoice_data)
-
-    return {
-        "tipo": "VENTAS_REMISION",
-        "fecha": curr_fecha or datetime.date.today().strftime("%Y-%m-%d"),
-        "invoices": invoices
-    }, len(invoices), facturas_omitidas
-
-def parsear_compras(lineas: list[str], docs_existentes: set) -> tuple[dict, int, int]:
-    """
-    Parsea formato COMPRAS (EA - Entradas de Almacén).
-    """
-    invoices = []
-    curr_ea = None
-    curr_factura = None
-    curr_fecha = None
-    curr_prov = None
-    facturas_omitidas = 0
-    curr_invoice_data = None
-
-    for l in lineas:
-        line = l.strip()
-        if not line: continue
-        if line.startswith("EA -") or line.startswith("EA-"):
-            if curr_invoice_data and curr_invoice_data["productos"]:
-                invoices.append(curr_invoice_data)
-                curr_invoice_data = None
-
-            m_ea = re.search(r'EA\s*-\s*(\d+)', line)
-            m_fec = re.search(r'(\d{2}/\d{2}/\d{4})', line)
-            m_fac = re.search(r'Factura\s*No\.?\s*([^\s]+)', line, re.IGNORECASE)
-            m_prov = re.search(r'Factura\s*No\.?[^\s]+\s+(.*)', line, re.IGNORECASE)
-
-            ea_num = f"EA - {m_ea.group(1)}" if m_ea else "EA - S/N"
-            fac_num = m_fac.group(1).strip() if m_fac else "S/N"
-            fec_str = parse_fecha(m_fec.group(1)) if m_fec else datetime.date.today().strftime("%Y-%m-%d")
-            prov_str = m_prov.group(1).strip() if m_prov else "Proveedor Varios"
-
-            if ea_num in docs_existentes or fac_num in docs_existentes:
-                facturas_omitidas += 1
-                curr_ea = None
-                continue
-
-            curr_ea = ea_num
-            curr_factura = fac_num
-            curr_fecha = fec_str
-            curr_prov = prov_str
-            curr_invoice_data = {
-                "numero_entrada": curr_ea,
-                "numero_factura": curr_factura,
-                "fecha": curr_fecha,
-                "proveedor": curr_prov,
-                "bodega": "1",
-                "productos": []
-            }
-            continue
-
-        if curr_invoice_data and curr_ea:
-            if line.startswith("Totales de Entrada:") or line.startswith("TOTAL:") or line.startswith("Nota:"):
-                continue
-
-            parts = line.split()
-            if len(parts) >= 4:
-                cod_token = parts[0]
-                if (cod_token.isdigit() and len(cod_token) in (3, 4)) or ('-' in cod_token and len(cod_token) <= 7):
-                    cod = cod_token.zfill(4) if cod_token.isdigit() else cod_token
-                    nums = []
-                    words = []
-                    for token in reversed(parts[1:]):
-                        cleaned = token.replace('.', '').replace(',', '')
-                        if cleaned.isdigit() and len(nums) < 4:
-                            nums.insert(0, token)
-                        else:
-                            words.insert(0, token)
-
-                    desc = ' '.join(words)
-                    if len(nums) >= 3:
-                        cant = parse_num(nums[0])
-                        costo = parse_num(nums[1])
-                        iva = parse_num(nums[2]) if len(nums) == 4 else 0.0
-                        tot = parse_num(nums[3]) if len(nums) == 4 else parse_num(nums[2])
-                        curr_invoice_data["productos"].append({
-                            "codigo_insumo": cod,
-                            "descripcion": desc,
-                            "cantidad": cant,
-                            "costo_unitario": costo,
-                            "iva": iva,
-                            "costo_total": tot
-                        })
-
-    if curr_invoice_data and curr_invoice_data["productos"]:
-        invoices.append(curr_invoice_data)
-
-    return {
-        "tipo": "COMPRAS",
-        "fecha": curr_fecha or datetime.date.today().strftime("%Y-%m-%d"),
-        "invoices": invoices
-    }, len(invoices), facturas_omitidas
-
-def organizar_y_reubicar_pdf(archivo_path: str, tipo_doc: str, fecha_doc: str) -> str:
-    """
-    Crea la carpeta con la fecha del documento, renombra el archivo y lo reubica.
-    """
-    dir_origen = os.path.dirname(os.path.abspath(archivo_path))
-    carpeta_destino = os.path.join(dir_origen, fecha_doc)
-    os.makedirs(carpeta_destino, exist_ok=True)
-
-    prefijo = {
-        "VENTA_POS": "VENTA_POS",
-        "VENTAS_POS": "VENTA_POS",
-        "VENTA_REMISION": "VENTA_REMISION",
-        "VENTAS_REMISION": "VENTA_REMISION",
-        "COMPRA": "COMPRA",
-        "COMPRAS": "COMPRA"
-    }.get(tipo_doc, "FACTURA")
-
-    timestamp_sec = datetime.datetime.now().strftime("%H%M%S")
-    nuevo_nombre = f"{prefijo}_{fecha_doc}_{timestamp_sec}.pdf"
-    destino_final = os.path.join(carpeta_destino, nuevo_nombre)
-
-    try:
-        shutil.move(archivo_path, destino_final)
-        logger.info(f"PDF reubicado exitosamente a: {destino_final}")
-        return destino_final
-    except Exception as ex:
-        log_error("organizar_y_reubicar_pdf", ex)
-        return archivo_path
-
-def guardar_lote_en_staging(carga_data: dict) -> bool:
-    """
-    Registra el lote extraído en cargas_locales.json con estado EXTRAIDO_POR_AGENTE
-    respetando la estructura de grupos y páginas para la interfaz Flet.
-    """
-    tipo_raw = str(carga_data.get("tipo", "VENTAS_REMISION")).upper()
-    if "COMPRA" in tipo_raw:
-        cargas_file = "cargas_compras_locales.json"
-        tipo_ui = "Compra"
-    elif "POS" in tipo_raw:
-        cargas_file = "cargas_locales.json"
-        tipo_ui = "Factura POS"
-    else:
-        cargas_file = "cargas_locales.json"
-        tipo_ui = "Remisión"
-
-    try:
-        if os.path.exists(cargas_file):
-            with open(cargas_file, "r", encoding="utf-8") as f:
-                cargas = json.load(f)
-        else:
-            cargas = {}
-
-        # Calcular max_id existente
-        max_id = 0
-        for g_k, pags in cargas.items():
-            if isinstance(pags, dict):
-                for num_p, d in pags.items():
-                    if isinstance(d, dict) and "id" in d:
-                        try: max_id = max(max_id, int(d["id"]))
-                        except: pass
-            elif isinstance(pags, dict) and "id" in pags:
-                try: max_id = max(max_id, int(pags["id"]))
-                except: pass
-
-        nuevo_id = max_id + 1
-        fecha = carga_data.get("fecha", datetime.date.today().strftime("%Y-%m-%d"))
-        grupo_key = f"{fecha}_{tipo_ui}"
-        if grupo_key not in cargas:
-            cargas[grupo_key] = {}
-
-        num_pag = str(len(cargas[grupo_key]) + 1)
-        invoices = carga_data.get("invoices", [])
-
-        cargas[grupo_key][num_pag] = {
-            "id": nuevo_id,
-            "pagina": int(num_pag),
-            "tipo": tipo_ui,
-            "fecha": fecha,
-            "estado": "EXTRAIDO_POR_AGENTE",
-            "archivo": carga_data.get("archivo_origen", ""),
-            "archivo_original": carga_data.get("archivo_origen", ""),
-            "total_facturas": len(invoices),
-            "datos_extraidos": invoices,
-            "created_at": datetime.datetime.now().isoformat()
-        }
-
-        with open(cargas_file, "w", encoding="utf-8") as f:
-            json.dump(cargas, f, indent=4, ensure_ascii=False)
-
-        logger.info(f"Carga {nuevo_id} ({tipo_ui}) guardada exitosamente en Staging: {cargas_file}")
-        return True
-    except Exception as ex:
-        log_error("guardar_lote_en_staging", ex)
-        return False
-````
-
-## File: ui/components/autocomplete.py
-````python
-"""
-Componente Autocompletado nativo compatible con Flet 0.21.2.
-Diseño moderno con botón de limpieza instantánea, cierre automático y sincronización en tiempo real.
-"""
-import flet as ft
-from config import Config
-
-class CustomAutoComplete(ft.Container):
-    def __init__(self, hint_text="Buscar por código o nombre...", on_select=None, text_size=12, height=40, expand=False):
-        super().__init__()
-        self.on_select = on_select
-        self.suggestions = []
-        self.expand = expand
-        
-        self.search_input_text = ft.TextField(visible=False)
-        
-        self.btn_clear = ft.IconButton(
-            icon=ft.icons.CLOSE_ROUNDED,
-            icon_size=16,
-            icon_color="grey600",
-            tooltip="Limpiar búsqueda",
-            visible=False,
-            on_click=self.clear
-        )
-
-        self.search_input = ft.TextField(
-            hint_text=hint_text,
-            prefix_icon=ft.icons.SEARCH_ROUNDED,
-            suffix=self.btn_clear,
-            border_radius=8,
-            dense=True,
-            height=height,
-            text_size=text_size,
-            bgcolor="white",
-            content_padding=10,
-            border_color=Config.COLOR_BORDER,
-            focused_border_color=Config.COLOR_ACCENT,
-            cursor_color=Config.COLOR_ACCENT,
-            on_change=self._on_text_change,
-            on_submit=self._on_submit
-        )
-
-        self.sug_list = ft.ListView(expand=True, spacing=0, height=160)
-        self.sug_container = ft.Container(
-            content=self.sug_list,
-            visible=False,
-            bgcolor="white",
-            border_radius=8,
-            border=ft.border.all(1, Config.COLOR_BORDER),
-            shadow=ft.BoxShadow(
-                spread_radius=1,
-                blur_radius=8,
-                color=ft.colors.with_opacity(0.12, "black"),
-                offset=ft.Offset(0, 4)
-            )
-        )
-        
-        self.content = ft.Column(
-            controls=[
-                self.search_input,
-                self.sug_container
-            ],
-            spacing=0,
-            tight=True
-        )
-
-    def _safe_update(self):
-        try:
-            if self.page:
-                self.update()
-        except Exception:
-            pass
-
-    def clear(self, e=None):
-        """Limpia el texto, oculta las sugerencias y notifica el reset de búsqueda."""
-        self.search_input.value = ""
-        self.search_input_text.value = ""
-        self.btn_clear.visible = False
-        self.sug_container.visible = False
-        self._safe_update()
-
-        class MockSelection:
-            def __init__(self):
-                self.key = ""
-                self.value = ""
-
-        class MockEvent:
-            def __init__(self, ctrl):
-                self.selection = MockSelection()
-                self.control = ctrl
-
-        if self.on_select:
-            try:
-                self.on_select(MockEvent(self.search_input))
-            except Exception:
-                pass
-
-    def _on_text_change(self, e):
-        raw_val = self.search_input.value or ""
-        query = raw_val.strip().lower()
-        self.sug_list.controls.clear()
-        self.btn_clear.visible = bool(raw_val)
-
-        if query and self.suggestions:
-            matches = 0
-            for item in self.suggestions:
-                val = item.get("value", "")
-                if query in val.lower():
-                    self.sug_list.controls.append(
-                        ft.ListTile(
-                            title=ft.Text(val, size=12, color=Config.COLOR_TEXT),
-                            hover_color=ft.colors.with_opacity(0.06, Config.COLOR_ACCENT),
-                            on_click=self._create_on_click_handler(item),
-                            dense=True,
-                        )
-                    )
-                    matches += 1
-                    if matches >= 20:  # Limitar para fluidez
-                        break
-            self.sug_container.visible = len(self.sug_list.controls) > 0
-        else:
-            # Si el texto está vacío, cerrar el desplegable de sugerencias y refrescar búsqueda global
-            self.sug_container.visible = False
-            self.search_input_text.value = ""
-            if not raw_val and self.on_select:
-                class MockSelection:
-                    def __init__(self):
-                        self.key = ""
-                        self.value = ""
-
-                class MockEvent:
-                    def __init__(self, ctrl):
-                        self.selection = MockSelection()
-                        self.control = ctrl
-                try:
-                    self.on_select(MockEvent(self.search_input))
-                except Exception:
-                    pass
-
-        self._safe_update()
-
-    def _create_on_click_handler(self, item):
-        def handler(e):
-            val = item.get("value", "")
-            self.search_input.value = val
-            self.btn_clear.visible = bool(val)
-            self.sug_container.visible = False
-            self._safe_update()
-            
-            class MockSelection:
-                def __init__(self, key, value):
-                    self.key = key
-                    self.value = value
-            
-            class MockEvent:
-                def __init__(self, key, value, control):
-                    self.selection = MockSelection(key, value)
-                    self.control = control
-            
-            if self.on_select:
-                try:
-                    self.on_select(MockEvent(item.get("key"), val, self.search_input))
-                except Exception:
-                    pass
-        return handler
-
-    def _on_submit(self, e):
-        self.sug_container.visible = False
-        self._safe_update()
-        
-        val = self.search_input.value or ""
-        class MockSelection:
-            def __init__(self, value):
-                self.key = value
-                self.value = value
-
-        class MockEvent:
-            def __init__(self, value, control):
-                self.selection = MockSelection(value)
-                self.control = control
-                
-        if self.on_select:
-            try:
-                self.on_select(MockEvent(val, self.search_input))
-            except Exception:
-                pass
-
-    @property
-    def value(self):
-        return self.search_input.value
-        
-    @value.setter
-    def value(self, new_value):
-        self.search_input.value = new_value
-        self.btn_clear.visible = bool(new_value)
-        if not new_value:
-            self.sug_container.visible = False
-            self.search_input_text.value = ""
-        self._safe_update()
-````
-
 ## File: ui/components/forms.py
 ````python
 """
@@ -328651,100 +328085,6 @@ class MetricCard(ft.Container):
             expand=expand,
             col=col
         )
-````
-
-## File: build_exe.py
-````python
-import sys
-import os
-import subprocess
-
-def build():
-    flet_exe = 'C:\\Users\\Home\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\flet.exe'
-    if not os.path.exists(flet_exe):
-        flet_exe = 'flet'
-
-    print(f'Usando binario Flet pack: {flet_exe}')
-    
-    hidden_imports = [
-        'core',
-        'core.fecha_utils',
-        'core.supabase_client',
-        'core.database',
-        'core.audit_logger',
-        'core.logger',
-        'core.excel_manager',
-        'core.gemini_parser',
-        'core.mobile_server',
-        'core.mobile_service',
-        'core.tunnel_manager',
-        'zoneinfo',
-        'tzdata',
-        'core.repositories.compras_repo',
-        'core.repositories.ventas_repo',
-        'core.repositories.insumos_repo',
-        'core.repositories.usuarios_repo',
-        'core.repositories.cierres_repo',
-        'ui.app',
-        'ui.layout.sidebar',
-        'ui.views.login',
-        'ui.views.inventario',
-        'ui.views.compras',
-        'ui.views.ventas',
-        'ui.views.ajustes_inventario',
-        'ui.views.cierre_inventario',
-        'ui.views.conteo_inicial',
-        'ui.views.dashboard',
-        'ui.views.informes',
-        'ui.components.autocomplete',
-        'ui.components.forms',
-        'ui.components.metric_card',
-        'supabase',
-        'postgrest',
-        'gotrue',
-        'realtime',
-        'storage3',
-        'httpx',
-        'pandas',
-        'openpyxl',
-        'google.generativeai',
-        'dotenv',
-        'requests',
-        'pypdf',
-        'plotly',
-    ]
-
-    cmd = [
-        flet_exe,
-        'pack',
-        'main.py',
-        '--name', 'InventarioDonaMary',
-        '--add-data', '.env;.',
-        '--product-name', 'Inventario Abarrotes y Desechables Dona Mary',
-        '--file-description', 'Sistema de Gestion de Inventario y Ventas',
-        '--product-version', '1.0.0.0',
-        '--file-version', '1.0.0.0',
-        '--company-name', 'Dona Mary SAS',
-        '--yes'
-    ]
-
-    for h_imp in hidden_imports:
-        cmd.extend(['--hidden-import', h_imp])
-
-    print('Iniciando empaquetado...')
-    
-    result = subprocess.run(cmd)
-    if result.returncode == 0:
-        print("\n=======================================================")
-        print("¡EMPAQUETADO EXITOSO!")
-        print("Ejecutable generado en: dist/InventarioDonaMary.exe")
-        print("=======================================================")
-    else:
-        print(f"\nError en el empaquetado. Código de salida: {result.returncode}")
-        sys.exit(result.returncode)
-
-if __name__ == '__main__':
-    build()
 ````
 
 ## File: core/repositories/cierres_repo.py
@@ -329101,6 +328441,503 @@ class CierresRepository:
         except Exception as ex:
             log_error(f"sellar_periodo_cierre({mes_periodo})", ex)
             return False
+````
+
+## File: core/invoice_classifier.py
+````python
+"""
+Módulo clasificador, extractor inteligente y organizador de facturas PDF.
+Identifica y extrae 3 formatos:
+  1. Venta POS (TIPO PP - Relación de Ventas Diarias)
+  2. Venta Remisión (TIPO FV - Reporte Detallado de Facturas)
+  3. Compra (EA - Reporte Detallado de Entradas de Almacén)
+
+Incluye deduplicación automática y archivo por fecha.
+"""
+import os
+import re
+import shutil
+import datetime
+import json
+import requests
+from config import Config
+from core.logger import get_logger, log_error
+from core.supabase_client import get_client
+
+logger = get_logger("InvoiceClassifier")
+
+def parse_num(s):
+    if not s or s == '-': return 0.0
+    s = str(s).strip().replace('$', '')
+    if '.' in s and ',' in s:
+        s = s.replace('.', '').replace(',', '.')
+    elif ',' in s:
+        parts = s.split(',')
+        if len(parts) == 2 and len(parts[1]) in (1, 2):
+            s = parts[0].replace('.', '') + '.' + parts[1]
+        else:
+            s = s.replace(',', '')
+    elif '.' in s:
+        parts = s.split('.')
+        if len(parts) == 2 and len(parts[1]) in (1, 2):
+            s = s
+        else:
+            s = s.replace('.', '')
+    try:
+        return float(s)
+    except:
+        return 0.0
+
+def parse_fecha(f_str):
+    if not f_str: return datetime.date.today().strftime("%Y-%m-%d")
+    f_str = f_str.strip().replace('-', '/')
+    parts = f_str.split('/')
+    if len(parts) == 3:
+        if len(parts[2]) == 4:
+            return f"{parts[2]}-{parts[1].zfill(2)}-{parts[0].zfill(2)}"
+        elif len(parts[0]) == 4:
+            return f"{parts[0]}-{parts[1].zfill(2)}-{parts[2].zfill(2)}"
+    return f_str
+
+def detectar_tipo_documento(texto: str) -> str:
+    """
+    Analiza el texto de un PDF para clasificar su formato exacto.
+    Retorna: 'VENTA_POS' | 'VENTA_REMISION' | 'COMPRA' | 'DESCONOCIDO'
+    """
+    t = texto.upper()
+    if "ENTRADAS DE ALMACEN" in t or "EA -" in t or "EA-" in t or "BODEGA" in t and "COSTO" in t:
+        return "COMPRA"
+    elif "RELACION DE VENTAS DIARIAS" in t or "TIPO PP" in t or "TIPO PE" in t or "PE " in t or "VENTAS DEL DIA" in t or "INVERIONES B&G" in t or "WXMANAGER" in t or "CONSUMIDOR FINAL" in t:
+        return "VENTA_POS"
+    elif "REPORTE DETALLADO DE FACTURAS" in t or "TIPO FV" in t or "DOÑA MARY" in t:
+        return "VENTA_REMISION"
+    return "DESCONOCIDO"
+
+def obtener_documentos_registrados(db, tipo: str, fecha: str | None = None) -> set:
+    """
+    Obtiene los números de factura o entrada ya existentes en la BD.
+    """
+    registrados = set()
+    try:
+        if tipo in ("VENTA_POS", "VENTA_REMISION"):
+            endpoint = "registro_ventas?select=factura_no"
+            if fecha:
+                endpoint += f"&fecha=gte.{fecha}T00:00:00&fecha=lte.{fecha}T23:59:59"
+            res = db._db.get(endpoint, timeout=10)
+            if res and res.status_code == 200:
+                for item in res.json():
+                    if item.get("factura_no"):
+                        registrados.add(str(item["factura_no"]).strip())
+        elif tipo == "COMPRA":
+            endpoint = "registro_compras?select=numero_entrada,numero_factura"
+            if fecha:
+                endpoint += f"&fecha=gte.{fecha}T00:00:00&fecha=lte.{fecha}T23:59:59"
+            res = db._db.get(endpoint, timeout=10)
+            if res and res.status_code == 200:
+                for item in res.json():
+                    if item.get("numero_entrada"):
+                        registrados.add(str(item["numero_entrada"]).strip())
+                    if item.get("numero_factura"):
+                        registrados.add(str(item["numero_factura"]).strip())
+    except Exception as ex:
+        log_error("obtener_documentos_registrados", ex)
+    return registrados
+
+def parsear_venta_pos(lineas: list[str], docs_existentes: set) -> tuple[dict, int, int]:
+    """
+    Parsea formato VENTA POS (TIPO PP / PE / WXMANAGER).
+    Retorna: (datos_extraidos, facturas_nuevas, facturas_omitidas)
+    """
+    invoices = []
+    curr_factura = None
+    curr_fecha = None
+    curr_cliente = "Clientes Varios"
+    facturas_omitidas = 0
+    facturas_procesadas = set()
+    
+    # Buscar fecha general
+    for l in lineas[:15]:
+        m_f = re.search(r'(\d{2}/\d{2}/\d{4})', l)
+        if m_f:
+            curr_fecha = parse_fecha(m_f.group(1))
+            break
+    if not curr_fecha:
+        curr_fecha = datetime.date.today().strftime("%Y-%m-%d")
+
+    curr_invoice_data = None
+
+    for l in lineas:
+        line = l.strip()
+        if not line: continue
+        if line.startswith("TOTAL DIA") or line.startswith("RELACION") or line.startswith("INVERIONES"):
+            continue
+
+        # Detectar inicio de documento: PP 26396 Clientes Varios o PE 22549 CONSUMIDOR FINAL
+        m_pp = re.search(r'(?:PP|PE)\s+(\d+)\s*(.*)', line, re.IGNORECASE)
+        if m_pp:
+            if curr_invoice_data and curr_invoice_data["productos"]:
+                invoices.append(curr_invoice_data)
+                curr_invoice_data = None
+
+            fact_num = m_pp.group(1).strip()
+            facturas_procesadas.add(fact_num)
+
+            # Verificar deduplicación
+            if fact_num in docs_existentes:
+                facturas_omitidas += 1
+                curr_factura = None
+                continue
+
+            curr_factura = fact_num
+            cli = m_pp.group(2).strip() or "CONSUMIDOR FINAL"
+            curr_invoice_data = {
+                "factura": curr_factura,
+                "fecha": curr_fecha,
+                "cliente": cli,
+                "tipo_doc": "Factura POS",
+                "productos": []
+            }
+            continue
+
+        # Si estamos dentro de una factura nueva válida, extraer items
+        if curr_invoice_data and curr_factura:
+            # Caso 1: Formato con COD: XXXX
+            m_cod = re.search(r'COD:\s*(\d{3,5}(?:-\d+)?)', line, re.IGNORECASE)
+            if m_cod:
+                cod_str = m_cod.group(1).zfill(4) if m_cod.group(1).isdigit() else m_cod.group(1)
+                resto = line.replace(f"COD: {m_cod.group(1)}", "").replace(f"COD:{m_cod.group(1)}", "")
+                nums = [p for p in resto.split() if any(c.isdigit() for c in p)]
+                cant = 1.0
+                tot = 0.0
+                if len(nums) >= 2:
+                    cant = parse_num(nums[0])
+                    tot = parse_num(nums[1])
+                elif len(nums) == 1:
+                    tot = parse_num(nums[0])
+
+                curr_invoice_data["productos"].append({
+                    "codigo_item": cod_str,
+                    "descripcion": f"INSUMO {cod_str}",
+                    "cantidad": cant,
+                    "subtotal": tot,
+                    "iva": 0.0,
+                    "total": tot
+                })
+                continue
+
+            # Caso 2: Formato estándar por columnas (ej. 2151 50.00 1900.00)
+            parts = line.split()
+            if len(parts) >= 2:
+                cod_token = parts[0]
+                if (cod_token.isdigit() and len(cod_token) in (3, 4)) or ('-' in cod_token and len(cod_token) <= 7):
+                    cod = cod_token.zfill(4) if cod_token.isdigit() else cod_token
+                    nums = [p for p in parts[1:] if any(c.isdigit() for c in p)]
+                    if len(nums) >= 2:
+                        cant = parse_num(nums[0])
+                        p_unit = parse_num(nums[1])
+                        tot = cant * p_unit if len(nums) == 2 else parse_num(nums[-1])
+                        curr_invoice_data["productos"].append({
+                            "codigo_item": cod,
+                            "descripcion": f"INSUMO {cod}",
+                            "cantidad": cant,
+                            "subtotal": tot,
+                            "iva": 0.0,
+                            "total": tot
+                        })
+                    continue
+
+            # Caso 3: Descripción de insumo en línea siguiente
+            if curr_invoice_data["productos"] and curr_invoice_data["productos"][-1]["descripcion"].startswith("INSUMO "):
+                if not any(k in line.upper() for k in ["TIPO", "NUMERO", "PP", "PE", "DES/NTO", "TOTAL:", "WXMANAGER", "COD:"]):
+                    curr_invoice_data["productos"][-1]["descripcion"] = line.strip()
+
+    if curr_invoice_data and curr_invoice_data["productos"]:
+        invoices.append(curr_invoice_data)
+
+    return {
+        "tipo": "VENTAS_POS",
+        "fecha": curr_fecha,
+        "invoices": invoices
+    }, len(invoices), facturas_omitidas
+
+def parsear_venta_remision(lineas: list[str], docs_existentes: set) -> tuple[dict, int, int]:
+    """
+    Parsea formato VENTA REMISIÓN (TIPO FV).
+    """
+    invoices = []
+    curr_factura = None
+    curr_fecha = None
+    curr_cliente = None
+    curr_page = 1
+    facturas_omitidas = 0
+    curr_invoice_data = None
+
+    for l in lineas:
+        line = l.strip()
+        if not line: continue
+        if line.startswith("page "):
+            p_m = re.search(r'page\s+(\d+)', line)
+            if p_m: curr_page = int(p_m.group(1))
+            continue
+
+        if line.startswith("Fact.No."):
+            if curr_invoice_data and curr_invoice_data["productos"]:
+                invoices.append(curr_invoice_data)
+                curr_invoice_data = None
+
+            m_fact = re.search(r'Fact\.No\.\s*([^\s]+)', line)
+            m_fec = re.search(r'Fecha:\s*(\d{2}/\d{2}/\d{4})', line)
+            m_cli = re.search(r'Cliente:\s*(.*)', line)
+
+            fact_num = m_fact.group(1).strip() if m_fact else "S/N"
+            fec_str = parse_fecha(m_fec.group(1)) if m_fec else datetime.date.today().strftime("%Y-%m-%d")
+            cli_str = m_cli.group(1).strip() if m_cli else "Clientes Varios"
+
+            if fact_num in docs_existentes:
+                facturas_omitidas += 1
+                curr_factura = None
+                continue
+
+            curr_factura = fact_num
+            curr_fecha = fec_str
+            curr_cliente = cli_str
+            curr_invoice_data = {
+                "factura": curr_factura,
+                "fecha": curr_fecha,
+                "cliente": curr_cliente,
+                "tipo_doc": "Remisión",
+                "pagina_origen": curr_page,
+                "productos": []
+            }
+            continue
+
+        if curr_invoice_data and curr_factura:
+            if line.startswith("Total Factura:") or line.startswith("Total Tipo:") or line.startswith("TOTAL"):
+                continue
+
+            parts = line.split()
+            if len(parts) >= 4:
+                cod_token = parts[0]
+                if (cod_token.isdigit() and len(cod_token) in (3, 4)) or ('-' in cod_token and len(cod_token) <= 7):
+                    cod = cod_token.zfill(4) if cod_token.isdigit() else cod_token
+                    nums = []
+                    words = []
+                    for token in reversed(parts[1:]):
+                        cleaned = token.replace('.', '').replace(',', '')
+                        if cleaned.isdigit() and len(nums) < 4:
+                            nums.insert(0, token)
+                        else:
+                            words.insert(0, token)
+
+                    desc = ' '.join(words)
+                    if len(nums) >= 2:
+                        cant = parse_num(nums[0])
+                        subt = parse_num(nums[1])
+                        iva = parse_num(nums[2]) if len(nums) >= 3 else 0.0
+                        tot = parse_num(nums[3]) if len(nums) == 4 else subt + iva
+                        curr_invoice_data["productos"].append({
+                            "codigo_item": cod,
+                            "descripcion": desc,
+                            "cantidad": cant,
+                            "subtotal": subt,
+                            "iva": iva,
+                            "total": tot
+                        })
+
+    if curr_invoice_data and curr_invoice_data["productos"]:
+        invoices.append(curr_invoice_data)
+
+    return {
+        "tipo": "VENTAS_REMISION",
+        "fecha": curr_fecha or datetime.date.today().strftime("%Y-%m-%d"),
+        "invoices": invoices
+    }, len(invoices), facturas_omitidas
+
+def parsear_compras(lineas: list[str], docs_existentes: set) -> tuple[dict, int, int]:
+    """
+    Parsea formato COMPRAS (EA - Entradas de Almacén).
+    """
+    invoices = []
+    curr_ea = None
+    curr_factura = None
+    curr_fecha = None
+    curr_prov = None
+    facturas_omitidas = 0
+    curr_invoice_data = None
+
+    for l in lineas:
+        line = l.strip()
+        if not line: continue
+        if line.startswith("EA -") or line.startswith("EA-"):
+            if curr_invoice_data and curr_invoice_data["productos"]:
+                invoices.append(curr_invoice_data)
+                curr_invoice_data = None
+
+            m_ea = re.search(r'EA\s*-\s*(\d+)', line)
+            m_fec = re.search(r'(\d{2}/\d{2}/\d{4})', line)
+            m_fac = re.search(r'Factura\s*No\.?\s*([^\s]+)', line, re.IGNORECASE)
+            m_prov = re.search(r'Factura\s*No\.?[^\s]+\s+(.*)', line, re.IGNORECASE)
+
+            ea_num = f"EA - {m_ea.group(1)}" if m_ea else "EA - S/N"
+            fac_num = m_fac.group(1).strip() if m_fac else "S/N"
+            fec_str = parse_fecha(m_fec.group(1)) if m_fec else datetime.date.today().strftime("%Y-%m-%d")
+            prov_str = m_prov.group(1).strip() if m_prov else "Proveedor Varios"
+
+            if ea_num in docs_existentes or fac_num in docs_existentes:
+                facturas_omitidas += 1
+                curr_ea = None
+                continue
+
+            curr_ea = ea_num
+            curr_factura = fac_num
+            curr_fecha = fec_str
+            curr_prov = prov_str
+            curr_invoice_data = {
+                "numero_entrada": curr_ea,
+                "numero_factura": curr_factura,
+                "fecha": curr_fecha,
+                "proveedor": curr_prov,
+                "bodega": "1",
+                "productos": []
+            }
+            continue
+
+        if curr_invoice_data and curr_ea:
+            if line.startswith("Totales de Entrada:") or line.startswith("TOTAL:") or line.startswith("Nota:"):
+                continue
+
+            parts = line.split()
+            if len(parts) >= 4:
+                cod_token = parts[0]
+                if (cod_token.isdigit() and len(cod_token) in (3, 4)) or ('-' in cod_token and len(cod_token) <= 7):
+                    cod = cod_token.zfill(4) if cod_token.isdigit() else cod_token
+                    nums = []
+                    words = []
+                    for token in reversed(parts[1:]):
+                        cleaned = token.replace('.', '').replace(',', '')
+                        if cleaned.isdigit() and len(nums) < 4:
+                            nums.insert(0, token)
+                        else:
+                            words.insert(0, token)
+
+                    desc = ' '.join(words)
+                    if len(nums) >= 3:
+                        cant = parse_num(nums[0])
+                        costo = parse_num(nums[1])
+                        iva = parse_num(nums[2]) if len(nums) == 4 else 0.0
+                        tot = parse_num(nums[3]) if len(nums) == 4 else parse_num(nums[2])
+                        curr_invoice_data["productos"].append({
+                            "codigo_insumo": cod,
+                            "descripcion": desc,
+                            "cantidad": cant,
+                            "costo_unitario": costo,
+                            "iva": iva,
+                            "costo_total": tot
+                        })
+
+    if curr_invoice_data and curr_invoice_data["productos"]:
+        invoices.append(curr_invoice_data)
+
+    return {
+        "tipo": "COMPRAS",
+        "fecha": curr_fecha or datetime.date.today().strftime("%Y-%m-%d"),
+        "invoices": invoices
+    }, len(invoices), facturas_omitidas
+
+def organizar_y_reubicar_pdf(archivo_path: str, tipo_doc: str, fecha_doc: str) -> str:
+    """
+    Crea la carpeta con la fecha del documento, renombra el archivo y lo reubica.
+    """
+    dir_origen = os.path.dirname(os.path.abspath(archivo_path))
+    carpeta_destino = os.path.join(dir_origen, fecha_doc)
+    os.makedirs(carpeta_destino, exist_ok=True)
+
+    prefijo = {
+        "VENTA_POS": "VENTA_POS",
+        "VENTAS_POS": "VENTA_POS",
+        "VENTA_REMISION": "VENTA_REMISION",
+        "VENTAS_REMISION": "VENTA_REMISION",
+        "COMPRA": "COMPRA",
+        "COMPRAS": "COMPRA"
+    }.get(tipo_doc, "FACTURA")
+
+    timestamp_sec = datetime.datetime.now().strftime("%H%M%S")
+    nuevo_nombre = f"{prefijo}_{fecha_doc}_{timestamp_sec}.pdf"
+    destino_final = os.path.join(carpeta_destino, nuevo_nombre)
+
+    try:
+        shutil.move(archivo_path, destino_final)
+        logger.info(f"PDF reubicado exitosamente a: {destino_final}")
+        return destino_final
+    except Exception as ex:
+        log_error("organizar_y_reubicar_pdf", ex)
+        return archivo_path
+
+def guardar_lote_en_staging(carga_data: dict) -> bool:
+    """
+    Registra el lote extraído en cargas_locales.json con estado EXTRAIDO_POR_AGENTE
+    respetando la estructura de grupos y páginas para la interfaz Flet.
+    """
+    tipo_raw = str(carga_data.get("tipo", "VENTAS_REMISION")).upper()
+    if "COMPRA" in tipo_raw:
+        cargas_file = "cargas_compras_locales.json"
+        tipo_ui = "Compra"
+    elif "POS" in tipo_raw:
+        cargas_file = "cargas_locales.json"
+        tipo_ui = "Factura POS"
+    else:
+        cargas_file = "cargas_locales.json"
+        tipo_ui = "Remisión"
+
+    try:
+        if os.path.exists(cargas_file):
+            with open(cargas_file, "r", encoding="utf-8") as f:
+                cargas = json.load(f)
+        else:
+            cargas = {}
+
+        # Calcular max_id existente
+        max_id = 0
+        for g_k, pags in cargas.items():
+            if isinstance(pags, dict):
+                for num_p, d in pags.items():
+                    if isinstance(d, dict) and "id" in d:
+                        try: max_id = max(max_id, int(d["id"]))
+                        except: pass
+            elif isinstance(pags, dict) and "id" in pags:
+                try: max_id = max(max_id, int(pags["id"]))
+                except: pass
+
+        nuevo_id = max_id + 1
+        fecha = carga_data.get("fecha", datetime.date.today().strftime("%Y-%m-%d"))
+        grupo_key = f"{fecha}_{tipo_ui}"
+        if grupo_key not in cargas:
+            cargas[grupo_key] = {}
+
+        num_pag = str(len(cargas[grupo_key]) + 1)
+        invoices = carga_data.get("invoices", [])
+
+        cargas[grupo_key][num_pag] = {
+            "id": nuevo_id,
+            "pagina": int(num_pag),
+            "tipo": tipo_ui,
+            "fecha": fecha,
+            "estado": "EXTRAIDO_POR_AGENTE",
+            "archivo": carga_data.get("archivo_origen", ""),
+            "archivo_original": carga_data.get("archivo_origen", ""),
+            "total_facturas": len(invoices),
+            "datos_extraidos": invoices,
+            "created_at": datetime.datetime.now().isoformat()
+        }
+
+        with open(cargas_file, "w", encoding="utf-8") as f:
+            json.dump(cargas, f, indent=4, ensure_ascii=False)
+
+        logger.info(f"Carga {nuevo_id} ({tipo_ui}) guardada exitosamente en Staging: {cargas_file}")
+        return True
+    except Exception as ex:
+        log_error("guardar_lote_en_staging", ex)
+        return False
 ````
 
 ## File: core/mobile_server.py
@@ -329914,6 +329751,909 @@ def iniciar_servidor_en_hilo(port: int = 8550):
         logger.info(f"Servidor Web Móvil iniciado en 0.0.0.0:{port}")
 ````
 
+## File: core/pdf_native_parser.py
+````python
+"""
+core/pdf_native_parser.py
+Motor de extraccion determinista y de alto rendimiento en Python puro (pypdf en modo layout)
+para los reportes contables PDF de Dona Mary:
+  1. Compras / Entradas de Almacen (EA / ES)
+  2. Ventas POS Detalladas (Facturas FV)
+  3. Ventas Diarias / Remisiones (Tipo PP)
+"""
+import io
+import re
+import pypdf
+from typing import Union, List, Dict, Any, Optional
+
+SPECIAL_3DIGIT_CODES = {'964', '965', '966', '967', '968', '969', '970', '971', '972', '973'}
+
+def parse_colombian_number(val: Any) -> float:
+    """Convierte un string numerico con formato colombiano a float."""
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    
+    s = str(val).strip().replace('$', '').replace(' ', '')
+    if not s or s == '-' or s.lower() == 'nan':
+        return 0.0
+    
+    if '.' in s and ',' in s:
+        if s.rfind(',') > s.rfind('.'):
+            s = s.replace('.', '').replace(',', '.')
+        else:
+            s = s.replace(',', '')
+    elif ',' in s:
+        parts = s.split(',')
+        if len(parts) == 2 and len(parts[1]) <= 2:
+            s = parts[0] + '.' + parts[1]
+        else:
+            s = s.replace(',', '')
+    elif '.' in s:
+        parts = s.split('.')
+        if len(parts) == 2 and len(parts[1]) == 2 and float(parts[0] or 0) < 1000:
+            s = parts[0] + '.' + parts[1]
+        else:
+            s = s.replace('.', '')
+            
+    try:
+        return float(s)
+    except Exception:
+        return 0.0
+
+def clean_text(s: Any) -> str:
+    """Limpia caracteres especiales, signos corruptos y espacios extra."""
+    if not s or str(s).lower() == 'nan':
+        return ''
+    txt = str(s)
+    txt = txt.replace(chr(0xa5), 'Ñ').replace('¥', 'Ñ')
+    txt = ' '.join(txt.split()).strip()
+    return txt
+
+def format_codigo_insumo(raw_cod: str) -> str:
+    """Aplica las reglas de 4 digitos y las excepciones de 3 digitos."""
+    cod = clean_text(raw_cod)
+    if '-' in cod:
+        return cod
+    if cod.isdigit():
+        num = int(cod)
+        cod_str = str(num)
+        if cod_str in SPECIAL_3DIGIT_CODES:
+            return cod_str
+        return cod_str.zfill(4)
+    return cod
+
+def get_pdf_reader(pdf_source: Union[str, bytes, io.BytesIO]) -> pypdf.PdfReader:
+    if isinstance(pdf_source, (bytes, bytearray)):
+        return pypdf.PdfReader(io.BytesIO(pdf_source))
+    elif isinstance(pdf_source, io.BytesIO):
+        return pypdf.PdfReader(pdf_source)
+    else:
+        return pypdf.PdfReader(pdf_source)
+
+
+# ==============================================================================
+# 1. PARSER DE VENTAS POS DETALLADAS (Reporte Detallado de Facturas FV)
+# ==============================================================================
+def parse_ventas_pos_detallado(pdf_source: Union[str, bytes, io.BytesIO]) -> Dict[str, Any]:
+    reader = get_pdf_reader(pdf_source)
+    total_pages = len(reader.pages)
+    facturas_dict: Dict[str, Dict[str, Any]] = {}
+    facturas_order: List[str] = []
+    current_fact_num: Optional[str] = None
+    
+    rango_desde = ''
+    rango_hasta = ''
+    total_reporte_pie = 0.0
+    
+    for p_idx, page in enumerate(reader.pages):
+        page_num = p_idx + 1
+        text = page.extract_text(extraction_mode='layout')
+        lines = text.split('\n')
+        
+        for line in lines:
+            line_str = line.strip()
+            if not line_str:
+                continue
+                
+            if not rango_desde:
+                m_rango = re.search(r'Desde\s+Hasta\s+(\d{2}/\d{2}/\d{4})\s+(\d{2}/\d{2}/\d{4})', line_str, re.IGNORECASE)
+                if m_rango:
+                    rango_desde = m_rango.group(1)
+                    rango_hasta = m_rango.group(2)
+                else:
+                    m_fec = re.findall(r'(\d{2}/\d{2}/\d{4})', line_str)
+                    if len(m_fec) >= 2:
+                        rango_desde = m_fec[0]
+                        rango_hasta = m_fec[1]
+
+            m_fact = re.search(r'Fact\.No\.\s*([\w-]+)\s+Fecha:\s*(\d{2}/\d{2}/\d{4})\s+Cliente:\s*(.+)', line_str, re.IGNORECASE)
+            if m_fact:
+                num_fact = clean_text(m_fact.group(1))
+                fecha_fact = m_fact.group(2).strip()
+                cliente = clean_text(m_fact.group(3))
+                
+                parts_f = fecha_fact.split('/')
+                fecha_iso = f"{parts_f[2]}-{parts_f[1]}-{parts_f[0]}" if len(parts_f) == 3 else fecha_fact
+                
+                if num_fact not in facturas_dict:
+                    facturas_dict[num_fact] = {
+                        'id_temporal': f"remi_{num_fact}_{fecha_iso}",
+                        'factura_no': num_fact,
+                        'fecha': fecha_iso,
+                        'fecha_display': fecha_fact,
+                        'cliente': cliente,
+                        'tipo_documento': 'Remisión',
+                        'pagina_origen': page_num,
+                        'items': [],
+                        'total_factura': 0.0,
+                        'subtotal_factura': 0.0,
+                        'iva_factura': 0.0
+                    }
+                    facturas_order.append(num_fact)
+                current_fact_num = num_fact
+                continue
+                
+            m_tot = re.search(r'Total Factura:\s*([\d.,]+)', line_str, re.IGNORECASE)
+            if m_tot and current_fact_num:
+                val_tot = parse_colombian_number(m_tot.group(1))
+                facturas_dict[current_fact_num]['total_factura'] = val_tot
+                continue
+                
+            m_pie = re.search(r'TOTAL\s+([\d.,]+)', line_str, re.IGNORECASE)
+            if m_pie:
+                total_reporte_pie = parse_colombian_number(m_pie.group(1))
+                continue
+
+            m_item = re.match(r'^(\d{3,5}(?:-\d+)?)\s+(.+?)\s+([\d.,]+)\s+([\d.,]+)(?:\s+([\d.,]+))?(?:\s+([\d.,]+))?$', line_str)
+            if m_item and current_fact_num:
+                raw_cod = m_item.group(1)
+                cod_final = format_codigo_insumo(raw_cod)
+                desc = clean_text(m_item.group(2))
+                cant = parse_colombian_number(m_item.group(3))
+                
+                nums = [m_item.group(4), m_item.group(5), m_item.group(6)]
+                valid_nums = [parse_colombian_number(x) for x in nums if x is not None]
+                
+                if len(valid_nums) == 1:
+                    subtot_val = valid_nums[0]
+                    iva_val = 0.0
+                    tot_val = subtot_val
+                elif len(valid_nums) == 2:
+                    subtot_val = valid_nums[0]
+                    iva_val = 0.0
+                    tot_val = valid_nums[1]
+                else:
+                    subtot_val = valid_nums[0]
+                    iva_val = valid_nums[1]
+                    tot_val = valid_nums[2]
+                    
+                facturas_dict[current_fact_num]['items'].append({
+                    'codigo_insumo': cod_final,
+                    'descripcion': desc,
+                    'cantidad': cant,
+                    'subtotal': subtot_val,
+                    'iva': iva_val,
+                    'total': tot_val
+                })
+            elif current_fact_num and facturas_dict[current_fact_num]['items'] and not any(k in line_str for k in ['**', 'REPORTE', 'Desde', 'ITEM', 'TIPO', 'Total', 'Fecha:', 'Hora:', 'Pagina:']):
+                if len(line_str) < 45 and not re.search(r'\d{3,}', line_str):
+                    facturas_dict[current_fact_num]['items'][-1]['descripcion'] = clean_text(facturas_dict[current_fact_num]['items'][-1]['descripcion'] + ' ' + line_str)
+
+    facturas = [facturas_dict[k] for k in facturas_order]
+    for f in facturas:
+        calc_subtot = sum(it.get('subtotal', 0.0) for it in f['items'])
+        calc_iva = sum(it.get('iva', 0.0) for it in f['items'])
+        calc_tot = sum(it.get('total', 0.0) for it in f['items'])
+        f['subtotal_factura'] = calc_subtot
+        f['iva_factura'] = calc_iva
+        if f['total_factura'] == 0.0:
+            f['total_factura'] = calc_tot
+
+    total_calculado = sum(f['total_factura'] for f in facturas)
+    
+    return {
+        'tipo_reporte': 'VENTAS_REMISIÓN',
+        'rango_desde': rango_desde,
+        'rango_hasta': rango_hasta,
+        'total_paginas': total_pages,
+        'total_facturas': len(facturas),
+        'total_insumos': sum(len(f['items']) for f in facturas),
+        'total_general': total_calculado,
+        'total_reporte_pie': total_reporte_pie if total_reporte_pie > 0 else total_calculado,
+        'facturas': facturas
+    }
+
+
+# ==============================================================================
+# 2. PARSER DE VENTAS DIARIAS / REMISIONES (WXMANAGER - Tipo PP)
+# ==============================================================================
+def parse_ventas_remisiones_diarias(pdf_source: Union[str, bytes, io.BytesIO]) -> Dict[str, Any]:
+    reader = get_pdf_reader(pdf_source)
+    total_pages = len(reader.pages)
+    facturas_dict: Dict[str, Dict[str, Any]] = {}
+    facturas_order: List[str] = []
+    current_rem_num: Optional[str] = None
+    
+    fecha_reporte = ''
+    total_reporte_pie = 0.0
+    
+    for p_idx, page in enumerate(reader.pages):
+        page_num = p_idx + 1
+        text = page.extract_text(extraction_mode='layout')
+        lines = text.split('\n')
+        
+        for line in lines:
+            line_str = line.strip()
+            if not line_str:
+                continue
+                
+            if not fecha_reporte:
+                m_fec = re.search(r'(\d{2}/\d{2}/\d{4})', line_str)
+                if m_fec:
+                    fecha_reporte = m_fec.group(1)
+
+            m_pp = re.search(r'^(?:TIPO\s+NUMERO\s+)?(?:PP|PE|FE|POS)\s+(\d+)\s*(.*)$', line_str, re.IGNORECASE)
+            if not m_pp:
+                m_pp = re.search(r'\b(?:PP|PE)\s+(\d+)\s*(.*)$', line_str, re.IGNORECASE)
+
+            if m_pp:
+                num_rem = m_pp.group(1).strip()
+                cliente_cand = clean_text(m_pp.group(2))
+                cliente_rem = cliente_cand or 'CONSUMIDOR FINAL'
+                
+                parts_f = fecha_reporte.split('/') if fecha_reporte else []
+                fecha_iso = f"{parts_f[2]}-{parts_f[1]}-{parts_f[0]}" if len(parts_f) == 3 else fecha_reporte
+                
+                if num_rem not in facturas_dict:
+                    facturas_dict[num_rem] = {
+                        'id_temporal': f"pos_{num_rem}_{fecha_iso}",
+                        'factura_no': num_rem,
+                        'fecha': fecha_iso,
+                        'fecha_display': fecha_reporte,
+                        'cliente': cliente_rem,
+                        'tipo_documento': 'Factura POS',
+                        'pagina_origen': page_num,
+                        'items': [],
+                        'total_factura': 0.0,
+                        'subtotal_factura': 0.0,
+                        'iva_factura': 0.0
+                    }
+                    facturas_order.append(num_rem)
+                current_rem_num = num_rem
+                continue
+                
+            m_tot = re.search(r'TOTAL:\s*([\d.,]+)', line_str, re.IGNORECASE)
+            if m_tot and current_rem_num:
+                val_tot = parse_colombian_number(m_tot.group(1))
+                facturas_dict[current_rem_num]['total_factura'] = val_tot
+                continue
+
+            if current_rem_num and facturas_dict[current_rem_num]['cliente'] in ('', 'Clientes Varios', 'CONSUMIDOR FINAL'):
+                if not re.search(r'^(?:COD:|TOTAL:|SUBTOTAL|TIPO\s+NUMERO|PP\s+\d+|PE\s+\d+|DES/NTO)', line_str, re.IGNORECASE) and not re.match(r'^\d{3,5}', line_str):
+                    c_cand = clean_text(line_str)
+                    if c_cand and len(c_cand) > 2 and not any(kw in c_cand.upper() for kw in ('VALOR', 'PRECIO', 'CANTIDAD', 'PAGINA', 'FECHA', 'DES/NTO')):
+                        facturas_dict[current_rem_num]['cliente'] = c_cand
+                
+            m_subt = re.search(r'SUBTOTAL\s+([\d.,]+)', line_str, re.IGNORECASE)
+            if m_subt:
+                total_reporte_pie = parse_colombian_number(m_subt.group(1))
+                continue
+
+            m_cod = re.search(r'COD:\s*(\d{3,5}(?:-\d+)?)', line_str, re.IGNORECASE)
+            if m_cod and current_rem_num:
+                raw_cod = m_cod.group(1)
+                cod_final = format_codigo_insumo(raw_cod)
+                
+                nums_match = re.findall(r'([\d]+(?:[.,]\d+)?)', line_str.replace(f"COD: {raw_cod}", "").replace(f"COD:{raw_cod}", ""))
+                cant = 1.0
+                tot = 0.0
+                if len(nums_match) >= 2:
+                    cant = parse_colombian_number(nums_match[0])
+                    tot = parse_colombian_number(nums_match[1])
+                elif len(nums_match) == 1:
+                    tot = parse_colombian_number(nums_match[0])
+                    
+                facturas_dict[current_rem_num]['items'].append({
+                    'codigo_insumo': cod_final,
+                    'descripcion': '',
+                    'cantidad': cant,
+                    'subtotal': tot,
+                    'iva': 0.0,
+                    'total': tot
+                })
+                continue
+
+            m_item_tab = re.match(r'^(\d{3,5}(?:-\d+)?)\s+(.+?)\s+([\d.,]+)\s+([\d.,]+)$', line_str)
+            if m_item_tab and current_rem_num and not re.search(r'^(?:PP|PE|TOTAL|SUBTOTAL|DES/NTO|TIPO)', line_str, re.IGNORECASE):
+                raw_cod = m_item_tab.group(1)
+                cod_final = format_codigo_insumo(raw_cod)
+                desc_item = clean_text(m_item_tab.group(2))
+                cant = parse_colombian_number(m_item_tab.group(3))
+                tot = parse_colombian_number(m_item_tab.group(4))
+                facturas_dict[current_rem_num]['items'].append({
+                    'codigo_insumo': cod_final,
+                    'descripcion': desc_item,
+                    'cantidad': cant,
+                    'subtotal': tot,
+                    'iva': 0.0,
+                    'total': tot
+                })
+                continue
+                
+            if current_rem_num and facturas_dict[current_rem_num]['items'] and not facturas_dict[current_rem_num]['items'][-1]['descripcion']:
+                if not any(k in line_str.upper() for k in ['TIPO', 'NUMERO', 'PP', 'PE', 'DES/NTO', 'TOTAL:', 'WXMANAGER', 'COD:']):
+                    facturas_dict[current_rem_num]['items'][-1]['descripcion'] = clean_text(line_str)
+                    
+    facturas = [facturas_dict[k] for k in facturas_order]
+    for f in facturas:
+        calc_tot = sum(it.get('total', 0.0) for it in f['items'])
+        f['subtotal_factura'] = calc_tot
+        if f['total_factura'] == 0.0:
+            f['total_factura'] = calc_tot
+
+    total_calculado = sum(f['total_factura'] for f in facturas)
+    
+    return {
+        'tipo_reporte': 'VENTAS_POS',
+        'rango_desde': fecha_reporte,
+        'rango_hasta': fecha_reporte,
+        'total_paginas': total_pages,
+        'total_facturas': len(facturas),
+        'total_insumos': sum(len(f['items']) for f in facturas),
+        'total_general': total_calculado,
+        'total_reporte_pie': total_reporte_pie if total_reporte_pie > 0 else total_calculado,
+        'facturas': facturas
+    }
+
+
+# ==============================================================================
+# 3. PARSER DE COMPRAS / ENTRADAS DE ALMACÉN (Reporte Detallado de Entradas EA)
+# ==============================================================================
+def parse_compras_entradas(pdf_source: Union[str, bytes, io.BytesIO]) -> Dict[str, Any]:
+    reader = get_pdf_reader(pdf_source)
+    total_pages = len(reader.pages)
+    entradas_dict: Dict[str, Dict[str, Any]] = {}
+    entradas_order: List[str] = []
+    current_entry_key: Optional[str] = None
+    
+    rango_desde = ''
+    rango_hasta = ''
+    total_reporte_pie = 0.0
+    
+    for p_idx, page in enumerate(reader.pages):
+        page_num = p_idx + 1
+        text = page.extract_text(extraction_mode='layout')
+        lines = text.split('\n')
+        
+        for line in lines:
+            line_str = line.strip()
+            if not line_str:
+                continue
+                
+            if not rango_desde:
+                m_fec = re.findall(r'(\d{2}/\d{2}/\d{4})', line_str)
+                if len(m_fec) >= 2:
+                    rango_desde = m_fec[0]
+                    rango_hasta = m_fec[1]
+
+            # Detectar Cabecera de Entrada: EA - 9269 01/08/2026 Factura No.89832 DISDECOL SAS
+            m_ea = re.search(r'^(E[AS]\s*-\s*\d+)\s+(\d{2}/\d{2}/\d{4})\s+(?:Factura\s*(?:No\.([\w-]+))?)?\s*(.+)?$', line_str, re.IGNORECASE)
+            if m_ea:
+                num_ea = clean_text(m_ea.group(1)).replace(' ', '')
+                fecha_ea = m_ea.group(2).strip()
+                fact_no = clean_text(m_ea.group(3)) if m_ea.group(3) else ''
+                prov = clean_text(m_ea.group(4)) or 'Proveedor General'
+                
+                parts_f = fecha_ea.split('/')
+                fecha_iso = f"{parts_f[2]}-{parts_f[1]}-{parts_f[0]}" if len(parts_f) == 3 else fecha_ea
+                
+                if num_ea not in entradas_dict:
+                    entradas_dict[num_ea] = {
+                        'id_temporal': f"compra_{num_ea}_{fact_no}_{fecha_iso}",
+                        'numero_entrada': num_ea,
+                        'numero_factura': fact_no or num_ea,
+                        'fecha': fecha_iso,
+                        'fecha_display': fecha_ea,
+                        'proveedor': prov,
+                        'pagina_origen': page_num,
+                        'items': [],
+                        'total_entrada': 0.0,
+                        'iva_entrada': 0.0,
+                        'subtotal_entrada': 0.0
+                    }
+                    entradas_order.append(num_ea)
+                elif fact_no and not entradas_dict[num_ea]['numero_factura']:
+                    entradas_dict[num_ea]['numero_factura'] = fact_no
+                if prov and entradas_dict[num_ea]['proveedor'] == 'Proveedor General':
+                    entradas_dict[num_ea]['proveedor'] = prov
+                    
+                current_entry_key = num_ea
+                continue
+                
+            m_tot_ea = re.search(r'Totales de Entrada:\s*([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)', line_str, re.IGNORECASE)
+            if m_tot_ea and current_entry_key:
+                entradas_dict[current_entry_key]['subtotal_entrada'] = parse_colombian_number(m_tot_ea.group(2))
+                entradas_dict[current_entry_key]['iva_entrada'] = parse_colombian_number(m_tot_ea.group(3))
+                entradas_dict[current_entry_key]['total_entrada'] = parse_colombian_number(m_tot_ea.group(4))
+                continue
+                
+            m_pie = re.search(r'TOTAL:\s*([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)', line_str, re.IGNORECASE)
+            if m_pie:
+                total_reporte_pie = parse_colombian_number(m_pie.group(3))
+                continue
+
+            m_item = re.match(r'^(\d{3,5}(?:-\d+)?)\s+(.+?)\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)(?:\s+([\d.,]+))?\s+([\d.,]+)$', line_str)
+            if m_item and current_entry_key:
+                raw_cod = m_item.group(1)
+                cod_final = format_codigo_insumo(raw_cod)
+                desc = clean_text(m_item.group(2))
+                bodega = m_item.group(3).strip()
+                cant = parse_colombian_number(m_item.group(4))
+                costo_u = parse_colombian_number(m_item.group(5))
+                iva_val = parse_colombian_number(m_item.group(6)) if m_item.group(6) else 0.0
+                tot_val = parse_colombian_number(m_item.group(7))
+                
+                entradas_dict[current_entry_key]['items'].append({
+                    'codigo_insumo': cod_final,
+                    'descripcion': desc,
+                    'bodega': f"Bodega {bodega}",
+                    'cantidad': cant,
+                    'costo_unitario': costo_u,
+                    'valor_iva': iva_val,
+                    'costo_total': tot_val
+                })
+            elif current_entry_key and entradas_dict[current_entry_key]['items'] and not any(k in line_str for k in ['**', 'REPORTE', 'Desde', 'Item', 'Totales de Entrada', 'TOTAL:', 'Fecha:']):
+                if len(line_str) < 45 and not re.search(r'\d{3,}', line_str):
+                    entradas_dict[current_entry_key]['items'][-1]['descripcion'] = clean_text(entradas_dict[current_entry_key]['items'][-1]['descripcion'] + ' ' + line_str)
+
+    entradas = [entradas_dict[k] for k in entradas_order]
+    for e in entradas:
+        calc_tot = sum(it.get('costo_total', 0.0) for it in e['items'])
+        calc_iva = sum(it.get('valor_iva', 0.0) for it in e['items'])
+        calc_subtot = calc_tot - calc_iva
+        e['subtotal_entrada'] = calc_subtot
+        e['iva_entrada'] = calc_iva
+        if e['total_entrada'] == 0.0:
+            e['total_entrada'] = calc_tot
+
+    total_calculado = sum(e['total_entrada'] for e in entradas)
+    
+    return {
+        'tipo_reporte': 'COMPRAS_ENTRADAS',
+        'rango_desde': rango_desde,
+        'rango_hasta': rango_hasta,
+        'total_paginas': total_pages,
+        'total_facturas': len(entradas),
+        'total_insumos': sum(len(e['items']) for e in entradas),
+        'total_general': total_calculado,
+        'total_reporte_pie': total_reporte_pie if total_reporte_pie > 0 else total_calculado,
+        'facturas': entradas
+    }
+
+
+# ==============================================================================
+# 4. AUTODETECTAR Y PARSEAR CUALQUIER PDF
+# ==============================================================================
+def detectar_y_parsear_pdf(pdf_source: Union[str, bytes, io.BytesIO]) -> Dict[str, Any]:
+    """Detecta automaticamente el tipo de reporte contable y ejecuta el parser adecuado."""
+    reader = get_pdf_reader(pdf_source)
+    if not reader.pages:
+        raise ValueError('El archivo PDF esta vacio o no contiene paginas legibles.')
+        
+    sample_text = reader.pages[0].extract_text() or ''
+    sample_upper = sample_text.upper()
+    
+    if 'ENTRADAS DE ALMACEN' in sample_upper or 'EA -' in sample_upper or 'ES -' in sample_upper:
+        return parse_compras_entradas(pdf_source)
+    elif 'WXMANAGER' in sample_upper or 'RELACION DE VENTAS DIARIAS' in sample_upper or 'TIPO NUMERO' in sample_upper or 'TIPO PE' in sample_upper or 'TIPO PP' in sample_upper or 'CONSUMIDOR FINAL' in sample_upper or re.search(r'\b(?:PE|PP)\s+\d+', sample_upper):
+        return parse_ventas_remisiones_diarias(pdf_source)
+    elif 'REPORTE DETALLADO DE FACTURAS' in sample_upper or 'TIPO FV' in sample_upper:
+        return parse_ventas_pos_detallado(pdf_source)
+    else:
+        try:
+            res = parse_ventas_remisiones_diarias(pdf_source)
+            if res.get('total_facturas', 0) > 0:
+                return res
+        except Exception:
+            pass
+        try:
+            res = parse_ventas_pos_detallado(pdf_source)
+            if res.get('total_facturas', 0) > 0:
+                return res
+        except Exception:
+            pass
+        return parse_compras_entradas(pdf_source)
+````
+
+## File: build_exe.py
+````python
+import sys
+import os
+import subprocess
+
+def build():
+    flet_exe = 'C:\\Users\\Home\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\flet.exe'
+    if not os.path.exists(flet_exe):
+        flet_exe = 'flet'
+
+    print(f'Usando binario Flet pack: {flet_exe}')
+    
+    hidden_imports = [
+        'core',
+        'core.fecha_utils',
+        'core.supabase_client',
+        'core.database',
+        'core.audit_logger',
+        'core.logger',
+        'core.excel_manager',
+        'core.gemini_parser',
+        'core.mobile_server',
+        'core.mobile_service',
+        'core.tunnel_manager',
+        'zoneinfo',
+        'tzdata',
+        'core.repositories.compras_repo',
+        'core.repositories.ventas_repo',
+        'core.repositories.insumos_repo',
+        'core.repositories.usuarios_repo',
+        'core.repositories.cierres_repo',
+        'core.repositories.clientes_repo',
+        'core.repositories.cartera_repo',
+        'ui.app',
+        'ui.layout.sidebar',
+        'ui.views.login',
+        'ui.views.inventario',
+        'ui.views.compras',
+        'ui.views.ventas',
+        'ui.views.cartera',
+        'ui.views.ajustes_inventario',
+        'ui.views.cierre_inventario',
+        'ui.views.conteo_inicial',
+        'ui.views.dashboard',
+        'ui.views.informes',
+        'ui.components.autocomplete',
+        'ui.components.forms',
+        'ui.components.metric_card',
+        'supabase',
+        'postgrest',
+        'gotrue',
+        'realtime',
+        'storage3',
+        'httpx',
+        'pandas',
+        'openpyxl',
+        'google.generativeai',
+        'dotenv',
+        'requests',
+        'pypdf',
+        'plotly',
+    ]
+
+    cmd = [
+        flet_exe,
+        'pack',
+        'main.py',
+        '--name', 'InventarioDonaMary',
+        '--add-data', '.env;.',
+        '--product-name', 'Inventario Abarrotes y Desechables Dona Mary',
+        '--file-description', 'Sistema de Gestion de Inventario y Ventas',
+        '--product-version', '1.0.0.0',
+        '--file-version', '1.0.0.0',
+        '--company-name', 'Dona Mary SAS',
+        '--yes'
+    ]
+
+    for h_imp in hidden_imports:
+        cmd.extend(['--hidden-import', h_imp])
+
+    print('Iniciando empaquetado...')
+    
+    result = subprocess.run(cmd)
+    if result.returncode == 0:
+        print("\n=======================================================")
+        print("¡EMPAQUETADO EXITOSO!")
+        print("Ejecutable generado en: dist/InventarioDonaMary.exe")
+        print("=======================================================")
+    else:
+        print(f"\nError en el empaquetado. Código de salida: {result.returncode}")
+        sys.exit(result.returncode)
+
+if __name__ == '__main__':
+    build()
+````
+
+## File: ui/views/login.py
+````python
+"""
+Vista de autenticación / Login para Sistema Doña Mary.
+Diseño split-hero ejecutivo, tarjeta flotante central, branding institucional y micro-interacciones.
+"""
+import flet as ft
+from config import Config
+from core.supabase_client import SupabaseClient
+from core.logger import get_logger, log_error
+import time
+import threading
+
+logger = get_logger("LoginView")
+
+class LoginView(ft.Container):
+    def __init__(self, on_login_success):
+        super().__init__()
+        self.on_login_success = on_login_success
+        self.db = SupabaseClient()
+        self.expand = True
+        self.alignment = ft.alignment.center
+        
+        # Fondo oscuro profundo con gradiente espacial
+        self.gradient = ft.LinearGradient(
+            begin=ft.alignment.top_left,
+            end=ft.alignment.bottom_right,
+            colors=["#090D16", "#0F172A", "#1E293B"]
+        )
+
+        # --- CAMPOS DEL FORMULARIO ---
+        self.txt_usuario = ft.TextField(
+            label="Usuario",
+            hint_text="Ingresa tu usuario",
+            prefix_icon=ft.icons.PERSON_ROUNDED,
+            border_radius=12,
+            height=48,
+            text_size=13,
+            bgcolor="#F8FAFC",
+            border_color="#E2E8F0",
+            focused_border_color=Config.COLOR_ACCENT,
+            focused_bgcolor="white",
+            content_padding=ft.padding.symmetric(horizontal=15, vertical=12)
+        )
+
+        self.txt_clave = ft.TextField(
+            label="Contraseña",
+            hint_text="••••••••",
+            prefix_icon=ft.icons.LOCK_ROUNDED,
+            password=True,
+            can_reveal_password=True,
+            border_radius=12,
+            height=48,
+            text_size=13,
+            bgcolor="#F8FAFC",
+            border_color="#E2E8F0",
+            focused_border_color=Config.COLOR_ACCENT,
+            focused_bgcolor="white",
+            content_padding=ft.padding.symmetric(horizontal=15, vertical=12),
+            on_submit=self.autenticar
+        )
+
+        self.lbl_error = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.ERROR_OUTLINE_ROUNDED, color=Config.COLOR_DANGER, size=16),
+                ft.Text("", color=Config.COLOR_DANGER, size=12, weight="bold", expand=True)
+            ], spacing=6),
+            visible=False,
+            padding=ft.padding.symmetric(horizontal=10, vertical=6),
+            bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_DANGER),
+            border_radius=8
+        )
+
+        self.progress = ft.ProgressBar(color=Config.COLOR_ACCENT, bgcolor="#E2E8F0", visible=False)
+
+        self.btn_ingresar = ft.ElevatedButton(
+            "Iniciar Sesión",
+            icon=ft.icons.ARROW_FORWARD_ROUNDED,
+            bgcolor=Config.COLOR_ACCENT,
+            color="white",
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=12),
+                elevation=2
+            ),
+            height=48,
+            on_click=self.autenticar
+        )
+
+        self.lbl_creditos = ft.Text(
+            "Sistema Doña Mary • v2.0 • Elaborado por Eliana Garcés 2026",
+            size=10.5,
+            color="#94A3B8",
+            text_align=ft.TextAlign.CENTER
+        )
+
+        # --- LADO IZQUIERDO: HERO BRANDING ---
+        item_features = [
+            ("boxes_stacked", "Control de Stock e Inventario"),
+            ("chart_line", "Analítica Financiera & Ventas POS"),
+            ("shield_check", "Auditorías y Cierres Mensuales"),
+        ]
+        
+        feature_rows = []
+        icons_map = {
+            "boxes_stacked": ft.icons.INVENTORY_2_ROUNDED,
+            "chart_line": ft.icons.QUERY_STATS_ROUNDED,
+            "shield_check": ft.icons.VERIFIED_USER_ROUNDED
+        }
+
+        for icon_key, text in item_features:
+            feature_rows.append(
+                ft.Row([
+                    ft.Container(
+                        content=ft.Icon(icons_map[icon_key], size=16, color="#60A5FA"),
+                        padding=6,
+                        bgcolor=ft.colors.with_opacity(0.15, "#3B82F6"),
+                        border_radius=8
+                    ),
+                    ft.Text(text, size=12, color="#E2E8F0", weight="w500")
+                ], spacing=10)
+            )
+
+        self.panel_izquierdo = ft.Container(
+            width=360,
+            padding=32,
+            gradient=ft.LinearGradient(
+                begin=ft.alignment.top_left,
+                end=ft.alignment.bottom_right,
+                colors=["#0F172A", "#1E293B"]
+            ),
+            border_radius=ft.border_radius.only(top_left=24, bottom_left=24),
+            content=ft.Column([
+                ft.Row([
+                    ft.Container(
+                        content=ft.Icon(ft.icons.STOREFRONT_ROUNDED, size=28, color="white"),
+                        padding=10,
+                        bgcolor=Config.COLOR_ACCENT,
+                        border_radius=12,
+                        shadow=ft.BoxShadow(
+                            blur_radius=12,
+                            color=ft.colors.with_opacity(0.4, Config.COLOR_ACCENT),
+                            offset=ft.Offset(0, 4)
+                        )
+                    ),
+                    ft.Column([
+                        ft.Text("DOÑA MARY", size=17, weight="bold", color="white"),
+                        ft.Text("Abarrotes & Desechables", size=11, color="#94A3B8")
+                    ], spacing=1)
+                ], spacing=12),
+                
+                ft.Container(height=20),
+                
+                ft.Text("Gestión Inteligente de Inventario y Operaciones", size=20, weight="bold", color="white"),
+                ft.Text("Plataforma centralizada para control de existencias, remisiones y facturación.", size=12, color="#94A3B8"),
+                
+                ft.Container(height=10),
+                ft.Divider(color=ft.colors.with_opacity(0.2, "#FFFFFF")),
+                ft.Container(height=10),
+                
+                ft.Column(feature_rows, spacing=12),
+                
+                ft.Container(expand=True),
+                
+                ft.Row([
+                    ft.Container(width=8, height=8, bgcolor="#22C55E", border_radius=4),
+                    ft.Text("Sistema Conectado • Cloud Supabase", size=11, color="#86EFAC")
+                ], spacing=6)
+            ])
+        )
+
+        # --- LADO DERECHO: FORMULARIO DE ACCESO ---
+        self.form_column = ft.Column([
+            ft.Text("Iniciar Sesión", size=24, weight="bold", color=Config.COLOR_PRIMARY),
+            ft.Text("Ingresa tus credenciales para acceder al sistema.", size=12.5, color=Config.COLOR_TEXT_MUTED),
+            
+            ft.Container(height=12),
+            
+            self.txt_usuario,
+            self.txt_clave,
+            self.lbl_error,
+            self.progress,
+            
+            ft.Container(height=6),
+            
+            self.btn_ingresar,
+            
+            ft.Container(expand=True),
+            
+            self.lbl_creditos
+        ], horizontal_alignment=ft.CrossAxisAlignment.STRETCH, spacing=10)
+
+        self.panel_derecho = ft.Container(
+            width=420,
+            padding=ft.padding.only(left=36, right=36, top=36, bottom=28),
+            bgcolor="white",
+            border_radius=ft.border_radius.only(top_right=24, bottom_right=24),
+            content=self.form_column
+        )
+
+        # --- TARJETA PRINCIPAL COMBINADA (SPLIT HERO) ---
+        self.card_container = ft.Container(
+            width=780,
+            height=490,
+            border_radius=24,
+            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            border=ft.border.all(1, ft.colors.with_opacity(0.15, "white")),
+            shadow=ft.BoxShadow(
+                spread_radius=2,
+                blur_radius=36,
+                color=ft.colors.with_opacity(0.5, "black"),
+                offset=ft.Offset(0, 16)
+            ),
+            content=ft.Row([
+                self.panel_izquierdo,
+                self.panel_derecho
+            ], spacing=0, expand=True)
+        )
+
+        self.content = self.card_container
+
+    def autenticar(self, e=None):
+        user = self.txt_usuario.value.strip().lower() if self.txt_usuario.value else ""
+        pwd = self.txt_clave.value.strip() if self.txt_clave.value else ""
+
+        if not user or not pwd:
+            self._mostrar_error("Por favor ingresa tu usuario y contraseña.")
+            return
+
+        self.progress.visible = True
+        self.btn_ingresar.disabled = True
+        self.lbl_error.visible = False
+        self.update()
+
+        threading.Thread(target=self._worker_autenticar, args=(user, pwd), daemon=True).start()
+
+    def _mostrar_error(self, mensaje: str):
+        lbl_text = self.lbl_error.content.controls[1]
+        lbl_text.value = mensaje
+        self.lbl_error.visible = True
+        self.update()
+
+    def _worker_autenticar(self, user, pwd):
+        try:
+            datos_usuario = self.db.autenticar_usuario(user, pwd)
+            if datos_usuario:
+                self._mostrar_bienvenida_en_tarjeta(datos_usuario)
+            else:
+                self._mostrar_error("Credenciales incorrectas o usuario inactivo.")
+                self.progress.visible = False
+                self.btn_ingresar.disabled = False
+                if self.page:
+                    self.page.update()
+        except Exception as ex:
+            log_error(f"Login de usuario {user}", ex)
+            self._mostrar_error(f"Error de conexión: {ex}")
+            self.progress.visible = False
+            self.btn_ingresar.disabled = False
+            if self.page:
+                self.page.update()
+
+    def _mostrar_bienvenida_en_tarjeta(self, datos_usuario):
+        nombre_completo = datos_usuario.get("nombre_completo") or datos_usuario.get("usuario") or "Usuario"
+        partes = nombre_completo.split()
+        primer_nombre = partes[0] if partes else "Usuario"
+        if primer_nombre.lower() in ["doña", "dona"] and len(partes) > 1:
+            primer_nombre = f"{partes[0]} {partes[1]}"
+
+        self.panel_derecho.content = ft.Column([
+            ft.Container(height=30),
+            ft.Container(
+                content=ft.Icon(ft.icons.WAVING_HAND_ROUNDED, size=44, color=Config.COLOR_WARNING),
+                padding=16,
+                bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_WARNING),
+                border_radius=50
+            ),
+            ft.Text(f"¡Bienvenido, {primer_nombre}!", size=22, weight="bold", color=Config.COLOR_PRIMARY, text_align=ft.TextAlign.CENTER),
+            ft.Text("Iniciando tu entorno de trabajo...", size=13, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.CENTER),
+            ft.Container(height=15),
+            ft.ProgressRing(width=32, height=32, color=Config.COLOR_ACCENT, stroke_width=3),
+            ft.Container(expand=True),
+            self.lbl_creditos
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
+
+        if self.page:
+            self.page.update()
+
+        time.sleep(1.0)
+        self.on_login_success(datos_usuario)
+````
+
 ## File: InventarioDonaMary.spec
 ````
 # -*- mode: python ; coding: utf-8 -*-
@@ -329955,6 +330695,526 @@ exe = EXE(
     entitlements_file=None,
     version='C:/Users/Home/AppData/Local/Temp/2f6b78f2-5ea4-471c-89f8-b047399b92eb',
 )
+````
+
+## File: core/repositories/insumos_repo.py
+````python
+"""
+Repositorio para el catálogo de insumos, stock y ajustes de inventario.
+"""
+import urllib.parse
+from core.database import BaseDatabase
+from core.logger import get_logger, log_error
+
+logger = get_logger("InsumosRepo")
+
+
+class InsumosRepository:
+    def __init__(self, db: BaseDatabase | None = None):
+        self.db = db or BaseDatabase()
+
+    def get_categorias(self) -> list[str]:
+        """Obtiene la lista de categorías únicas de insumos optimizada con RPC."""
+        try:
+            res = self.db.post("rpc/get_categorias_unicas_rpc", json_data={}, timeout=8)
+            if res and res.status_code == 200:
+                data = res.json()
+                cats = [str(item["categoria"]).strip() for item in data if item.get("categoria")]
+                if cats:
+                    return sorted(cats)
+        except Exception:
+            pass
+
+        # Fallback estándar
+        try:
+            res = self.db.get("catalogo_insumos?select=categoria", timeout=10)
+            if res and res.status_code == 200:
+                data = res.json()
+                categorias = set([item.get("categoria", "SIN CATEGORIA") for item in data if item.get("categoria")])
+                return sorted(list(categorias))
+            return []
+        except Exception as ex:
+            log_error("get_categorias", ex)
+            return []
+
+    def get_insumos(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        search: str = "",
+        categoria: str = "",
+        fecha_corte: str | None = None,
+        sort_col: str = "Insumo",
+        sort_asc: bool = True,
+        codigos_filtro: list | None = None
+    ) -> tuple[list, int]:
+        """Obtiene insumos con paginación, filtros y ordenamiento sanitizado."""
+        endpoint = "rpc/obtener_inventario_por_fecha?select=*" if fecha_corte else "vista_inventario_completo?select=*"
+        filtros = []
+
+        if codigos_filtro is not None:
+            if not codigos_filtro:
+                filtros.append("codigo_insumo=in.(INVALID_FORCE_EMPTY)")
+            else:
+                codigos_str = ",".join([urllib.parse.quote(str(c).strip()) for c in codigos_filtro if str(c).strip()])
+                filtros.append(f"codigo_insumo=in.({codigos_str})")
+
+        if categoria and categoria != "Todas":
+            cat_enc = urllib.parse.quote(str(categoria).strip())
+            filtros.append(f"categoria=eq.{cat_enc}")
+
+        if search and search.strip():
+            s_enc = urllib.parse.quote(search.strip())
+            filtros.append(f"or=(nombre.ilike.*{s_enc}*,codigo_insumo.ilike.*{s_enc}*)")
+
+        if filtros:
+            endpoint += "&" + "&".join(filtros)
+
+        db_col_stock = "stock_real" if fecha_corte else "stock_actual"
+        map_columnas = {
+            "Código": "codigo_insumo",
+            "Insumo": "nombre",
+            "Categoría": "categoria",
+            "Ubicación": "ubicacion",
+            "Stock Inicial": "stock_inicial",
+            "Stock Mínimo": "stock_minimo",
+            "Entradas": "entradas",
+            "Salidas": "salidas",
+            "Stock Real": db_col_stock,
+            # Métricas superiores de tarjetas
+            "Costo s/IVA": "costo_unitario",
+            "Costo U": "costo_unitario",
+            "P. Venta": "precio_venta",
+            "Stock Actual": db_col_stock,
+            "Valor Costo": "costo_total_insumo",
+            "Objetivo Venta": "precio_venta",
+            # Métricas inferiores de tarjetas
+            "INICIAL": "stock_inicial",
+            "COMPRAS": "compras",
+            "VENTAS": "ventas",
+            "AJUSTES (+)": "ajustes_entrantes",
+            "AJUSTES (-)": "ajustes_salientes",
+            "NETO": "neto_ajustes"
+        }
+
+        db_col = map_columnas.get(sort_col, "nombre")
+        direccion = "asc" if sort_asc else "desc"
+        offset = (page - 1) * page_size
+        endpoint += f"&order={db_col}.{direccion}&offset={offset}&limit={page_size}"
+
+        headers = {"Prefer": "count=exact"}
+        try:
+            if fecha_corte:
+                payload = {"p_fecha_corte": f"{fecha_corte} 23:59:59"}
+                res = self.db.post(endpoint, json_data=payload, custom_headers=headers, timeout=10)
+            else:
+                res = self.db.get(endpoint, custom_headers=headers, timeout=10)
+
+            if res and res.status_code in (200, 201, 206):
+                data = res.json()
+                content_range = res.headers.get("Content-Range", "")
+                total_count = 0
+                if "/" in content_range:
+                    total_count = int(content_range.split("/")[1])
+                return data, total_count
+            else:
+                err_text = res.text if res else "No response"
+                logger.warning(f"Error consultando insumos: {err_text}")
+                return [], 0
+        except Exception as ex:
+            log_error("get_insumos", ex)
+            return [], 0
+
+    def insert_insumo(self, data: dict):
+        """Inserta un nuevo insumo en el catálogo."""
+        try:
+            res = self.db.post("catalogo_insumos", json_data=data, timeout=10)
+            if res and res.status_code in (200, 201):
+                from core.audit_logger import registrar_accion
+                registrar_accion(
+                    accion=f"Creación de nuevo insumo en catálogo: [{data.get('codigo_insumo')}] {data.get('nombre')}",
+                    modulo="INVENTARIO",
+                    detalles=data
+                )
+                return res.json()
+            return None
+        except Exception as ex:
+            log_error("insert_insumo", ex, {"data": data})
+            return None
+
+    def update_insumo(self, codigo_insumo: str, datos_actualizados: dict) -> bool:
+        """Actualiza un insumo existente en el catálogo."""
+        try:
+            endpoint = f"catalogo_insumos?codigo_insumo=eq.{codigo_insumo}"
+            res = self.db.patch(endpoint, json_data=datos_actualizados, timeout=10)
+            if res and res.status_code in (200, 204):
+                from core.audit_logger import registrar_accion
+                cambios_str = ", ".join([f"{k}={v}" for k, v in datos_actualizados.items()])
+                registrar_accion(
+                    accion=f"Modificación de insumo [{codigo_insumo}]: {cambios_str}",
+                    modulo="INVENTARIO",
+                    detalles={"codigo_insumo": codigo_insumo, "cambios": datos_actualizados}
+                )
+                return True
+            return False
+        except Exception as ex:
+            log_error("update_insumo", ex, {"codigo": codigo_insumo})
+            return False
+
+    def get_nombres_insumos(self, lista_codigos: list) -> dict:
+        """Devuelve un diccionario {codigo: nombre} buscando en catalogo_insumos."""
+        if not lista_codigos:
+            return {}
+        try:
+            codigos_str = ",".join(lista_codigos)
+            endpoint = f"catalogo_insumos?select=codigo_insumo,nombre&codigo_insumo=in.({codigos_str})"
+            res = self.db.get(endpoint, timeout=10)
+            if res and res.status_code == 200:
+                data = res.json()
+                return {item["codigo_insumo"]: item["nombre"] for item in data if item.get("codigo_insumo")}
+            return {}
+        except Exception as ex:
+            log_error("get_nombres_insumos", ex)
+            return {}
+
+    def get_catalogo_costos(self) -> dict:
+        """Obtiene un diccionario {codigo: costo_unitario}."""
+        try:
+            endpoint = "catalogo_insumos?select=codigo_insumo,costo_unitario"
+            res = self.db.get(endpoint, timeout=10)
+            if res and res.status_code == 200:
+                return {item.get('codigo_insumo'): float(item.get('costo_unitario') or 0) for item in res.json()}
+            return {}
+        except Exception as ex:
+            log_error("get_catalogo_costos", ex)
+            return {}
+
+    def get_insumo_detalle(self, codigo: str) -> dict:
+        """Recupera el nombre, costo, precio y stock de un insumo específico."""
+        try:
+            endpoint = f"catalogo_insumos?codigo_insumo=eq.{codigo}&select=nombre,costo_unitario,precio_venta,stock_actual"
+            res = self.db.get(endpoint, timeout=10)
+            if res and res.status_code == 200 and len(res.json()) > 0:
+                return res.json()[0]
+        except Exception as ex:
+            log_error("get_insumo_detalle", ex, {"codigo": codigo})
+        return {}
+
+    def get_catalogo_summary(self, fecha_corte=None) -> dict:
+        """Invoca RPC para compras totales y ventas totales en pesos."""
+        try:
+            payload = {"fecha_corte": fecha_corte} if fecha_corte else {}
+            res = self.db.post("rpc/get_catalogo_summary_rpc", json_data=payload if payload else None, timeout=10)
+            if res and res.status_code == 200:
+                return res.json()
+        except Exception as ex:
+            log_error("get_catalogo_summary", ex)
+        return {"total_compras": 0.0, "total_ventas": 0.0}
+
+    def get_top_costo_inventario(self, limit: int = 10, fecha_corte=None) -> list:
+        """Obtiene los insumos con mayor costo total de inventario acumulado."""
+        try:
+            insumos, _ = self.get_insumos(
+                page=1,
+                page_size=limit,
+                fecha_corte=fecha_corte,
+                sort_col="Stock Real",
+                sort_asc=False
+            )
+            top = []
+            for item in insumos:
+                costo_tot = float(item.get("costo_total_insumo") or 0)
+                ventas_tot = float(item.get("valor_ventas") or 0)
+                rotacion = (ventas_tot / costo_tot) if costo_tot > 0 else 0.0
+                top.append({
+                    "codigo": item.get("codigo_insumo") or "S/C",
+                    "producto": item.get("nombre") or "Desconocido",
+                    "valor_inventario": costo_tot,
+                    "rotacion": f"{rotacion:.2f}x"
+                })
+            return top
+        except Exception as ex:
+            log_error("get_top_costo_inventario", ex)
+            return []
+
+    def get_inventario_kpis(self, fecha_corte: str | None = None) -> dict:
+        """Obtiene los KPIs generales de valorización de inventario y alertas utilizando la función RPC en BD."""
+        try:
+            payload = {"p_fecha_corte": fecha_corte} if fecha_corte else {}
+            res = self.db.post("rpc/get_inventario_kpis_rpc", json_data=payload, timeout=8)
+            if res and res.status_code == 200:
+                data = res.json()
+                if isinstance(data, dict):
+                    return {
+                        "valor_inventario": float(data.get("valor_inventario") or 0.0),
+                        "alertas_criticas": int(data.get("alertas_criticas") or 0)
+                    }
+        except Exception as ex:
+            logger.warning(f"Fallback local para get_inventario_kpis: {ex}")
+
+        # Fallback local
+        try:
+            res_c = self.db.get("registro_compras?select=codigo_insumo,costo_unitario,fecha&estado_registro=eq.VÁLIDO&order=fecha.desc&limit=5000", timeout=10)
+            costos_compras = {}
+            if res_c and res_c.status_code == 200:
+                for r in res_c.json():
+                    cod = str(r.get("codigo_insumo") or "").strip()
+                    cu = float(r.get("costo_unitario") or 0)
+                    if cod and cod not in costos_compras and cu > 0:
+                        costos_compras[cod] = cu
+
+            insumos, _ = self.get_insumos(page=1, page_size=99999, fecha_corte=fecha_corte)
+            val_inv = 0.0
+            alertas = 0
+            for i in insumos:
+                stk = float(i.get("stock_actual") or i.get("stock_real") or 0)
+                if stk > 0:
+                    cod = str(i.get("codigo_insumo") or "").strip()
+                    cu = costos_compras.get(cod) or float(i.get("costo_unitario") or 0)
+                    val_inv += (stk * cu)
+                if stk <= float(i.get("stock_minimo") or 5):
+                    alertas += 1
+
+            return {
+                "valor_inventario": val_inv,
+                "alertas_criticas": alertas
+            }
+        except Exception as ex:
+            log_error("get_inventario_kpis", ex)
+            return {"valor_inventario": 0.0, "alertas_criticas": 0}
+
+    def get_kpis_por_categoria(self, fecha_corte=None) -> list:
+        """Invoca RPC para extraer rendimiento y rotación agrupada por categoría."""
+        try:
+            payload = {"fecha_corte": fecha_corte} if fecha_corte else {}
+            res = self.db.post("rpc/get_kpis_por_categoria_rpc", json_data=payload if payload else None, timeout=5)
+            if res and res.status_code == 200:
+                return res.json()
+        except Exception:
+            pass
+
+        # Fallback local
+        try:
+            res_vista = self.db.get("vista_inventario_completo?select=categoria,costo_total_insumo,valor_ventas", timeout=10)
+            if res_vista and res_vista.status_code == 200:
+                data = res_vista.json()
+                categorias = {}
+                for item in data:
+                    cat = item.get("categoria") or "SIN CATEGORIA"
+                    if cat not in categorias:
+                        categorias[cat] = {
+                            "categoria": cat,
+                            "costo_inventario": 0.0,
+                            "ventas_totales": 0.0,
+                            "rotacion": 0.0,
+                            "rentabilidad": 0.0
+                        }
+                    categorias[cat]["costo_inventario"] += float(item.get("costo_total_insumo") or 0)
+                    categorias[cat]["ventas_totales"] += float(item.get("valor_ventas") or 0)
+
+                result = []
+                for cat, vals in categorias.items():
+                    costo_inv = vals["costo_inventario"]
+                    vtas = vals["ventas_totales"]
+                    if costo_inv > 0:
+                        vals["rotacion"] = vtas / costo_inv
+                    if vtas > 0:
+                        vals["rentabilidad"] = 25.0
+                    result.append(vals)
+
+                result.sort(key=lambda x: x["ventas_totales"], reverse=True)
+                return result
+        except Exception as ex:
+            log_error("get_kpis_por_categoria fallback", ex)
+
+        return []
+
+    def get_ajustes_inventario(self) -> list:
+        """Obtiene el historial de ajustes cruzado con el catálogo y los períodos de cierre."""
+        try:
+            endpoint = "registro_ajustes_inventario?select=*,catalogo_insumos(nombre,categoria),periodos_inventario(mes_periodo)&order=fecha_ajuste.desc"
+            res = self.db.get(endpoint, timeout=10)
+            if res and res.status_code == 200:
+                return res.json()
+            return []
+        except Exception as ex:
+            log_error("get_ajustes_inventario", ex)
+            return []
+
+    def get_ajustes_mes(self, mes_actual: str, fecha_corte=None) -> list:
+        """Invoca RPC get_ajustes_mes_rpc."""
+        try:
+            payload = {"mes_actual": mes_actual}
+            if fecha_corte:
+                payload["fecha_corte"] = fecha_corte
+            res = self.db.post("rpc/get_ajustes_mes_rpc", json_data=payload, timeout=10)
+            if res and res.status_code == 200:
+                data = res.json()
+                return data if data is not None else []
+            return []
+        except Exception as ex:
+            log_error("get_ajustes_mes", ex)
+            return []
+
+    def insert_ajuste_individual(self, datos: dict | None = None, **kwargs) -> bool:
+        """Inserta un nuevo registro de ajuste operativo."""
+        try:
+            payload = dict(datos or {})
+            if kwargs:
+                # Mapear posibles nombres de campos alternativos
+                if "tipo_ajuste" in kwargs and "tipo_ajuste" not in payload: payload["tipo_ajuste"] = kwargs["tipo_ajuste"]
+                if "codigo_insumo" in kwargs and "codigo_insumo" not in payload: payload["codigo_insumo"] = kwargs["codigo_insumo"]
+                if "cantidad" in kwargs and "cantidad" not in payload: payload["cantidad"] = kwargs["cantidad"]
+                if "costo_unitario" in kwargs and "costo_unitario_congelado" not in payload: payload["costo_unitario_congelado"] = kwargs["costo_unitario"]
+                if "costo_total" in kwargs and "costo_total_ajuste" not in payload: payload["costo_total_ajuste"] = kwargs["costo_total"]
+                if "motivo" in kwargs and "motivo_observacion" not in payload: payload["motivo_observacion"] = kwargs["motivo"]
+                payload.update(kwargs)
+
+            if "estado_registro" not in payload:
+                payload["estado_registro"] = "VÁLIDO"
+
+            if "fecha_ajuste" not in payload or not payload["fecha_ajuste"]:
+                from core.fecha_utils import get_ahora_iso
+                payload["fecha_ajuste"] = get_ahora_iso()
+
+            res = self.db.post("registro_ajustes_inventario", json_data=payload, timeout=10)
+            if res and res.status_code in (200, 201, 204):
+                from core.audit_logger import registrar_accion
+                tipo = payload.get("tipo_ajuste", "AJUSTE")
+                cod = payload.get("codigo_insumo", "")
+                cant = payload.get("cantidad", 0)
+                motivo = payload.get("motivo_observacion", "Sin motivo")
+                registrar_accion(
+                    accion=f"Registro de ajuste de inventario ({tipo}) para insumo [{cod}]: {cant} unds (Motivo: {motivo})",
+                    modulo="AJUSTES",
+                    detalles=payload
+                )
+                return True
+            return False
+        except Exception as ex:
+            log_error("insert_ajuste_individual", ex, {"datos": datos or kwargs})
+            return False
+
+    def anular_ajuste(self, id_ajuste: str) -> bool:
+        """Cambia el estado del ajuste a ANULADO."""
+        try:
+            endpoint = f"registro_ajustes_inventario?id_ajuste=eq.{id_ajuste}"
+            res = self.db.patch(endpoint, json_data={"estado_registro": "ANULADO"}, timeout=10)
+            if res and res.status_code in (200, 204):
+                from core.audit_logger import registrar_accion
+                registrar_accion(
+                    accion=f"Anulación de ajuste de inventario ID {id_ajuste}",
+                    modulo="AJUSTES",
+                    detalles={"id_ajuste": id_ajuste}
+                )
+                return True
+            return False
+        except Exception as ex:
+            log_error("anular_ajuste", ex, {"id_ajuste": id_ajuste})
+            return False
+
+    def insert_ajustes_masivo(self, ajustes: list[dict]) -> bool:
+        """Inserta múltiples registros de ajuste de inventario en lote (batch)."""
+        if not ajustes:
+            return True
+        try:
+            from core.fecha_utils import get_ahora_iso
+            ahora_iso = get_ahora_iso()
+            payloads = []
+            for a in ajustes:
+                p = dict(a)
+                if "estado_registro" not in p:
+                    p["estado_registro"] = "VÁLIDO"
+                if "fecha_ajuste" not in p or not p["fecha_ajuste"]:
+                    p["fecha_ajuste"] = ahora_iso
+                payloads.append(p)
+
+            chunk_size = 100
+            for i in range(0, len(payloads), chunk_size):
+                chunk = payloads[i:i + chunk_size]
+                res = self.db.post("registro_ajustes_inventario", json_data=chunk, timeout=15)
+                if not (res and res.status_code in (200, 201, 204)):
+                    return False
+
+            from core.audit_logger import registrar_accion
+            registrar_accion(
+                accion=f"Registro masivo de {len(payloads)} ajustes de inventario por cierre",
+                modulo="AJUSTES",
+                detalles={"total_ajustes": len(payloads)}
+            )
+            return True
+        except Exception as ex:
+            log_error("insert_ajustes_masivo", ex, {"total": len(ajustes)})
+            return False
+
+    def actualizar_costo_unitario(self, codigo_insumo: str, costo: float) -> bool:
+        """Actualiza el costo unitario de un insumo en el catálogo maestro."""
+        try:
+            cod_enc = urllib.parse.quote(str(codigo_insumo).strip())
+            endpoint = f"catalogo_insumos?codigo_insumo=eq.{cod_enc}"
+            res = self.db.patch(endpoint, json_data={"costo_unitario": costo}, timeout=8)
+            return bool(res and res.status_code in (200, 204))
+        except Exception as ex:
+            log_error(f"actualizar_costo_unitario({codigo_insumo})", ex)
+            return False
+
+    def asegurar_insumos_existen(self, items_list: list):
+        """Verifica la existencia de insumos en el catálogo y auto-registra los faltantes de manera centralizada."""
+        if not items_list:
+            return
+        import urllib.parse
+        codigos_entrantes = {
+            str(x.get("codigo_insumo") or x.get("codigo_item") or "").strip()
+            for x in items_list
+            if str(x.get("codigo_insumo") or x.get("codigo_item") or "").strip()
+        }
+        if not codigos_entrantes:
+            return
+
+        existentes = set()
+        chunk_size = 50
+        codigos_arr = list(codigos_entrantes)
+        for i in range(0, len(codigos_arr), chunk_size):
+            chk = codigos_arr[i:i + chunk_size]
+            c_str = ",".join([urllib.parse.quote(c) for c in chk])
+            try:
+                res = self.db.get(f"catalogo_insumos?select=codigo_insumo&codigo_insumo=in.({c_str})", timeout=8)
+                if res and res.status_code == 200:
+                    for row in res.json():
+                        existentes.add(str(row["codigo_insumo"]).strip())
+            except Exception as ex:
+                logger.warning(f"Error consultando existencia de insumos chunk {i}: {ex}")
+
+        faltantes = codigos_entrantes - existentes
+        if faltantes:
+            nuevos = []
+            for cod in faltantes:
+                nom = "INSUMO AUTO-REGISTRADO"
+                for item in items_list:
+                    if str(item.get("codigo_insumo") or item.get("codigo_item") or "").strip() == cod:
+                        nom = item.get("descripcion") or item.get("nombre") or nom
+                        break
+                nuevos.append({
+                    "codigo_insumo": cod,
+                    "nombre": nom[:100],
+                    "categoria": "DESECHABLES",
+                    "costo_unitario": 0.0,
+                    "precio_venta": 0.0,
+                    "stock_actual": 0.0,
+                    "stock_minimo": 5.0,
+                    "estado": True,
+                    "zona": "NO UBICADO",
+                    "ubicacion": "BODEGA",
+                    "tipo_unidad": "und"
+                })
+            try:
+                res_post = self.db.post("catalogo_insumos", json_data=nuevos, timeout=10)
+                if not (res_post and res_post.status_code in (200, 201, 204)):
+                    logger.error(f"Fallo al auto-registrar insumos faltantes: {res_post.text if res_post else 'Sin respuesta'}")
+                else:
+                    logger.info(f"Auto-registrados {len(nuevos)} insumos nuevos en catálogo exitosamente")
+            except Exception as ex:
+                log_error("Error auto-registrando nuevos insumos", ex)
 ````
 
 ## File: core/mobile_service.py
@@ -330336,6 +331596,1300 @@ class MobileCountingService:
 # Instancia singleton y alias de compatibilidad
 mobile_service = MobileCountingService()
 MobileService = MobileCountingService
+````
+
+## File: ui/views/cartera.py
+````python
+"""
+Vista de Gestión de Cartera y Cuentas por Cobrar para Sistema Doña Mary.
+Permite consultar estados de cuenta por cliente, registrar pagos/abonos (FIFO o manual),
+diferir deudas en cuotas con amortización automática, buscar por cliente o documento y filtrar por fecha.
+"""
+import datetime
+import flet as ft
+from config import Config
+from core.database import BaseDatabase
+from core.logger import get_logger, log_error
+from core.supabase_client import get_client
+
+logger = get_logger("CarteraView")
+
+class CarteraView(ft.Container):
+    def __init__(self):
+        super().__init__()
+        self.expand = True
+        self.bgcolor = Config.COLOR_BACKGROUND
+        self.padding = 16
+
+        self.db = get_client()
+        self.cartera_repo = self.db.cartera_repo
+        self.clientes_repo = self.db.clientes_repo
+
+        # Estado local
+        self.kpis_data = {}
+        self.clientes_lista = []
+        self.documentos_lista = []
+        self.cliente_seleccionado = None
+        self.documento_preseleccionado = None
+        self.modo_vista_izq = "CLIENTES"
+        self.facturas_cliente = []
+        self.historial_pagos = []
+        self.cuotas_cliente = []
+        self.filtro_saldo_actual = "TODOS"
+        self.filtro_tipo_doc_actual = "TODOS"
+        self.busqueda_actual = ""
+        self.fecha_filtro = ""
+        self.filtros_expandidos = True
+        self.tab_activo = 0
+        self._is_loading = False
+        self._is_loading_subdatos = False
+
+        # UI Components
+        self._init_ui()
+
+    def _init_ui(self):
+        # 1. Encabezado y KPIs
+        self.lbl_titulo = ft.Text("Gestión de Cartera y Cuentas por Cobrar", size=20, weight="bold", color=Config.COLOR_PRIMARY)
+        self.lbl_subtitulo = ft.Text("Control de créditos a clientes, recaudos, asignación de pagos y fechas de cobro", size=11, color=Config.COLOR_TEXT_MUTED)
+
+        self.btn_refrescar = ft.IconButton(
+            icon=ft.icons.REFRESH_ROUNDED,
+            icon_color=Config.COLOR_PRIMARY,
+            tooltip="Actualizar Cartera",
+            on_click=lambda e: self.load_data()
+        )
+
+        # Tarjetas KPI
+        self.card_total_ventas = self._crear_kpi_card("Total Facturado", "$0", ft.icons.POINT_OF_SALE_ROUNDED, Config.COLOR_PRIMARY)
+        self.card_total_recaudo = self._crear_kpi_card("Total Recaudado", "$0", ft.icons.SAVINGS_ROUNDED, Config.COLOR_SUCCESS, subtexto="Efectivo: $0 | Bancos: $0")
+        self.card_total_pendiente = self._crear_kpi_card("Saldo por Cobrar", "$0", ft.icons.WARNING_AMBER_ROUNDED, "orange800")
+        self.card_clientes_deuda = self._crear_kpi_card("Clientes con Deuda", "0", ft.icons.PEOPLE_ROUNDED, Config.COLOR_ACCENT)
+
+        self.kpis_row = ft.Row([
+            self.card_total_ventas,
+            self.card_total_recaudo,
+            self.card_total_pendiente,
+            self.card_clientes_deuda
+        ], spacing=10, alignment=ft.MainAxisAlignment.START)
+
+        # 2. Panel Izquierdo: Rediseño Modular con Minimódulo de Filtros Colapsable
+        self.seg_modo_vista = ft.SegmentedButton(
+            selected={"CLIENTES"},
+            allow_multiple_selection=False,
+            segments=[
+                ft.Segment(
+                    value="CLIENTES",
+                    label=ft.Text("Clientes", size=10.5, weight="w600"),
+                    icon=ft.Icon(ft.icons.PEOPLE_ROUNDED, size=15)
+                ),
+                ft.Segment(
+                    value="DOCUMENTOS",
+                    label=ft.Text("Documentos", size=10.5, weight="w600"),
+                    icon=ft.Icon(ft.icons.RECEIPT_LONG_ROUNDED, size=15)
+                ),
+            ],
+            height=32,
+            expand=True,
+            on_change=self._on_modo_vista_change
+        )
+
+        self.btn_toggle_filtros = ft.IconButton(
+            icon=ft.icons.TUNE_ROUNDED,
+            icon_size=17,
+            icon_color=Config.COLOR_PRIMARY,
+            tooltip="Ocultar / Mostrar filtros avanzados",
+            bgcolor=ft.colors.with_opacity(0.08, Config.COLOR_PRIMARY),
+            width=32,
+            height=32,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), padding=0),
+            on_click=self._toggle_filtros
+        )
+
+        # Chips de Estado
+        self.chip_todos = ft.Chip(
+            label=ft.Text("Todos", size=9.5),
+            selected=True,
+            on_select=lambda e: self._on_chip_filtro_select("TODOS")
+        )
+        self.chip_con_deuda = ft.Chip(
+            label=ft.Text("Con Deuda", size=9.5),
+            selected=False,
+            on_select=lambda e: self._on_chip_filtro_select("CON_DEUDA")
+        )
+        self.chip_al_dia = ft.Chip(
+            label=ft.Text("Al Día", size=9.5),
+            selected=False,
+            on_select=lambda e: self._on_chip_filtro_select("AL_DIA")
+        )
+
+        # Chips de Tipo de Documento
+        self.chip_tipo_todos = ft.Chip(
+            label=ft.Text("Todos", size=9.5),
+            selected=True,
+            on_select=lambda e: self._on_chip_tipo_select("TODOS")
+        )
+        self.chip_tipo_remision = ft.Chip(
+            label=ft.Text("Remisión", size=9.5),
+            selected=False,
+            on_select=lambda e: self._on_chip_tipo_select("REMISIÓN")
+        )
+        self.chip_tipo_pos = ft.Chip(
+            label=ft.Text("Factura POS", size=9.5),
+            selected=False,
+            on_select=lambda e: self._on_chip_tipo_select("FACTURA_POS")
+        )
+
+        # Filtro de Fecha
+        self.date_picker = ft.DatePicker(
+            on_change=self._on_date_picked,
+            help_text="Seleccionar fecha de factura"
+        )
+
+        self.btn_date_icon = ft.OutlinedButton(
+            text="Elegir fecha",
+            icon=ft.icons.CALENDAR_MONTH_ROUNDED,
+            height=28,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=6),
+                padding=ft.padding.symmetric(horizontal=8, vertical=2)
+            ),
+            on_click=self._abrir_date_picker
+        )
+
+        self.lbl_fecha_filtro = ft.Text("", size=9.5, weight="bold", color=Config.COLOR_PRIMARY)
+        self.btn_limpiar_fecha = ft.IconButton(
+            icon=ft.icons.CLOSE_ROUNDED,
+            icon_size=12,
+            icon_color="red600",
+            tooltip="Quitar filtro de fecha",
+            width=18,
+            height=18,
+            style=ft.ButtonStyle(padding=0),
+            on_click=self._limpiar_fecha
+        )
+
+        self.chip_fecha_activa = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.EVENT_ROUNDED, size=11, color=Config.COLOR_PRIMARY),
+                self.lbl_fecha_filtro,
+                self.btn_limpiar_fecha
+            ], spacing=2, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor=ft.colors.with_opacity(0.12, Config.COLOR_PRIMARY),
+            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+            border_radius=10,
+            visible=False
+        )
+
+        # Minimódulo de Filtros (Organizado en hileras con su propio fondo)
+        self.contenedor_filtros = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Text("Estado:", size=9.5, weight="bold", color="grey700", width=42),
+                    self.chip_todos,
+                    self.chip_con_deuda,
+                    self.chip_al_dia
+                ], spacing=3, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Row([
+                    ft.Text("Tipo:", size=9.5, weight="bold", color="grey700", width=42),
+                    self.chip_tipo_todos,
+                    self.chip_tipo_remision,
+                    self.chip_tipo_pos
+                ], spacing=3, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Row([
+                    ft.Text("Fecha:", size=9.5, weight="bold", color="grey700", width=42),
+                    self.btn_date_icon,
+                    self.chip_fecha_activa
+                ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ], spacing=4),
+            bgcolor="#F8FAFC",
+            border=ft.border.all(1, Config.COLOR_BORDER),
+            border_radius=8,
+            padding=ft.padding.symmetric(horizontal=8, vertical=6),
+            visible=True
+        )
+
+        # Buscador en fila completa debajo del minimódulo de filtros
+        self.txt_buscador = ft.TextField(
+            hint_text="Buscar cliente o No. doc...",
+            prefix_icon=ft.icons.SEARCH_ROUNDED,
+            dense=True,
+            text_size=11,
+            height=36,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
+            border_radius=8,
+            bgcolor=Config.COLOR_SURFACE,
+            border_color=Config.COLOR_BORDER,
+            on_change=self._on_search_change,
+            expand=True
+        )
+
+        self.lista_clientes_view = ft.ListView(
+            expand=True,
+            spacing=6,
+            padding=ft.padding.only(right=2)
+        )
+
+        self.col_izquierda = ft.Container(
+            content=ft.Column([
+                ft.Row([self.seg_modo_vista, self.btn_toggle_filtros], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                self.contenedor_filtros,
+                ft.Row([self.txt_buscador], expand=False),
+                ft.Divider(height=1, color=Config.COLOR_BORDER),
+                self.lista_clientes_view
+            ], expand=True, spacing=6),
+            width=360,
+            bgcolor=Config.COLOR_SURFACE,
+            padding=10,
+            border_radius=12,
+            border=ft.border.all(1, Config.COLOR_BORDER)
+        )
+
+
+
+
+        # 3. Panel Derecho (Detalle del Cliente)
+        self.panel_derecho_contenido = ft.Container(
+            content=self._crear_placeholder_vacio(),
+            expand=True,
+            bgcolor=Config.COLOR_SURFACE,
+            padding=12,
+            border_radius=12,
+            border=ft.border.all(1, Config.COLOR_BORDER)
+        )
+
+        # Botones de Acción del Cliente (visibles solo cuando hay cliente seleccionado)
+        self.btn_pagar_global = ft.ElevatedButton(
+            text="Registrar Pago",
+            icon=ft.icons.PAYMENTS_ROUNDED,
+            bgcolor=Config.COLOR_SUCCESS,
+            color="white",
+            height=34,
+            visible=False,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=lambda e: self._abrir_modal_pago(self.cliente_seleccionado)
+        )
+        self.btn_cuotas_global = ft.OutlinedButton(
+            text="Plan de Cuotas",
+            icon=ft.icons.EVENT_NOTE_ROUNDED,
+            height=34,
+            visible=False,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=lambda e: self._abrir_modal_cuotas(self.cliente_seleccionado)
+        )
+
+        # 4. Ensamble Principal
+        self.content = ft.Column([
+            ft.Row([
+                ft.Column([self.lbl_titulo, self.lbl_subtitulo], spacing=2),
+                ft.Container(expand=True),
+                self.btn_cuotas_global,
+                self.btn_pagar_global,
+                self.btn_refrescar
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
+            self.kpis_row,
+            ft.Row([
+                self.col_izquierda,
+                self.panel_derecho_contenido
+            ], expand=True, spacing=10)
+        ], expand=True, spacing=10)
+
+    def _crear_kpi_card(self, titulo: str, valor: str, icono, color: str, subtexto: str = "") -> ft.Container:
+        lbl_val = ft.Text(valor, size=16, weight="bold", color=color)
+        lbl_sub = ft.Text(subtexto, size=9.5, color=Config.COLOR_TEXT_MUTED, visible=bool(subtexto))
+        
+        card = ft.Container(
+            content=ft.Row([
+                ft.Container(
+                    content=ft.Icon(icono, color=color, size=20),
+                    bgcolor=ft.colors.with_opacity(0.12, color),
+                    padding=8,
+                    border_radius=8
+                ),
+                ft.Column([
+                    ft.Text(titulo, size=10.5, color=Config.COLOR_TEXT_MUTED, weight="w500"),
+                    lbl_val,
+                    lbl_sub
+                ], spacing=1, alignment=ft.MainAxisAlignment.CENTER)
+            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.padding.symmetric(horizontal=12, vertical=8),
+            bgcolor=Config.COLOR_SURFACE,
+            border_radius=10,
+            border=ft.border.all(1, Config.COLOR_BORDER),
+            expand=True
+        )
+        card._lbl_val = lbl_val
+        card._lbl_sub = lbl_sub
+        return card
+
+    def _crear_placeholder_vacio(self) -> ft.Container:
+        return ft.Container(
+            content=ft.Column([
+                ft.Icon(ft.icons.ACCOUNT_BALANCE_WALLET_OUTLINED, size=48, color=Config.COLOR_TEXT_LIGHT),
+                ft.Text("Selecciona un cliente de la lista", size=15, weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Text("Consulta sus facturas pendientes, historial de abonos, registra pagos y acuerdos de cuotas.", size=11, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.CENTER)
+            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
+            alignment=ft.alignment.center,
+            expand=True
+        )
+
+    def _crear_loading_indicador(self, mensaje: str = "Cargando datos...") -> ft.Container:
+        return ft.Container(
+            content=ft.Column([
+                ft.ProgressRing(width=28, height=28, stroke_width=2.5, color=Config.COLOR_PRIMARY),
+                ft.Text(mensaje, size=11, color=Config.COLOR_TEXT_MUTED)
+            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+            alignment=ft.alignment.center,
+            expand=True,
+            padding=25
+        )
+
+    def did_mount(self):
+        # Registrar DatePicker en overlay de la página al montarse
+        if self.page and self.date_picker not in self.page.overlay:
+            self.page.overlay.append(self.date_picker)
+        # Iniciar carga solo si no se ha cargado
+        if not self.clientes_lista and not self._is_loading:
+            self.load_data()
+
+    def safe_update(self):
+        try:
+            if self.page:
+                self.page.update()
+        except Exception:
+            pass
+
+    def load_data(self):
+        """Carga en segundo plano los KPIs, la lista de clientes y la lista de documentos."""
+        if self._is_loading:
+            return
+        self._is_loading = True
+
+        def worker():
+            try:
+                # Una sola llamada que descarga ventas una vez y calcula KPIs + clientes + documentos
+                kpis, clientes, documentos = self.cartera_repo.get_resumen_cartera(
+                    search=self.busqueda_actual,
+                    filtro_saldo=self.filtro_saldo_actual,
+                    fecha_filtro=self.fecha_filtro,
+                    filtro_tipo_doc=self.filtro_tipo_doc_actual
+                )
+                self.kpis_data = kpis
+                self.clientes_lista = clientes
+                self.documentos_lista = documentos
+
+                # Actualizar UI
+                self._actualizar_kpis_ui()
+                self._render_lista_izquierda()
+
+                if self.cliente_seleccionado:
+                    nom_sel = self.cliente_seleccionado.get("nombre")
+                    c_upd = next((c for c in clientes if c["nombre"] == nom_sel), None)
+                    if c_upd:
+                        self.cliente_seleccionado = c_upd
+                        self._cargar_detalle_cliente(c_upd, recargar_datos=True)
+                    else:
+                        self.cliente_seleccionado = None
+                        self.btn_pagar_global.visible = False
+                        self.btn_cuotas_global.visible = False
+                        self.panel_derecho_contenido.content = self._crear_placeholder_vacio()
+
+                self.safe_update()
+            except Exception as ex:
+                log_error("CarteraView.load_data", ex)
+            finally:
+                self._is_loading = False
+
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _actualizar_kpis_ui(self):
+        k = self.kpis_data or {}
+        tot_v = k.get("total_ventas", 0.0)
+        tot_r = k.get("total_recaudado", 0.0)
+        tot_ef = k.get("total_efectivo", 0.0)
+        tot_tr = k.get("total_transferencias", 0.0)
+        tot_p = k.get("total_saldo_pendiente", 0.0)
+        c_deuda = k.get("clientes_con_deuda", 0)
+
+        self.card_total_ventas._lbl_val.value = f"${tot_v:,.0f}"
+        self.card_total_recaudo._lbl_val.value = f"${tot_r:,.0f}"
+        self.card_total_recaudo._lbl_sub.value = f"Efectivo: ${tot_ef:,.0f} | Bancos: ${tot_tr:,.0f}"
+        self.card_total_pendiente._lbl_val.value = f"${tot_p:,.0f}"
+        self.card_clientes_deuda._lbl_val.value = f"{c_deuda} Clientes"
+
+    def _on_modo_vista_change(self, e):
+        if e.control.selected:
+            self.modo_vista_izq = list(e.control.selected)[0]
+            self._render_lista_izquierda()
+            self.safe_update()
+
+    def _render_lista_izquierda(self):
+        if self.modo_vista_izq == "DOCUMENTOS":
+            self._render_lista_documentos()
+        else:
+            self._render_lista_clientes()
+
+    def _render_lista_clientes(self):
+        self.lista_clientes_view.controls.clear()
+
+        if not self.clientes_lista:
+            self.lista_clientes_view.controls.append(
+                ft.Container(
+                    content=ft.Text("No se encontraron clientes", size=11, color=Config.COLOR_TEXT_MUTED, italic=True),
+                    alignment=ft.alignment.center,
+                    padding=20
+                )
+            )
+            return
+
+        for cli in self.clientes_lista:
+            nom = cli.get("nombre", "SIN NOMBRE")
+            saldo = cli.get("saldo_pendiente", 0.0)
+            facturas_cant = cli.get("cantidad_facturas", 0)
+            u_fecha = cli.get("ultima_fecha_venta") or "Sin ventas"
+
+            is_selected = (self.cliente_seleccionado and self.cliente_seleccionado.get("nombre") == nom)
+
+            if saldo > 0.01:
+                badge_bg = "#FEE2E2"
+                badge_fg = "#DC2626"
+                badge_txt = f"Debe ${saldo:,.0f}"
+            else:
+                badge_bg = "#DCFCE7"
+                badge_fg = "#16A34A"
+                badge_txt = "Al Día"
+
+            item_card = ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.Text(nom, size=11.5, weight="bold", color=Config.COLOR_PRIMARY, expand=True, overflow=ft.TextOverflow.ELLIPSIS),
+                        ft.Container(
+                            content=ft.Text(badge_txt, size=9, weight="bold", color=badge_fg),
+                            bgcolor=badge_bg,
+                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=6
+                        )
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    ft.Row([
+                        ft.Text(f"{facturas_cant} facturas • Últ. venta: {u_fecha}", size=9.5, color=Config.COLOR_TEXT_MUTED),
+                    ], alignment=ft.MainAxisAlignment.START)
+                ], spacing=2),
+                padding=ft.padding.symmetric(horizontal=10, vertical=8),
+                bgcolor="#EFF6FF" if is_selected else Config.COLOR_SURFACE,
+                border_radius=8,
+                border=ft.border.all(1.5 if is_selected else 1, Config.COLOR_PRIMARY if is_selected else Config.COLOR_BORDER),
+                on_click=lambda e, c=cli: self._on_cliente_click(c),
+                ink=True
+            )
+            self.lista_clientes_view.controls.append(item_card)
+
+    def _render_lista_documentos(self):
+        self.lista_clientes_view.controls.clear()
+
+        if not self.documentos_lista:
+            self.lista_clientes_view.controls.append(
+                ft.Container(
+                    content=ft.Text("No se encontraron documentos", size=11, color=Config.COLOR_TEXT_MUTED, italic=True),
+                    alignment=ft.alignment.center,
+                    padding=20
+                )
+            )
+            return
+
+        for doc in self.documentos_lista:
+            fac_no = str(doc.get("factura_no", "S/N"))
+            t_doc = doc.get("tipo_documento", "Factura")
+            cli_nom = doc.get("cliente", "SIN CLIENTE")
+            fec = doc.get("fecha") or "Sin fecha"
+            tot_fac = float(doc.get("total_factura") or 0.0)
+            saldo = float(doc.get("saldo_pendiente") or 0.0)
+            est = doc.get("estado", "PENDIENTE")
+
+            is_selected = (
+                self.documento_preseleccionado == fac_no or
+                (self.cliente_seleccionado and self.cliente_seleccionado.get("nombre") == cli_nom and not self.documento_preseleccionado)
+            )
+
+            if est == "PAGADA":
+                badge_bg = "#DCFCE7"
+                badge_fg = "#16A34A"
+                badge_txt = "PAGADA"
+            elif est == "PARCIAL":
+                badge_bg = "#FEF3C7"
+                badge_fg = "#D97706"
+                badge_txt = f"Debe ${saldo:,.0f}"
+            else:
+                badge_bg = "#FEE2E2"
+                badge_fg = "#DC2626"
+                badge_txt = f"Debe ${saldo:,.0f}"
+
+            item_card = ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.Row([
+                            ft.Icon(
+                                ft.icons.DESCRIPTION_ROUNDED if "REM" in t_doc.upper() else ft.icons.POINT_OF_SALE_ROUNDED,
+                                size=14,
+                                color=Config.COLOR_PRIMARY
+                            ),
+                            ft.Text(f"{t_doc} #{fac_no}", size=11.5, weight="bold", color=Config.COLOR_PRIMARY),
+                        ], spacing=4),
+                        ft.Container(
+                            content=ft.Text(badge_txt, size=9, weight="bold", color=badge_fg),
+                            bgcolor=badge_bg,
+                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=6
+                        )
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    ft.Text(cli_nom, size=10.5, weight="w500", color=Config.COLOR_TEXT, overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.Row([
+                        ft.Text(f"📅 {fec} • Total: ${tot_fac:,.0f}", size=9.5, color=Config.COLOR_TEXT_MUTED),
+                    ], alignment=ft.MainAxisAlignment.START)
+                ], spacing=2),
+                padding=ft.padding.symmetric(horizontal=10, vertical=8),
+                bgcolor="#EFF6FF" if is_selected else Config.COLOR_SURFACE,
+                border_radius=8,
+                border=ft.border.all(1.5 if is_selected else 1, Config.COLOR_PRIMARY if is_selected else Config.COLOR_BORDER),
+                on_click=lambda e, d=doc: self._on_documento_click(d),
+                ink=True
+            )
+            self.lista_clientes_view.controls.append(item_card)
+
+    def _toggle_filtros(self, e=None):
+        self.filtros_expandidos = not self.filtros_expandidos
+        self.contenedor_filtros.visible = self.filtros_expandidos
+        self.btn_toggle_filtros.icon = ft.icons.KEYBOARD_ARROW_UP_ROUNDED if self.filtros_expandidos else ft.icons.TUNE_ROUNDED
+        self.btn_toggle_filtros.bgcolor = ft.colors.with_opacity(0.14, Config.COLOR_PRIMARY) if self.filtros_expandidos else ft.colors.with_opacity(0.04, Config.COLOR_PRIMARY)
+        self.safe_update()
+
+    def _on_search_change(self, e):
+        self.busqueda_actual = e.control.value
+        self.load_data()
+
+    def _on_chip_filtro_select(self, valor: str):
+        self.chip_todos.selected = (valor == "TODOS")
+        self.chip_con_deuda.selected = (valor == "CON_DEUDA")
+        self.chip_al_dia.selected = (valor == "AL_DIA")
+        self.filtro_saldo_actual = valor
+        self.load_data()
+
+    def _on_chip_tipo_select(self, valor: str):
+        self.chip_tipo_todos.selected = (valor == "TODOS")
+        self.chip_tipo_remision.selected = (valor == "REMISIÓN")
+        self.chip_tipo_pos.selected = (valor in ("FACTURA_POS", "POS"))
+        self.filtro_tipo_doc_actual = valor
+        self.load_data()
+
+
+    def _abrir_date_picker(self, e):
+        if self.page:
+            self.date_picker.open = True
+            self.page.update()
+
+    def _on_date_picked(self, e):
+        if e.control.value:
+            dt_val = e.control.value
+            self.fecha_filtro = dt_val.strftime("%Y-%m-%d")
+            self.lbl_fecha_filtro.value = f"{self.fecha_filtro}"
+            self.chip_fecha_activa.visible = True
+            self.btn_date_icon.icon_color = "amber800"
+            self.load_data()
+
+    def _limpiar_fecha(self, e):
+        self.fecha_filtro = ""
+        self.lbl_fecha_filtro.value = ""
+        self.chip_fecha_activa.visible = False
+        self.btn_date_icon.icon_color = Config.COLOR_PRIMARY
+        self.load_data()
+
+
+    def _on_documento_click(self, doc: dict):
+        self.documento_preseleccionado = str(doc.get("factura_no"))
+        cli_nom = doc.get("cliente", "")
+        # Buscar cliente asociado
+        cli = next((c for c in self.clientes_lista if c["nombre"] == cli_nom), None)
+        if not cli:
+            cli = {
+                "nombre": cli_nom,
+                "saldo_pendiente": doc.get("saldo_pendiente", 0.0),
+                "total_facturado": doc.get("total_factura", 0.0),
+                "total_abonado": doc.get("total_abonado", 0.0)
+            }
+        self.cliente_seleccionado = cli
+        self._render_lista_izquierda()
+        self._cargar_detalle_cliente(cli, recargar_datos=True)
+
+    def _on_cliente_click(self, cli: dict):
+        self.documento_preseleccionado = None
+        self.cliente_seleccionado = cli
+        self._render_lista_izquierda()
+        self._cargar_detalle_cliente(cli, recargar_datos=True)
+
+    def _cargar_detalle_cliente(self, cli: dict, recargar_datos: bool = True):
+        nom = cli.get("nombre", "")
+        saldo = cli.get("saldo_pendiente", 0.0)
+        tot_fac = cli.get("total_facturado", 0.0)
+        tot_ab = cli.get("total_abonado", 0.0)
+
+        # Mostrar botones de acción en el top bar
+        self.btn_pagar_global.visible = True
+        self.btn_cuotas_global.visible = True
+
+        # Header informativo del cliente con métricas compactas
+        header_cliente = ft.Container(
+            content=ft.Row([
+                ft.Container(
+                    content=ft.Icon(ft.icons.ACCOUNT_CIRCLE_ROUNDED, color=Config.COLOR_PRIMARY, size=28),
+                    bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_PRIMARY),
+                    padding=6,
+                    border_radius=10
+                ),
+                ft.Column([
+                    ft.Row([
+                        ft.Text(nom, size=14, weight="bold", color=Config.COLOR_PRIMARY, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
+                        ft.Container(
+                            content=ft.Text(f"Saldo Total: ${saldo:,.0f}", size=10.5, weight="bold", color="white"),
+                            bgcolor="#DC2626" if saldo > 0.01 else "#16A34A",
+                            padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                            border_radius=6
+                        )
+                    ], spacing=8),
+                    ft.Row([
+                        ft.Container(
+                            content=ft.Text(f"Facturado: ${tot_fac:,.0f}", size=9.5, color=Config.COLOR_TEXT, weight="w500"),
+                            bgcolor="#F1F5F9",
+                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=4
+                        ),
+                        ft.Container(
+                            content=ft.Text(f"Abonado: ${tot_ab:,.0f}", size=9.5, color="#15803D", weight="bold"),
+                            bgcolor="#DCFCE7",
+                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=4
+                        ),
+                        ft.Container(
+                            content=ft.Text(f"Pendiente: ${saldo:,.0f}", size=9.5, color="#B91C1C" if saldo > 0.01 else "#15803D", weight="bold"),
+                            bgcolor="#FEE2E2" if saldo > 0.01 else "#DCFCE7",
+                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=4
+                        )
+                    ], spacing=6)
+                ], spacing=3, expand=True)
+            ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.padding.symmetric(horizontal=12, vertical=8),
+            bgcolor=Config.COLOR_SURFACE,
+            border=ft.border.all(1, Config.COLOR_BORDER),
+            border_radius=10
+        )
+
+
+        # Tab Bar Compacto
+        self.tabs_detalle = ft.Tabs(
+            selected_index=self.tab_activo,
+            animation_duration=150,
+            height=40,
+            tabs=[
+                ft.Tab(text="Facturas (Remisiones & POS)", icon=ft.icons.RECEIPT_LONG_ROUNDED),
+                ft.Tab(text="Historial de Pagos", icon=ft.icons.HISTORY_ROUNDED),
+                ft.Tab(text="Plan de Cuotas", icon=ft.icons.EVENT_NOTE_ROUNDED)
+            ],
+            on_change=self._on_tab_change
+        )
+
+        self.tab_content_container = ft.Container(
+            content=self._crear_loading_indicador(f"Cargando información de {nom}...") if recargar_datos else None,
+            expand=True,
+            padding=ft.padding.only(top=4)
+        )
+
+        self.panel_derecho_contenido.content = ft.Column([
+            header_cliente,
+            self.tabs_detalle,
+            self.tab_content_container
+        ], expand=True, spacing=6)
+
+        # Actualizar pantalla INMEDIATAMENTE para que aparezca el panel del cliente
+        self.safe_update()
+
+        if recargar_datos:
+            self._recargar_subdatos_cliente(nom, saldo)
+        else:
+            self._render_tab_activo()
+            self.safe_update()
+
+    def _on_tab_change(self, e):
+        self.tab_activo = e.control.selected_index
+        self._render_tab_activo()
+        self.safe_update()
+
+    def _recargar_subdatos_cliente(self, nombre_cliente: str, saldo_actual: float = 0.0):
+        self._is_loading_subdatos = True
+        self.tab_content_container.content = self._crear_loading_indicador(f"Cargando facturas y pagos de {nombre_cliente}...")
+        self.safe_update()
+
+        def worker():
+            try:
+                self.facturas_cliente = self.cartera_repo.get_facturas_cliente(nombre_cliente)
+                self.historial_pagos = self.cartera_repo.get_historial_pagos_cliente(nombre_cliente)
+                self.cuotas_cliente = self.cartera_repo.get_cuotas_cliente(nombre_cliente, saldo_actual_cliente=saldo_actual)
+            except Exception as ex:
+                log_error("CarteraView._recargar_subdatos_cliente", ex)
+            finally:
+                self._is_loading_subdatos = False
+                self._render_tab_activo()
+                self.safe_update()
+
+        import threading
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _render_tab_activo(self):
+        if self._is_loading_subdatos:
+            nom = self.cliente_seleccionado.get("nombre", "") if self.cliente_seleccionado else ""
+            self.tab_content_container.content = self._crear_loading_indicador(f"Cargando datos de {nom}...")
+            return
+
+        if self.tab_activo == 0:
+            self._render_tab_facturas()
+        elif self.tab_activo == 1:
+            self._render_tab_historial_pagos()
+        elif self.tab_activo == 2:
+            self._render_tab_cuotas()
+
+    def _render_tab_facturas(self):
+        if not self.facturas_cliente:
+            self.tab_content_container.content = ft.Container(
+                content=ft.Text("Este cliente no tiene facturas registradas.", size=11, color=Config.COLOR_TEXT_MUTED, italic=True),
+                alignment=ft.alignment.center,
+                padding=20
+            )
+            return
+
+        dt = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Fecha", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Tipo Doc.", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Factura No.", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Total Factura", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Total Abonado", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Saldo Pendiente", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Estado", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Acciones", size=11, weight="bold")),
+            ],
+            rows=[],
+            heading_row_height=30,
+            data_row_min_height=28,
+            data_row_max_height=32,
+            column_spacing=12,
+            heading_row_color=Config.COLOR_MUTED
+        )
+
+        for f in self.facturas_cliente:
+            fac_no = str(f.get("factura_no", ""))
+            est = f.get("estado_factura", "PENDIENTE")
+            saldo_f = float(f.get("saldo_pendiente", 0.0))
+            if est == "PAGADA":
+                b_bg, b_fg, b_tx = "#DCFCE7", "#16A34A", "PAGADA"
+            elif est == "PARCIAL":
+                b_bg, b_fg, b_tx = "#FEF3C7", "#D97706", "PARCIAL"
+            else:
+                b_bg, b_fg, b_tx = "#FEE2E2", "#DC2626", "PENDIENTE"
+
+            btn_pagar_linea = ft.IconButton(
+                icon=ft.icons.PAYMENTS_ROUNDED,
+                icon_color=Config.COLOR_SUCCESS,
+                icon_size=16,
+                tooltip=f"Registrar pago para #{fac_no}",
+                on_click=lambda e, fno=fac_no: self._abrir_modal_pago(self.cliente_seleccionado, doc_preseleccionado=fno)
+            ) if saldo_f > 0.01 else ft.Icon(ft.icons.CHECK_CIRCLE_OUTLINE_ROUNDED, color=Config.COLOR_SUCCESS, size=16)
+
+            dt.rows.append(
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Text(f.get("fecha", ""), size=11)),
+                    ft.DataCell(ft.Text(f.get("tipo_documento", "POS"), size=11)),
+                    ft.DataCell(ft.Text(fac_no, size=11, weight="bold")),
+                    ft.DataCell(ft.Text(f"${f.get('total_factura', 0.0):,.0f}", size=11)),
+                    ft.DataCell(ft.Text(f"${f.get('total_abonado', 0.0):,.0f}", size=11, color=Config.COLOR_SUCCESS)),
+                    ft.DataCell(ft.Text(f"${saldo_f:,.0f}", size=11, weight="bold", color="#DC2626" if saldo_f > 0 else "grey")),
+                    ft.DataCell(
+                        ft.Container(
+                            content=ft.Text(b_tx, size=9, weight="bold", color=b_fg),
+                            bgcolor=b_bg,
+                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=6
+                        )
+                    ),
+                    ft.DataCell(btn_pagar_linea)
+                ])
+            )
+
+        self.tab_content_container.content = ft.ListView(
+            controls=[dt],
+            expand=True
+        )
+
+    def _render_tab_historial_pagos(self):
+        if not self.historial_pagos:
+            self.tab_content_container.content = ft.Container(
+                content=ft.Text("No hay pagos registrados para este cliente.", size=11, color=Config.COLOR_TEXT_MUTED, italic=True),
+                alignment=ft.alignment.center,
+                padding=20
+            )
+            return
+
+        dt = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Fecha", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Monto Recaudado", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Medio de Pago", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Banco / Ref", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Facturas Afectadas", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Usuario", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Acciones", size=11, weight="bold")),
+            ],
+            rows=[],
+            heading_row_height=30,
+            data_row_min_height=30,
+            data_row_max_height=34,
+            column_spacing=12,
+            heading_row_color=Config.COLOR_MUTED
+        )
+
+        for p in self.historial_pagos:
+            p_id = p.get("id_pago")
+            f_afectadas = p.get("facturas_afectadas", [])
+            facs_str = ", ".join([f"#{d.get('factura_no')} (${float(d.get('monto_aplicado',0)):,.0f})" for d in f_afectadas]) if f_afectadas else "Global (FIFO)"
+            metodo = p.get("metodo_pago", "EFECTIVO")
+            banco_ref = f"{p.get('banco_origen') or ''} {p.get('referencia_comprobante') or ''}".strip() or "-"
+
+            btn_anular = ft.IconButton(
+                icon=ft.icons.DELETE_OUTLINE_ROUNDED,
+                icon_color="red400",
+                icon_size=16,
+                tooltip="Anular Recaudo",
+                on_click=lambda e, pid=p_id: self._confirmar_anular_pago(pid)
+            )
+
+            dt.rows.append(
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Text(p.get("fecha_formateada", ""), size=11)),
+                    ft.DataCell(ft.Text(f"${p.get('monto_total', 0.0):,.0f}", size=11, weight="bold", color=Config.COLOR_SUCCESS)),
+                    ft.DataCell(ft.Text(metodo, size=11)),
+                    ft.DataCell(ft.Text(banco_ref, size=11)),
+                    ft.DataCell(ft.Text(facs_str[:40], size=10, tooltip=facs_str)),
+                    ft.DataCell(ft.Text(p.get("usuario_registro") or "admin", size=10, color=Config.COLOR_TEXT_MUTED)),
+                    ft.DataCell(btn_anular)
+                ])
+            )
+
+        self.tab_content_container.content = ft.ListView(
+            controls=[dt],
+            expand=True
+        )
+
+    def _render_tab_cuotas(self):
+        if not self.cuotas_cliente:
+            self.tab_content_container.content = ft.Container(
+                content=ft.Column([
+                    ft.Text("No hay cronograma de cuotas activo para este cliente.", size=11, color=Config.COLOR_TEXT_MUTED, italic=True),
+                    ft.ElevatedButton(
+                        "Crear Plan de Cuotas",
+                        icon=ft.icons.ADD_ROUNDED,
+                        bgcolor=Config.COLOR_PRIMARY,
+                        color="white",
+                        height=30,
+                        on_click=lambda e: self._abrir_modal_cuotas(self.cliente_seleccionado)
+                    )
+                ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+                alignment=ft.alignment.center,
+                padding=20
+            )
+            return
+
+        dt = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Cuota", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Fecha Cobro Sugerida", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Valor Cuota", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Abonado", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Saldo Cuota", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Estado", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Observación", size=11, weight="bold")),
+            ],
+            rows=[],
+            heading_row_height=30,
+            data_row_min_height=28,
+            data_row_max_height=32,
+            column_spacing=14,
+            heading_row_color=Config.COLOR_MUTED
+        )
+
+        for c in self.cuotas_cliente:
+            num = c.get("numero_cuota", 1)
+            tot = c.get("total_cuotas", 1)
+            est = c.get("estado", "PENDIENTE")
+            m_cuota = float(c.get("monto_cuota") or 0.0)
+            m_abono = float(c.get("monto_abonado") or 0.0)
+            s_cuota = float(c.get("saldo_cuota", m_cuota - m_abono))
+
+            if est == "COBRADO":
+                badge_bg = "#DCFCE7"
+                badge_fg = "#16A34A"
+                badge_txt = "COBRADA"
+            elif est == "PARCIAL":
+                badge_bg = "#FEF3C7"
+                badge_fg = "#D97706"
+                badge_txt = "PARCIAL"
+            else:
+                badge_bg = "#FEE2E2"
+                badge_fg = "#DC2626"
+                badge_txt = "PENDIENTE"
+
+            dt.rows.append(
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Text(f"{num} de {tot}", size=11, weight="bold")),
+                    ft.DataCell(ft.Text(c.get("fecha_cobro", ""), size=11, color=Config.COLOR_ACCENT, weight="w500")),
+                    ft.DataCell(ft.Text(f"${m_cuota:,.0f}", size=11, weight="bold")),
+                    ft.DataCell(ft.Text(f"${m_abono:,.0f}", size=11, color=Config.COLOR_SUCCESS)),
+                    ft.DataCell(ft.Text(f"${s_cuota:,.0f}", size=11, weight="bold", color="#DC2626" if s_cuota > 0 else "grey")),
+                    ft.DataCell(
+                        ft.Container(
+                            content=ft.Text(badge_txt, size=9, weight="bold", color=badge_fg),
+                            bgcolor=badge_bg,
+                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=6
+                        )
+                    ),
+                    ft.DataCell(ft.Text(c.get("observacion") or "-", size=10, color=Config.COLOR_TEXT_MUTED))
+                ])
+            )
+
+        self.tab_content_container.content = ft.ListView(
+            controls=[dt],
+            expand=True
+        )
+
+    # ==========================================
+    # MODAL: REGISTRAR PAGO / ABONO
+    # ==========================================
+    def _abrir_modal_pago(self, cli: dict, doc_preseleccionado: str | None = None):
+        if not cli:
+            return
+
+        nom = cli.get("nombre", "")
+        saldo_cliente = float(cli.get("saldo_pendiente", 0.0))
+
+        # Facturas del cliente para construir opciones del dropdown
+        facturas = self.facturas_cliente or self.cartera_repo.get_facturas_cliente(nom)
+        facturas_pendientes = [f for f in facturas if float(f.get("saldo_pendiente", 0.0)) > 0.01]
+
+        dd_doc_options = [
+            ft.dropdown.Option("TODAS", "Todas las facturas (Distribución FIFO Automática)")
+        ]
+        doc_saldo_map: dict[str, float] = {}
+
+        for f in facturas_pendientes:
+            f_no = str(f.get("factura_no"))
+            t_doc = f.get("tipo_documento", "Doc")
+            s_f = float(f.get("saldo_pendiente", 0.0))
+            tot_f = float(f.get("total_factura", 0.0))
+            doc_saldo_map[f_no] = s_f
+            dd_doc_options.append(
+                ft.dropdown.Option(
+                    f_no,
+                    f"{t_doc} #{f_no} — Saldo: ${s_f:,.0f} (Total: ${tot_f:,.0f})"
+                )
+            )
+
+        # Preselección si se seleccionó previamente un documento
+        target_doc = doc_preseleccionado or self.documento_preseleccionado
+        doc_inicial = "TODAS"
+        monto_inicial = saldo_cliente
+
+        if target_doc and target_doc in doc_saldo_map:
+            doc_inicial = target_doc
+            monto_inicial = doc_saldo_map[target_doc]
+
+        txt_monto = ft.TextField(
+            label="Monto a Recaudar (COP)",
+            value=f"{int(monto_inicial)}" if monto_inicial > 0 else "",
+            text_size=13,
+            dense=True,
+            keyboard_type=ft.KeyboardType.NUMBER
+        )
+
+        def on_doc_change(e):
+            val = dd_documento.value
+            if val == "TODAS":
+                txt_monto.value = f"{int(saldo_cliente)}" if saldo_cliente > 0 else ""
+            elif val in doc_saldo_map:
+                txt_monto.value = f"{int(doc_saldo_map[val])}"
+            if self.page:
+                self.page.update()
+
+        dd_documento = ft.Dropdown(
+            label="Documento a Pagar / Imputar",
+            value=doc_inicial,
+            options=dd_doc_options,
+            dense=True,
+            text_size=11.5,
+            on_change=on_doc_change
+        )
+
+        dd_metodo = ft.Dropdown(
+            label="Método de Pago",
+            value="EFECTIVO",
+            options=[
+                ft.dropdown.Option("EFECTIVO", "Efectivo"),
+                ft.dropdown.Option("TRANSFERENCIA", "Transferencia Bancaria"),
+            ],
+            dense=True,
+            text_size=12
+        )
+
+        dd_banco = ft.Dropdown(
+            label="Banco / Entidad (Colombia)",
+            value="Bancolombia",
+            options=[
+                ft.dropdown.Option("Bancolombia", "Bancolombia"),
+                ft.dropdown.Option("Nequi", "Nequi"),
+                ft.dropdown.Option("Daviplata", "Daviplata"),
+                ft.dropdown.Option("Davivienda", "Davivienda"),
+                ft.dropdown.Option("BBVA", "BBVA Colombia"),
+                ft.dropdown.Option("Banco de Bogotá", "Banco de Bogotá"),
+                ft.dropdown.Option("Scotiabank Colpatria", "Scotiabank Colpatria"),
+                ft.dropdown.Option("Dale", "Dale!"),
+                ft.dropdown.Option("Otro", "Otro Banco"),
+            ],
+            dense=True,
+            text_size=12,
+            visible=False
+        )
+
+        txt_ref = ft.TextField(
+            label="Comprobante / Referencia",
+            hint_text="No. transacción o recibo",
+            text_size=12,
+            dense=True,
+            visible=False
+        )
+
+        txt_obs = ft.TextField(
+            label="Observaciones",
+            hint_text="Notas opcionales del pago",
+            text_size=12,
+            dense=True
+        )
+
+        def on_metodo_change(e):
+            is_transf = (dd_metodo.value == "TRANSFERENCIA")
+            dd_banco.visible = is_transf
+            txt_ref.visible = is_transf
+            if self.page:
+                self.page.update()
+
+        dd_metodo.on_change = on_metodo_change
+
+        def guardar_pago(e):
+            try:
+                monto_val = float(str(txt_monto.value or "").replace("$", "").replace(".", "").replace(",", ".").strip())
+                if monto_val <= 0:
+                    self._mostrar_snackbar("El monto debe ser mayor a 0", "red")
+                    return
+
+                # Si seleccionó un documento específico, imputar a ese documento
+                facturas_seleccionadas = None
+                if dd_documento.value and dd_documento.value != "TODAS":
+                    facturas_seleccionadas = {dd_documento.value: monto_val}
+
+                ok = self.cartera_repo.registrar_pago_cartera(
+                    id_cliente=cli.get("id_cliente"),
+                    nombre_cliente=nom,
+                    monto_total=monto_val,
+                    metodo_pago=dd_metodo.value,
+                    banco_origen=dd_banco.value if dd_metodo.value == "TRANSFERENCIA" else None,
+                    referencia=txt_ref.value or "",
+                    observaciones=txt_obs.value or "",
+                    facturas_seleccionadas=facturas_seleccionadas,
+                    usuario="admin"
+                )
+
+                if ok:
+                    dlg.open = False
+                    doc_msg = f" a {dd_documento.value}" if (dd_documento.value and dd_documento.value != "TODAS") else ""
+                    self._mostrar_snackbar(f"✓ Recaudo de ${monto_val:,.0f}{doc_msg} registrado con éxito.", "green")
+                    self.load_data()
+                else:
+                    self._mostrar_snackbar("Error registrando pago en base de datos.", "red")
+            except Exception as ex:
+                self._mostrar_snackbar(f"Error: {ex}", "red")
+
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"Registrar Recaudo: {nom}", size=15, weight="bold", color=Config.COLOR_PRIMARY),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Text(f"Saldo Pendiente Total: ${saldo_cliente:,.0f}", size=11.5, weight="bold", color="#DC2626" if saldo_cliente > 0 else "grey"),
+                    dd_documento,
+                    txt_monto,
+                    dd_metodo,
+                    dd_banco,
+                    txt_ref,
+                    txt_obs
+                ], spacing=10, tight=True),
+                width=420
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: self._cerrar_modal(dlg)),
+                ft.ElevatedButton("Confirmar Recaudo", bgcolor=Config.COLOR_SUCCESS, color="white", on_click=guardar_pago)
+            ]
+        )
+
+        if self.page:
+            self.page.overlay.append(dlg)
+            dlg.open = True
+            self.page.update()
+
+    # ==========================================
+    # MODAL: CREAR PLAN DE CUOTAS
+    # ==========================================
+    def _abrir_modal_cuotas(self, cli: dict):
+        if not cli:
+            return
+
+        nom = cli.get("nombre", "")
+        saldo = cli.get("saldo_pendiente", 0.0)
+
+        txt_saldo = ft.TextField(
+            label="Saldo a Diferir (COP)",
+            value=f"{int(saldo)}" if saldo > 0 else "",
+            text_size=12,
+            dense=True,
+            keyboard_type=ft.KeyboardType.NUMBER
+        )
+
+        dd_cuotas = ft.Dropdown(
+            label="Número de Cuotas",
+            value="3",
+            options=[ft.dropdown.Option(str(i), f"{i} Cuotas") for i in range(2, 13)],
+            dense=True,
+            text_size=12
+        )
+
+        dd_periodo = ft.Dropdown(
+            label="Periodicidad",
+            value="QUINCENAL",
+            options=[
+                ft.dropdown.Option("SEMANAL", "Semanal (Cada 7 días)"),
+                ft.dropdown.Option("QUINCENAL", "Quincenal (Cada 15 días)"),
+                ft.dropdown.Option("MENSUAL", "Mensual (Cada 30 días)"),
+            ],
+            dense=True,
+            text_size=12
+        )
+
+        lbl_simulacion = ft.Text("Cálculo estimado: ...", size=10.5, color=Config.COLOR_PRIMARY, weight="w500")
+
+        def actualizar_simulacion(e=None):
+            try:
+                s_val = float(str(txt_saldo.value or "").replace("$", "").replace(".", "").replace(",", ".").strip())
+                n_c = int(dd_cuotas.value)
+                val_c = s_val / n_c
+                lbl_simulacion.value = f"→ {n_c} cuotas de ${val_c:,.0f} ({dd_periodo.value.lower()})"
+            except Exception:
+                lbl_simulacion.value = "Ingresa un saldo válido."
+            if self.page:
+                self.page.update()
+
+        txt_saldo.on_change = actualizar_simulacion
+        dd_cuotas.on_change = actualizar_simulacion
+        dd_periodo.on_change = actualizar_simulacion
+        actualizar_simulacion()
+
+        def guardar_plan(e):
+            try:
+                s_val = float(str(txt_saldo.value or "").replace("$", "").replace(".", "").replace(",", ".").strip())
+                if s_val <= 0:
+                    self._mostrar_snackbar("El saldo debe ser mayor a 0", "red")
+                    return
+
+                ok = self.cartera_repo.crear_plan_cuotas(
+                    id_cliente=cli.get("id_cliente"),
+                    nombre_cliente=nom,
+                    saldo_a_diferir=s_val,
+                    num_cuotas=int(dd_cuotas.value),
+                    periodicidad=dd_periodo.value
+                )
+
+                if ok:
+                    dlg.open = False
+                    self._mostrar_snackbar("✓ Plan de cuotas acordado exitosamente.", "green")
+                    self.tab_activo = 2
+                    self.load_data()
+                else:
+                    self._mostrar_snackbar("Error guardando plan de cuotas.", "red")
+            except Exception as ex:
+                self._mostrar_snackbar(f"Error: {ex}", "red")
+
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"Plan de Cuotas: {nom}", size=15, weight="bold", color=Config.COLOR_PRIMARY),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Text("Acuerda fechas de cobro y montos divididos para el saldo del cliente:", size=11, color=Config.COLOR_TEXT_MUTED),
+                    txt_saldo,
+                    dd_cuotas,
+                    dd_periodo,
+                    lbl_simulacion
+                ], spacing=8, tight=True),
+                width=360
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: self._cerrar_modal(dlg)),
+                ft.ElevatedButton("Guardar Cronograma", bgcolor=Config.COLOR_PRIMARY, color="white", on_click=guardar_plan)
+            ]
+        )
+
+        if self.page:
+            self.page.overlay.append(dlg)
+            dlg.open = True
+            self.page.update()
+
+    def _confirmar_anular_pago(self, id_pago: str):
+        def anular(e):
+            dlg.open = False
+            ok = self.cartera_repo.anular_pago_cartera(id_pago)
+            if ok:
+                self._mostrar_snackbar("✓ Recaudo anulado exitosamente.", "orange800")
+                self.load_data()
+            else:
+                self._mostrar_snackbar("Error anulando recaudo.", "red")
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("¿Anular Recaudo?", size=15, weight="bold", color="red800"),
+            content=ft.Text("Esta acción revertirá el pago y restaurará los saldos adeudados en las facturas.", size=12),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: self._cerrar_modal(dlg)),
+                ft.ElevatedButton("Sí, Anular Pago", bgcolor="red800", color="white", on_click=anular)
+            ]
+        )
+
+        if self.page:
+            self.page.overlay.append(dlg)
+            dlg.open = True
+            self.page.update()
+
+    def _cerrar_modal(self, dlg):
+        dlg.open = False
+        if self.page:
+            self.page.update()
+
+    def _mostrar_snackbar(self, msg: str, color: str = "green"):
+        if self.page:
+            self.page.snack_bar = ft.SnackBar(
+                ft.Text(msg, weight="bold", color="white"),
+                bgcolor=color,
+                duration=3500
+            )
+            self.page.snack_bar.open = True
+            self.page.update()
 ````
 
 ## File: ui/views/conteo_inicial.py
@@ -331173,296 +333727,6 @@ class ConteoInicialView(ft.Container):
                 self.page.update()
 ````
 
-## File: ui/views/login.py
-````python
-"""
-Vista de autenticación / Login para Sistema Doña Mary.
-Diseño split-hero ejecutivo, tarjeta flotante central, branding institucional y micro-interacciones.
-"""
-import flet as ft
-from config import Config
-from core.supabase_client import SupabaseClient
-from core.logger import get_logger, log_error
-import time
-import threading
-
-logger = get_logger("LoginView")
-
-class LoginView(ft.Container):
-    def __init__(self, on_login_success):
-        super().__init__()
-        self.on_login_success = on_login_success
-        self.db = SupabaseClient()
-        self.expand = True
-        self.alignment = ft.alignment.center
-        
-        # Fondo oscuro profundo con gradiente espacial
-        self.gradient = ft.LinearGradient(
-            begin=ft.alignment.top_left,
-            end=ft.alignment.bottom_right,
-            colors=["#090D16", "#0F172A", "#1E293B"]
-        )
-
-        # --- CAMPOS DEL FORMULARIO ---
-        self.txt_usuario = ft.TextField(
-            label="Usuario",
-            hint_text="Ingresa tu usuario",
-            prefix_icon=ft.icons.PERSON_ROUNDED,
-            border_radius=12,
-            height=48,
-            text_size=13,
-            bgcolor="#F8FAFC",
-            border_color="#E2E8F0",
-            focused_border_color=Config.COLOR_ACCENT,
-            focused_bgcolor="white",
-            content_padding=ft.padding.symmetric(horizontal=15, vertical=12)
-        )
-
-        self.txt_clave = ft.TextField(
-            label="Contraseña",
-            hint_text="••••••••",
-            prefix_icon=ft.icons.LOCK_ROUNDED,
-            password=True,
-            can_reveal_password=True,
-            border_radius=12,
-            height=48,
-            text_size=13,
-            bgcolor="#F8FAFC",
-            border_color="#E2E8F0",
-            focused_border_color=Config.COLOR_ACCENT,
-            focused_bgcolor="white",
-            content_padding=ft.padding.symmetric(horizontal=15, vertical=12),
-            on_submit=self.autenticar
-        )
-
-        self.lbl_error = ft.Container(
-            content=ft.Row([
-                ft.Icon(ft.icons.ERROR_OUTLINE_ROUNDED, color=Config.COLOR_DANGER, size=16),
-                ft.Text("", color=Config.COLOR_DANGER, size=12, weight="bold", expand=True)
-            ], spacing=6),
-            visible=False,
-            padding=ft.padding.symmetric(horizontal=10, vertical=6),
-            bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_DANGER),
-            border_radius=8
-        )
-
-        self.progress = ft.ProgressBar(color=Config.COLOR_ACCENT, bgcolor="#E2E8F0", visible=False)
-
-        self.btn_ingresar = ft.ElevatedButton(
-            "Iniciar Sesión",
-            icon=ft.icons.ARROW_FORWARD_ROUNDED,
-            bgcolor=Config.COLOR_ACCENT,
-            color="white",
-            style=ft.ButtonStyle(
-                shape=ft.RoundedRectangleBorder(radius=12),
-                elevation=2
-            ),
-            height=48,
-            on_click=self.autenticar
-        )
-
-        self.lbl_creditos = ft.Text(
-            "Sistema Doña Mary • v2.0 • Elaborado por Eliana Garcés 2026",
-            size=10.5,
-            color="#94A3B8",
-            text_align=ft.TextAlign.CENTER
-        )
-
-        # --- LADO IZQUIERDO: HERO BRANDING ---
-        item_features = [
-            ("boxes_stacked", "Control de Stock e Inventario"),
-            ("chart_line", "Analítica Financiera & Ventas POS"),
-            ("shield_check", "Auditorías y Cierres Mensuales"),
-        ]
-        
-        feature_rows = []
-        icons_map = {
-            "boxes_stacked": ft.icons.INVENTORY_2_ROUNDED,
-            "chart_line": ft.icons.QUERY_STATS_ROUNDED,
-            "shield_check": ft.icons.VERIFIED_USER_ROUNDED
-        }
-
-        for icon_key, text in item_features:
-            feature_rows.append(
-                ft.Row([
-                    ft.Container(
-                        content=ft.Icon(icons_map[icon_key], size=16, color="#60A5FA"),
-                        padding=6,
-                        bgcolor=ft.colors.with_opacity(0.15, "#3B82F6"),
-                        border_radius=8
-                    ),
-                    ft.Text(text, size=12, color="#E2E8F0", weight="w500")
-                ], spacing=10)
-            )
-
-        self.panel_izquierdo = ft.Container(
-            width=360,
-            padding=32,
-            gradient=ft.LinearGradient(
-                begin=ft.alignment.top_left,
-                end=ft.alignment.bottom_right,
-                colors=["#0F172A", "#1E293B"]
-            ),
-            border_radius=ft.border_radius.only(top_left=24, bottom_left=24),
-            content=ft.Column([
-                ft.Row([
-                    ft.Container(
-                        content=ft.Icon(ft.icons.STOREFRONT_ROUNDED, size=28, color="white"),
-                        padding=10,
-                        bgcolor=Config.COLOR_ACCENT,
-                        border_radius=12,
-                        shadow=ft.BoxShadow(
-                            blur_radius=12,
-                            color=ft.colors.with_opacity(0.4, Config.COLOR_ACCENT),
-                            offset=ft.Offset(0, 4)
-                        )
-                    ),
-                    ft.Column([
-                        ft.Text("DOÑA MARY", size=17, weight="bold", color="white"),
-                        ft.Text("Abarrotes & Desechables", size=11, color="#94A3B8")
-                    ], spacing=1)
-                ], spacing=12),
-                
-                ft.Container(height=20),
-                
-                ft.Text("Gestión Inteligente de Inventario y Operaciones", size=20, weight="bold", color="white"),
-                ft.Text("Plataforma centralizada para control de existencias, remisiones y facturación.", size=12, color="#94A3B8"),
-                
-                ft.Container(height=10),
-                ft.Divider(color=ft.colors.with_opacity(0.2, "#FFFFFF")),
-                ft.Container(height=10),
-                
-                ft.Column(feature_rows, spacing=12),
-                
-                ft.Container(expand=True),
-                
-                ft.Row([
-                    ft.Container(width=8, height=8, bgcolor="#22C55E", border_radius=4),
-                    ft.Text("Sistema Conectado • Cloud Supabase", size=11, color="#86EFAC")
-                ], spacing=6)
-            ])
-        )
-
-        # --- LADO DERECHO: FORMULARIO DE ACCESO ---
-        self.form_column = ft.Column([
-            ft.Text("Iniciar Sesión", size=24, weight="bold", color=Config.COLOR_PRIMARY),
-            ft.Text("Ingresa tus credenciales para acceder al sistema.", size=12.5, color=Config.COLOR_TEXT_MUTED),
-            
-            ft.Container(height=12),
-            
-            self.txt_usuario,
-            self.txt_clave,
-            self.lbl_error,
-            self.progress,
-            
-            ft.Container(height=6),
-            
-            self.btn_ingresar,
-            
-            ft.Container(expand=True),
-            
-            self.lbl_creditos
-        ], horizontal_alignment=ft.CrossAxisAlignment.STRETCH, spacing=10)
-
-        self.panel_derecho = ft.Container(
-            width=420,
-            padding=ft.padding.only(left=36, right=36, top=36, bottom=28),
-            bgcolor="white",
-            border_radius=ft.border_radius.only(top_right=24, bottom_right=24),
-            content=self.form_column
-        )
-
-        # --- TARJETA PRINCIPAL COMBINADA (SPLIT HERO) ---
-        self.card_container = ft.Container(
-            width=780,
-            height=490,
-            border_radius=24,
-            clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-            border=ft.border.all(1, ft.colors.with_opacity(0.15, "white")),
-            shadow=ft.BoxShadow(
-                spread_radius=2,
-                blur_radius=36,
-                color=ft.colors.with_opacity(0.5, "black"),
-                offset=ft.Offset(0, 16)
-            ),
-            content=ft.Row([
-                self.panel_izquierdo,
-                self.panel_derecho
-            ], spacing=0, expand=True)
-        )
-
-        self.content = self.card_container
-
-    def autenticar(self, e=None):
-        user = self.txt_usuario.value.strip().lower() if self.txt_usuario.value else ""
-        pwd = self.txt_clave.value.strip() if self.txt_clave.value else ""
-
-        if not user or not pwd:
-            self._mostrar_error("Por favor ingresa tu usuario y contraseña.")
-            return
-
-        self.progress.visible = True
-        self.btn_ingresar.disabled = True
-        self.lbl_error.visible = False
-        self.update()
-
-        threading.Thread(target=self._worker_autenticar, args=(user, pwd), daemon=True).start()
-
-    def _mostrar_error(self, mensaje: str):
-        lbl_text = self.lbl_error.content.controls[1]
-        lbl_text.value = mensaje
-        self.lbl_error.visible = True
-        self.update()
-
-    def _worker_autenticar(self, user, pwd):
-        try:
-            datos_usuario = self.db.autenticar_usuario(user, pwd)
-            if datos_usuario:
-                self._mostrar_bienvenida_en_tarjeta(datos_usuario)
-            else:
-                self._mostrar_error("Credenciales incorrectas o usuario inactivo.")
-                self.progress.visible = False
-                self.btn_ingresar.disabled = False
-                if self.page:
-                    self.page.update()
-        except Exception as ex:
-            log_error(f"Login de usuario {user}", ex)
-            self._mostrar_error(f"Error de conexión: {ex}")
-            self.progress.visible = False
-            self.btn_ingresar.disabled = False
-            if self.page:
-                self.page.update()
-
-    def _mostrar_bienvenida_en_tarjeta(self, datos_usuario):
-        nombre_completo = datos_usuario.get("nombre_completo") or datos_usuario.get("usuario") or "Usuario"
-        partes = nombre_completo.split()
-        primer_nombre = partes[0] if partes else "Usuario"
-        if primer_nombre.lower() in ["doña", "dona"] and len(partes) > 1:
-            primer_nombre = f"{partes[0]} {partes[1]}"
-
-        self.panel_derecho.content = ft.Column([
-            ft.Container(height=30),
-            ft.Container(
-                content=ft.Icon(ft.icons.WAVING_HAND_ROUNDED, size=44, color=Config.COLOR_WARNING),
-                padding=16,
-                bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_WARNING),
-                border_radius=50
-            ),
-            ft.Text(f"¡Bienvenido, {primer_nombre}!", size=22, weight="bold", color=Config.COLOR_PRIMARY, text_align=ft.TextAlign.CENTER),
-            ft.Text("Iniciando tu entorno de trabajo...", size=13, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.CENTER),
-            ft.Container(height=15),
-            ft.ProgressRing(width=32, height=32, color=Config.COLOR_ACCENT, stroke_width=3),
-            ft.Container(expand=True),
-            self.lbl_creditos
-        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
-
-        if self.page:
-            self.page.update()
-
-        time.sleep(1.0)
-        self.on_login_success(datos_usuario)
-````
-
 ## File: config.py
 ````python
 import os
@@ -331500,6 +333764,7 @@ class Config:
     COLOR_MUTED = "#F1F5F9"         # Slate 100 para fondos atenuados y encabezados
     COLOR_BORDER = "#E2E8F0"        # Slate 200 para bordes sutiles y divisores
     COLOR_TEXT = "#0F172A"          # Slate 900 para texto principal de alto contraste
+    COLOR_TEXT_DARK = "#0F172A"     # Alias Slate 900
     COLOR_TEXT_MUTED = "#64748B"    # Slate 500 para subtítulos y etiquetas
     COLOR_TEXT_LIGHT = "#94A3B8"    # Slate 400 para placeholders y metadatos
     
@@ -331514,524 +333779,1166 @@ class Config:
     COLOR_INFO_BG = "#EFF6FF"       # Blue 50 (Fondo píldora info)
 ````
 
-## File: core/repositories/insumos_repo.py
+## File: main.py
+````python
+import flet as ft
+from ui.app import AppLayout
+from ui.views.login import LoginView
+from config import Config
+from core.mobile_server import iniciar_servidor_en_hilo
+
+def main(page: ft.Page):
+    # Iniciar servidor web móvil en red local Wi-Fi (puerto 8550)
+    iniciar_servidor_en_hilo(port=8550)
+    page.title = "Abarrotes y Desechables Doña Mary"
+    page.padding = 0
+    page.theme_mode = ft.ThemeMode.LIGHT
+    page.window_width = 1200
+    page.window_height = 800
+    page.window_min_width = 800
+    page.window_min_height = 600
+    page.window_maximized = True
+
+    page.theme = ft.Theme(
+        font_family="Inter",
+        color_scheme=ft.ColorScheme(
+            primary=Config.COLOR_ACCENT,
+            primary_container=Config.COLOR_MUTED,
+            secondary=Config.COLOR_SECONDARY,
+            background=Config.COLOR_BACKGROUND,
+            surface=Config.COLOR_SURFACE,
+            on_surface=Config.COLOR_TEXT,
+            outline=Config.COLOR_BORDER,
+        ),
+        visual_density=ft.ThemeVisualDensity.COMFORTABLE,
+    )
+
+    def cerrar_sesion():
+        page.overlay.clear()  # Purga diálogos flotantes residuales
+        page.clean()
+        mostrar_login()
+
+    def on_login_success(usuario_data):
+        page.overlay.clear()  # Asegura que el modal de bienvenida sea destruido
+        page.clean()
+        from core.audit_logger import set_current_user
+        set_current_user(usuario_data)
+        # Instanciar el layout e iniciar la carga inmediata
+        app_layout = AppLayout(page, usuario_data=usuario_data, on_logout=cerrar_sesion)
+        page.add(app_layout)
+        page.update()
+
+    def mostrar_login():
+        login_view = LoginView(on_login_success=on_login_success)
+        page.add(login_view)
+        page.update()
+
+    # Iniciar en pantalla de Login
+    mostrar_login()
+
+if __name__ == "__main__":
+    ft.app(target=main, assets_dir="assets")
+````
+
+## File: core/repositories/cartera_repo.py
 ````python
 """
-Repositorio para el catálogo de insumos, stock y ajustes de inventario.
+Repositorio para la gestión de Cartera, Cuentas por Cobrar, Recaudos y Planes de Cuotas.
+Implementa motor de saldado automático FIFO, asignación manual de pagos, amortización dinámica de cuotas y métricas financieras.
+Incluye persistencia híbrida (Supabase PostgreSQL + Respaldo Local Seguro) con deduplicación por UUID.
 """
+import os
+import json
+import uuid
+import datetime
 import urllib.parse
 from core.database import BaseDatabase
 from core.logger import get_logger, log_error
+from core.audit_logger import registrar_accion
+from core.repositories.clientes_repo import ClientesRepository
 
-logger = get_logger("InsumosRepo")
+logger = get_logger("CarteraRepo")
 
-
-class InsumosRepository:
+class CarteraRepository:
     def __init__(self, db: BaseDatabase | None = None):
         self.db = db or BaseDatabase()
+        self.clientes_repo = ClientesRepository(self.db)
 
-    def get_categorias(self) -> list[str]:
-        """Obtiene la lista de categorías únicas de insumos optimizada con RPC."""
+    def _get_todos_pagos_deduplicados(self, nombre_cliente: str | None = None) -> list[dict]:
+        """Obtiene los pagos válidos registrados en Supabase."""
         try:
-            res = self.db.post("rpc/get_categorias_unicas_rpc", json_data={}, timeout=8)
-            if res and res.status_code == 200:
-                data = res.json()
-                cats = [str(item["categoria"]).strip() for item in data if item.get("categoria")]
-                if cats:
-                    return sorted(cats)
-        except Exception:
-            pass
-
-        # Fallback estándar
-        try:
-            res = self.db.get("catalogo_insumos?select=categoria", timeout=10)
-            if res and res.status_code == 200:
-                data = res.json()
-                categorias = set([item.get("categoria", "SIN CATEGORIA") for item in data if item.get("categoria")])
-                return sorted(list(categorias))
-            return []
+            endpoint = "pagos_cartera?estado_registro=eq.VÁLIDO"
+            if nombre_cliente:
+                nom_enc = urllib.parse.quote(self.clientes_repo.normalizar_nombre_cliente(nombre_cliente))
+                endpoint += f"&nombre_cliente=eq.{nom_enc}"
+            
+            res_p = self.db.get(endpoint, timeout=10)
+            if res_p and res_p.status_code == 200 and res_p.json():
+                return res_p.json()
         except Exception as ex:
-            log_error("get_categorias", ex)
-            return []
-
-    def get_insumos(
-        self,
-        page: int = 1,
-        page_size: int = 20,
-        search: str = "",
-        categoria: str = "",
-        fecha_corte: str | None = None,
-        sort_col: str = "Insumo",
-        sort_asc: bool = True,
-        codigos_filtro: list | None = None
-    ) -> tuple[list, int]:
-        """Obtiene insumos con paginación, filtros y ordenamiento sanitizado."""
-        endpoint = "rpc/obtener_inventario_por_fecha?select=*" if fecha_corte else "vista_inventario_completo?select=*"
-        filtros = []
-
-        if codigos_filtro is not None:
-            if not codigos_filtro:
-                filtros.append("codigo_insumo=in.(INVALID_FORCE_EMPTY)")
-            else:
-                codigos_str = ",".join([urllib.parse.quote(str(c).strip()) for c in codigos_filtro if str(c).strip()])
-                filtros.append(f"codigo_insumo=in.({codigos_str})")
-
-        if categoria and categoria != "Todas":
-            cat_enc = urllib.parse.quote(str(categoria).strip())
-            filtros.append(f"categoria=eq.{cat_enc}")
-
-        if search and search.strip():
-            s_enc = urllib.parse.quote(search.strip())
-            filtros.append(f"or=(nombre.ilike.*{s_enc}*,codigo_insumo.ilike.*{s_enc}*)")
-
-        if filtros:
-            endpoint += "&" + "&".join(filtros)
-
-        db_col_stock = "stock_real" if fecha_corte else "stock_actual"
-        map_columnas = {
-            "Código": "codigo_insumo",
-            "Insumo": "nombre",
-            "Categoría": "categoria",
-            "Ubicación": "ubicacion",
-            "Stock Inicial": "stock_inicial",
-            "Stock Mínimo": "stock_minimo",
-            "Entradas": "entradas",
-            "Salidas": "salidas",
-            "Stock Real": db_col_stock,
-            # Métricas superiores de tarjetas
-            "Costo s/IVA": "costo_unitario",
-            "Costo U": "costo_unitario",
-            "P. Venta": "precio_venta",
-            "Stock Actual": db_col_stock,
-            "Valor Costo": "costo_total_insumo",
-            "Objetivo Venta": "precio_venta",
-            # Métricas inferiores de tarjetas
-            "INICIAL": "stock_inicial",
-            "COMPRAS": "compras",
-            "VENTAS": "ventas",
-            "AJUSTES (+)": "ajustes_entrantes",
-            "AJUSTES (-)": "ajustes_salientes",
-            "NETO": "neto_ajustes"
-        }
-
-        db_col = map_columnas.get(sort_col, "nombre")
-        direccion = "asc" if sort_asc else "desc"
-        offset = (page - 1) * page_size
-        endpoint += f"&order={db_col}.{direccion}&offset={offset}&limit={page_size}"
-
-        headers = {"Prefer": "count=exact"}
-        try:
-            if fecha_corte:
-                payload = {"p_fecha_corte": f"{fecha_corte} 23:59:59"}
-                res = self.db.post(endpoint, json_data=payload, custom_headers=headers, timeout=10)
-            else:
-                res = self.db.get(endpoint, custom_headers=headers, timeout=10)
-
-            if res and res.status_code in (200, 201, 206):
-                data = res.json()
-                content_range = res.headers.get("Content-Range", "")
-                total_count = 0
-                if "/" in content_range:
-                    total_count = int(content_range.split("/")[1])
-                return data, total_count
-            else:
-                err_text = res.text if res else "No response"
-                logger.warning(f"Error consultando insumos: {err_text}")
-                return [], 0
-        except Exception as ex:
-            log_error("get_insumos", ex)
-            return [], 0
-
-    def insert_insumo(self, data: dict):
-        """Inserta un nuevo insumo en el catálogo."""
-        try:
-            res = self.db.post("catalogo_insumos", json_data=data, timeout=10)
-            if res and res.status_code in (200, 201):
-                from core.audit_logger import registrar_accion
-                registrar_accion(
-                    accion=f"Creación de nuevo insumo en catálogo: [{data.get('codigo_insumo')}] {data.get('nombre')}",
-                    modulo="INVENTARIO",
-                    detalles=data
-                )
-                return res.json()
-            return None
-        except Exception as ex:
-            log_error("insert_insumo", ex, {"data": data})
-            return None
-
-    def update_insumo(self, codigo_insumo: str, datos_actualizados: dict) -> bool:
-        """Actualiza un insumo existente en el catálogo."""
-        try:
-            endpoint = f"catalogo_insumos?codigo_insumo=eq.{codigo_insumo}"
-            res = self.db.patch(endpoint, json_data=datos_actualizados, timeout=10)
-            if res and res.status_code in (200, 204):
-                from core.audit_logger import registrar_accion
-                cambios_str = ", ".join([f"{k}={v}" for k, v in datos_actualizados.items()])
-                registrar_accion(
-                    accion=f"Modificación de insumo [{codigo_insumo}]: {cambios_str}",
-                    modulo="INVENTARIO",
-                    detalles={"codigo_insumo": codigo_insumo, "cambios": datos_actualizados}
-                )
-                return True
-            return False
-        except Exception as ex:
-            log_error("update_insumo", ex, {"codigo": codigo_insumo})
-            return False
-
-    def get_nombres_insumos(self, lista_codigos: list) -> dict:
-        """Devuelve un diccionario {codigo: nombre} buscando en catalogo_insumos."""
-        if not lista_codigos:
-            return {}
-        try:
-            codigos_str = ",".join(lista_codigos)
-            endpoint = f"catalogo_insumos?select=codigo_insumo,nombre&codigo_insumo=in.({codigos_str})"
-            res = self.db.get(endpoint, timeout=10)
-            if res and res.status_code == 200:
-                data = res.json()
-                return {item["codigo_insumo"]: item["nombre"] for item in data if item.get("codigo_insumo")}
-            return {}
-        except Exception as ex:
-            log_error("get_nombres_insumos", ex)
-            return {}
-
-    def get_catalogo_costos(self) -> dict:
-        """Obtiene un diccionario {codigo: costo_unitario}."""
-        try:
-            endpoint = "catalogo_insumos?select=codigo_insumo,costo_unitario"
-            res = self.db.get(endpoint, timeout=10)
-            if res and res.status_code == 200:
-                return {item.get('codigo_insumo'): float(item.get('costo_unitario') or 0) for item in res.json()}
-            return {}
-        except Exception as ex:
-            log_error("get_catalogo_costos", ex)
-            return {}
-
-    def get_insumo_detalle(self, codigo: str) -> dict:
-        """Recupera el nombre, costo, precio y stock de un insumo específico."""
-        try:
-            endpoint = f"catalogo_insumos?codigo_insumo=eq.{codigo}&select=nombre,costo_unitario,precio_venta,stock_actual"
-            res = self.db.get(endpoint, timeout=10)
-            if res and res.status_code == 200 and len(res.json()) > 0:
-                return res.json()[0]
-        except Exception as ex:
-            log_error("get_insumo_detalle", ex, {"codigo": codigo})
-        return {}
-
-    def get_catalogo_summary(self, fecha_corte=None) -> dict:
-        """Invoca RPC para compras totales y ventas totales en pesos."""
-        try:
-            payload = {"fecha_corte": fecha_corte} if fecha_corte else {}
-            res = self.db.post("rpc/get_catalogo_summary_rpc", json_data=payload if payload else None, timeout=10)
-            if res and res.status_code == 200:
-                return res.json()
-        except Exception as ex:
-            log_error("get_catalogo_summary", ex)
-        return {"total_compras": 0.0, "total_ventas": 0.0}
-
-    def get_top_costo_inventario(self, limit: int = 10, fecha_corte=None) -> list:
-        """Obtiene los insumos con mayor costo total de inventario acumulado."""
-        try:
-            insumos, _ = self.get_insumos(
-                page=1,
-                page_size=limit,
-                fecha_corte=fecha_corte,
-                sort_col="Stock Real",
-                sort_asc=False
-            )
-            top = []
-            for item in insumos:
-                costo_tot = float(item.get("costo_total_insumo") or 0)
-                ventas_tot = float(item.get("valor_ventas") or 0)
-                rotacion = (ventas_tot / costo_tot) if costo_tot > 0 else 0.0
-                top.append({
-                    "codigo": item.get("codigo_insumo") or "S/C",
-                    "producto": item.get("nombre") or "Desconocido",
-                    "valor_inventario": costo_tot,
-                    "rotacion": f"{rotacion:.2f}x"
-                })
-            return top
-        except Exception as ex:
-            log_error("get_top_costo_inventario", ex)
-            return []
-
-    def get_inventario_kpis(self, fecha_corte: str | None = None) -> dict:
-        """Obtiene los KPIs generales de valorización de inventario y alertas utilizando la función RPC en BD."""
-        try:
-            payload = {"p_fecha_corte": fecha_corte} if fecha_corte else {}
-            res = self.db.post("rpc/get_inventario_kpis_rpc", json_data=payload, timeout=8)
-            if res and res.status_code == 200:
-                data = res.json()
-                if isinstance(data, dict):
-                    return {
-                        "valor_inventario": float(data.get("valor_inventario") or 0.0),
-                        "alertas_criticas": int(data.get("alertas_criticas") or 0)
-                    }
-        except Exception as ex:
-            logger.warning(f"Fallback local para get_inventario_kpis: {ex}")
-
-        # Fallback local
-        try:
-            res_c = self.db.get("registro_compras?select=codigo_insumo,costo_unitario,fecha&estado_registro=eq.VÁLIDO&order=fecha.desc&limit=5000", timeout=10)
-            costos_compras = {}
-            if res_c and res_c.status_code == 200:
-                for r in res_c.json():
-                    cod = str(r.get("codigo_insumo") or "").strip()
-                    cu = float(r.get("costo_unitario") or 0)
-                    if cod and cod not in costos_compras and cu > 0:
-                        costos_compras[cod] = cu
-
-            insumos, _ = self.get_insumos(page=1, page_size=99999, fecha_corte=fecha_corte)
-            val_inv = 0.0
-            alertas = 0
-            for i in insumos:
-                stk = float(i.get("stock_actual") or i.get("stock_real") or 0)
-                if stk > 0:
-                    cod = str(i.get("codigo_insumo") or "").strip()
-                    cu = costos_compras.get(cod) or float(i.get("costo_unitario") or 0)
-                    val_inv += (stk * cu)
-                if stk <= float(i.get("stock_minimo") or 5):
-                    alertas += 1
-
-            return {
-                "valor_inventario": val_inv,
-                "alertas_criticas": alertas
-            }
-        except Exception as ex:
-            log_error("get_inventario_kpis", ex)
-            return {"valor_inventario": 0.0, "alertas_criticas": 0}
-
-    def get_kpis_por_categoria(self, fecha_corte=None) -> list:
-        """Invoca RPC para extraer rendimiento y rotación agrupada por categoría."""
-        try:
-            payload = {"fecha_corte": fecha_corte} if fecha_corte else {}
-            res = self.db.post("rpc/get_kpis_por_categoria_rpc", json_data=payload if payload else None, timeout=5)
-            if res and res.status_code == 200:
-                return res.json()
-        except Exception:
-            pass
-
-        # Fallback local
-        try:
-            res_vista = self.db.get("vista_inventario_completo?select=categoria,costo_total_insumo,valor_ventas", timeout=10)
-            if res_vista and res_vista.status_code == 200:
-                data = res_vista.json()
-                categorias = {}
-                for item in data:
-                    cat = item.get("categoria") or "SIN CATEGORIA"
-                    if cat not in categorias:
-                        categorias[cat] = {
-                            "categoria": cat,
-                            "costo_inventario": 0.0,
-                            "ventas_totales": 0.0,
-                            "rotacion": 0.0,
-                            "rentabilidad": 0.0
-                        }
-                    categorias[cat]["costo_inventario"] += float(item.get("costo_total_insumo") or 0)
-                    categorias[cat]["ventas_totales"] += float(item.get("valor_ventas") or 0)
-
-                result = []
-                for cat, vals in categorias.items():
-                    costo_inv = vals["costo_inventario"]
-                    vtas = vals["ventas_totales"]
-                    if costo_inv > 0:
-                        vals["rotacion"] = vtas / costo_inv
-                    if vtas > 0:
-                        vals["rentabilidad"] = 25.0
-                    result.append(vals)
-
-                result.sort(key=lambda x: x["ventas_totales"], reverse=True)
-                return result
-        except Exception as ex:
-            log_error("get_kpis_por_categoria fallback", ex)
-
+            log_error("CarteraRepository._get_todos_pagos_deduplicados", ex)
         return []
 
-    def get_ajustes_inventario(self) -> list:
-        """Obtiene el historial de ajustes cruzado con el catálogo y los períodos de cierre."""
+    def _get_detalles_deduplicados(self, facturas_list: list[str] | None = None) -> list[dict]:
+        """Obtiene los detalles de pagos aplicados a facturas desde Supabase."""
         try:
-            endpoint = "registro_ajustes_inventario?select=*,catalogo_insumos(nombre,categoria),periodos_inventario(mes_periodo)&order=fecha_ajuste.desc"
-            res = self.db.get(endpoint, timeout=10)
-            if res and res.status_code == 200:
-                return res.json()
-            return []
+            if facturas_list:
+                facs_str = ",".join([urllib.parse.quote(str(f).strip()) for f in facturas_list if str(f).strip()])
+                endpoint = f"detalle_pagos_cartera?factura_no=in.({facs_str})&select=id_detalle,id_pago,factura_no,monto_aplicado,pagos_cartera(estado_registro)"
+            else:
+                endpoint = "detalle_pagos_cartera?select=id_detalle,id_pago,factura_no,monto_aplicado,pagos_cartera(estado_registro)"
+
+            res_d = self.db.get(endpoint, timeout=10)
+            if res_d and res_d.status_code == 200 and res_d.json():
+                detalles = []
+                for d in res_d.json():
+                    p_hdr = d.get("pagos_cartera") or {}
+                    if p_hdr.get("estado_registro") != "ANULADO":
+                        detalles.append(d)
+                return detalles
         except Exception as ex:
-            log_error("get_ajustes_inventario", ex)
-            return []
+            log_error("CarteraRepository._get_detalles_deduplicados", ex)
+        return []
 
-    def get_ajustes_mes(self, mes_actual: str, fecha_corte=None) -> list:
-        """Invoca RPC get_ajustes_mes_rpc."""
+
+    def get_resumen_cartera(
+        self,
+        search: str = "",
+        filtro_saldo: str = "TODOS",
+        fecha_filtro: str = "",
+        filtro_tipo_doc: str = "TODOS"
+    ) -> tuple[dict, list[dict], list[dict]]:
+        """
+        Descarga registro_ventas paginado con get_all y calcula en una pasada:
+        - KPIs globales de cartera (total_ventas, total_recaudado, saldo, etc.)
+        - Lista de clientes con saldos individuales para el panel izquierdo.
+        - Lista de documentos (Remisiones & POS) con saldos individuales calculados FIFO.
+
+        Retorna: (kpis_dict, clientes_list, documentos_list)
+        """
+        kpis_fallback = {
+            "total_ventas": 0.0,
+            "total_recaudado": 0.0,
+            "total_efectivo": 0.0,
+            "total_transferencias": 0.0,
+            "total_saldo_pendiente": 0.0,
+            "clientes_con_deuda": 0
+        }
         try:
-            payload = {"mes_actual": mes_actual}
-            if fecha_corte:
-                payload["fecha_corte"] = fecha_corte
-            res = self.db.post("rpc/get_ajustes_mes_rpc", json_data=payload, timeout=10)
-            if res and res.status_code == 200:
-                data = res.json()
-                return data if data is not None else []
-            return []
-        except Exception as ex:
-            log_error("get_ajustes_mes", ex)
-            return []
+            # ─── 1. Descarga completa de ventas paginada ────────────────────
+            ventas_data = self.db.get_all(
+                "registro_ventas?select=cliente,factura_no,fecha,total,tipo_documento"
+            )
 
-    def insert_ajuste_individual(self, datos: dict | None = None, **kwargs) -> bool:
-        """Inserta un nuevo registro de ajuste operativo."""
-        try:
-            payload = dict(datos or {})
-            if kwargs:
-                # Mapear posibles nombres de campos alternativos
-                if "tipo_ajuste" in kwargs and "tipo_ajuste" not in payload: payload["tipo_ajuste"] = kwargs["tipo_ajuste"]
-                if "codigo_insumo" in kwargs and "codigo_insumo" not in payload: payload["codigo_insumo"] = kwargs["codigo_insumo"]
-                if "cantidad" in kwargs and "cantidad" not in payload: payload["cantidad"] = kwargs["cantidad"]
-                if "costo_unitario" in kwargs and "costo_unitario_congelado" not in payload: payload["costo_unitario_congelado"] = kwargs["costo_unitario"]
-                if "costo_total" in kwargs and "costo_total_ajuste" not in payload: payload["costo_total_ajuste"] = kwargs["costo_total"]
-                if "motivo" in kwargs and "motivo_observacion" not in payload: payload["motivo_observacion"] = kwargs["motivo"]
-                payload.update(kwargs)
+            # Filtrar por Tipo de Documento si aplica
+            if filtro_tipo_doc == "REMISIÓN":
+                ventas_data = [v for v in ventas_data if "REMISIÓN" in str(v.get("tipo_documento") or "").upper()]
+            elif filtro_tipo_doc in ("FACTURA_POS", "POS"):
+                ventas_data = [v for v in ventas_data if "POS" in str(v.get("tipo_documento") or "").upper()]
 
-            if "estado_registro" not in payload:
-                payload["estado_registro"] = "VÁLIDO"
+            # ─── 2. Pagos y detalles desde Supabase ─────────────────────────
+            pagos_data = self._get_todos_pagos_deduplicados()
+            detalles_data = self._get_detalles_deduplicados()
 
-            if "fecha_ajuste" not in payload or not payload["fecha_ajuste"]:
-                from core.fecha_utils import get_ahora_iso
-                payload["fecha_ajuste"] = get_ahora_iso()
+            # Mapear abonos directos por factura
+            abonos_directos_doc: dict[str, float] = {}
+            for d in detalles_data:
+                f_no = str(d.get("factura_no"))
+                abonos_directos_doc[f_no] = abonos_directos_doc.get(f_no, 0.0) + float(d.get("monto_aplicado") or 0.0)
 
-            res = self.db.post("registro_ajustes_inventario", json_data=payload, timeout=10)
-            if res and res.status_code in (200, 201, 204):
-                from core.audit_logger import registrar_accion
-                tipo = payload.get("tipo_ajuste", "AJUSTE")
-                cod = payload.get("codigo_insumo", "")
-                cant = payload.get("cantidad", 0)
-                motivo = payload.get("motivo_observacion", "Sin motivo")
-                registrar_accion(
-                    accion=f"Registro de ajuste de inventario ({tipo}) para insumo [{cod}]: {cant} unds (Motivo: {motivo})",
-                    modulo="AJUSTES",
-                    detalles=payload
+            # ─── 3. Catálogo de clientes ────────────────────────────────────
+            res_c = self.db.get("clientes?select=id_cliente,nombre,telefono,direccion", timeout=8)
+            clientes_catalogo = {}
+            if res_c and res_c.status_code == 200 and res_c.json():
+                for c in res_c.json():
+                    nom_n = self.clientes_repo.normalizar_nombre_cliente(c.get("nombre"))
+                    clientes_catalogo[nom_n] = c
+
+            # ─── 4. Consolidar ventas por cliente y por documento ────────────
+            clientes_map: dict[str, dict] = {}
+            documentos_map: dict[str, dict] = {}
+
+
+            total_ventas = 0.0
+
+            for v in ventas_data:
+                fec = (v.get("fecha") or "")[:10]
+                nom = self.clientes_repo.normalizar_nombre_cliente(v.get("cliente"))
+                monto = float(v.get("total") or 0.0)
+                fac = str(v.get("factura_no") or "S/N").strip()
+                t_doc = v.get("tipo_documento") or "Factura POS"
+
+                total_ventas += monto
+
+                # Consolidar Cliente
+                if nom not in clientes_map:
+                    clientes_map[nom] = {
+                        "id_cliente": None,
+                        "nombre": nom,
+                        "telefono": "",
+                        "total_facturado": 0.0,
+                        "total_abonado": 0.0,
+                        "saldo_pendiente": 0.0,
+                        "cantidad_facturas": 0,
+                        "facturas_set": set(),
+                        "ultima_fecha_venta": "",
+                        "estado": "AL_DIA"
+                    }
+
+                c_obj = clientes_map[nom]
+                c_obj["total_facturado"] += monto
+                if fac:
+                    c_obj["facturas_set"].add(fac)
+                if fec and (not c_obj["ultima_fecha_venta"] or fec > c_obj["ultima_fecha_venta"]):
+                    c_obj["ultima_fecha_venta"] = fec
+
+                # Consolidar Documento
+                if fac not in documentos_map:
+                    documentos_map[fac] = {
+                        "factura_no": fac,
+                        "tipo_documento": t_doc,
+                        "fecha": fec,
+                        "cliente": nom,
+                        "total_factura": 0.0,
+                        "total_abonado": 0.0,
+                        "saldo_pendiente": 0.0,
+                        "cantidad_items": 0,
+                        "estado": "PENDIENTE"
+                    }
+
+                d_obj = documentos_map[fac]
+                d_obj["total_factura"] += monto
+                d_obj["cantidad_items"] += 1
+                if fec and (not d_obj["fecha"] or fec < d_obj["fecha"]):
+                    d_obj["fecha"] = fec
+
+            # ─── 5. Agregar pagos a clientes ────────────────────────────────
+            total_recaudado = 0.0
+            total_efectivo = 0.0
+            total_transferencias = 0.0
+            pagos_por_cliente: dict[str, float] = {}
+
+            for p in pagos_data:
+                monto = float(p.get("monto_total") or 0.0)
+                metodo = str(p.get("metodo_pago") or "EFECTIVO").upper()
+                nom = self.clientes_repo.normalizar_nombre_cliente(p.get("nombre_cliente"))
+
+                total_recaudado += monto
+                if "TRANSFERENCIA" in metodo:
+                    total_transferencias += monto
+                else:
+                    total_efectivo += monto
+
+                pagos_por_cliente[nom] = pagos_por_cliente.get(nom, 0.0) + monto
+
+                if nom not in clientes_map:
+                    clientes_map[nom] = {
+                        "id_cliente": p.get("id_cliente"),
+                        "nombre": nom,
+                        "telefono": "",
+                        "total_facturado": 0.0,
+                        "total_abonado": 0.0,
+                        "saldo_pendiente": 0.0,
+                        "cantidad_facturas": 0,
+                        "facturas_set": set(),
+                        "ultima_fecha_venta": "",
+                        "estado": "AL_DIA"
+                    }
+                clientes_map[nom]["total_abonado"] += monto
+
+            # ─── 6. Distribuir abonos FIFO por cliente a los documentos ──────
+            docs_por_cliente: dict[str, list[dict]] = {}
+            for d in documentos_map.values():
+                docs_por_cliente.setdefault(d["cliente"], []).append(d)
+
+            for cli, c_docs in docs_por_cliente.items():
+                tot_pagos_cli = pagos_por_cliente.get(cli, 0.0)
+                tot_dir_cli = sum(abonos_directos_doc.get(d["factura_no"], 0.0) for d in c_docs)
+                remanente_fifo = max(0.0, tot_pagos_cli - tot_dir_cli)
+
+                # Orden: más antiguas primero; a igual fecha, más cuantiosa primero
+                c_docs.sort(key=lambda x: (x["fecha"] or "9999-99-99", -float(x["total_factura"]), x["factura_no"]))
+
+                for d in c_docs:
+                    f_no = d["factura_no"]
+                    tot_f = round(d["total_factura"], 2)
+                    d["total_factura"] = tot_f
+                    ab_dir = abonos_directos_doc.get(f_no, 0.0)
+                    saldo_prev = max(0.0, tot_f - ab_dir)
+                    ab_fifo = 0.0
+                    if remanente_fifo > 0 and saldo_prev > 0:
+                        ab_fifo = min(remanente_fifo, saldo_prev)
+                        remanente_fifo -= ab_fifo
+
+                    tot_ab = round(min(tot_f, ab_dir + ab_fifo), 2)
+                    d["total_abonado"] = tot_ab
+                    d["saldo_pendiente"] = round(max(0.0, tot_f - tot_ab), 2)
+                    if d["saldo_pendiente"] <= 0.01:
+                        d["estado"] = "PAGADA"
+                    elif d["total_abonado"] > 0:
+                        d["estado"] = "PARCIAL"
+                    else:
+                        d["estado"] = "PENDIENTE"
+
+            # ─── 7. KPIs globales ────────────────────────────────────────────
+            clientes_con_deuda = sum(
+                1 for nom, c in clientes_map.items()
+                if (c["total_facturado"] - pagos_por_cliente.get(nom, 0.0)) > 1.0
+            )
+            kpis = {
+                "total_ventas": round(total_ventas, 2),
+                "total_recaudado": round(total_recaudado, 2),
+                "total_efectivo": round(total_efectivo, 2),
+                "total_transferencias": round(total_transferencias, 2),
+                "total_saldo_pendiente": round(max(0.0, total_ventas - total_recaudado), 2),
+                "clientes_con_deuda": clientes_con_deuda
+            }
+
+            # ─── 8. Filtrar y ordenar lista de Clientes ──────────────────────
+            s_upper = search.strip().upper()
+            resultado_clientes = []
+
+            for nom, c_obj in clientes_map.items():
+                if nom in clientes_catalogo:
+                    c_obj["id_cliente"] = clientes_catalogo[nom].get("id_cliente") or c_obj.get("id_cliente")
+                    c_obj["telefono"] = clientes_catalogo[nom].get("telefono") or c_obj.get("telefono") or ""
+                facturas_list = list(c_obj.pop("facturas_set", set()))
+                c_obj["facturas_list"] = facturas_list
+                c_obj["cantidad_facturas"] = len(facturas_list)
+                c_obj["total_facturado"] = round(c_obj["total_facturado"], 2)
+                c_obj["total_abonado"] = round(c_obj["total_abonado"], 2)
+                c_obj["saldo_pendiente"] = round(
+                    max(0.0, c_obj["total_facturado"] - c_obj["total_abonado"]), 2
                 )
-                return True
-            return False
+                c_obj["estado"] = "CON_DEUDA" if c_obj["saldo_pendiente"] > 0.01 else "AL_DIA"
+
+                # Con filtro de fecha: omitir clientes sin movimientos en esa fecha
+                if fecha_filtro:
+                    docs_del_cliente = docs_por_cliente.get(nom, [])
+                    if not any(d["fecha"] == fecha_filtro for d in docs_del_cliente):
+                        continue
+
+                # Búsqueda: nombre, teléfono o número de factura
+                if s_upper:
+                    coincide_nombre = s_upper in nom
+                    coincide_tel = s_upper in c_obj.get("telefono", "").upper()
+                    coincide_fac = any(s_upper in str(f).upper() for f in facturas_list)
+                    if not (coincide_nombre or coincide_tel or coincide_fac):
+                        continue
+
+                # Filtrar por estado
+                if filtro_saldo == "CON_DEUDA" and c_obj["estado"] != "CON_DEUDA":
+                    continue
+                if filtro_saldo == "AL_DIA" and c_obj["estado"] != "AL_DIA":
+                    continue
+
+                resultado_clientes.append(c_obj)
+
+            resultado_clientes.sort(
+                key=lambda x: (x["saldo_pendiente"], x["total_facturado"]),
+                reverse=True
+            )
+
+            # ─── 9. Filtrar y ordenar lista de Documentos ────────────────────
+            resultado_documentos = []
+            for d in documentos_map.values():
+                if fecha_filtro and d["fecha"] != fecha_filtro:
+                    continue
+
+                if s_upper:
+                    coincide_fac = s_upper in d["factura_no"].upper()
+                    coincide_cli = s_upper in d["cliente"].upper()
+                    coincide_tipo = s_upper in d["tipo_documento"].upper()
+                    if not (coincide_fac or coincide_cli or coincide_tipo):
+                        continue
+
+                if filtro_saldo == "CON_DEUDA" and d["saldo_pendiente"] <= 0.01:
+                    continue
+                if filtro_saldo == "AL_DIA" and d["saldo_pendiente"] > 0.01:
+                    continue
+
+                resultado_documentos.append(d)
+
+            # Ordenar: primero documentos con saldo pendiente, luego fecha descendente
+            resultado_documentos.sort(
+                key=lambda x: (x["saldo_pendiente"] > 0.01, x["fecha"] or ""),
+                reverse=True
+            )
+
+            return kpis, resultado_clientes, resultado_documentos
+
         except Exception as ex:
-            log_error("insert_ajuste_individual", ex, {"datos": datos or kwargs})
-            return False
+            log_error("get_resumen_cartera", ex)
+            return kpis_fallback, [], []
 
-    def anular_ajuste(self, id_ajuste: str) -> bool:
-        """Cambia el estado del ajuste a ANULADO."""
+    def get_cartera_kpis(self) -> dict:
+        """Retorna solo los KPIs globales. Usa get_resumen_cartera internamente."""
+        kpis, _, _ = self.get_resumen_cartera()
+        return kpis
+
+    def get_estado_cuenta_clientes(
+        self,
+        search: str = "",
+        filtro_saldo: str = "TODOS",
+        fecha_filtro: str = "",
+        fecha_desde: str = "",
+        fecha_hasta: str = ""
+    ) -> list[dict]:
+        """Compatibilidad hacia atrás — usa get_resumen_cartera internamente."""
+        _, clientes, _ = self.get_resumen_cartera(
+            search=search,
+            filtro_saldo=filtro_saldo,
+            fecha_filtro=fecha_filtro
+        )
+        return clientes
+
+
+    def get_facturas_cliente(self, nombre_cliente: str) -> list[dict]:
+        """
+        Retorna las facturas de un cliente con su total, monto abonado y saldo pendiente calculados con precisión FIFO.
+        """
+        nom_clean = self.clientes_repo.normalizar_nombre_cliente(nombre_cliente)
         try:
-            endpoint = f"registro_ajustes_inventario?id_ajuste=eq.{id_ajuste}"
-            res = self.db.patch(endpoint, json_data={"estado_registro": "ANULADO"}, timeout=10)
-            if res and res.status_code in (200, 204):
-                from core.audit_logger import registrar_accion
-                registrar_accion(
-                    accion=f"Anulación de ajuste de inventario ID {id_ajuste}",
-                    modulo="AJUSTES",
-                    detalles={"id_ajuste": id_ajuste}
-                )
-                return True
-            return False
+            nom_enc = urllib.parse.quote(nom_clean)
+            # 1. Obtener todas las líneas de ventas de este cliente
+            endpoint = f"registro_ventas?cliente=eq.{nom_enc}&select=id_venta,factura_no,fecha,descripcion,cantidad,total,tipo_documento"
+            res_v = self.db.get(endpoint, timeout=12)
+            if not (res_v and res_v.status_code == 200) and nom_clean == "CLIENTES VARIOS":
+                res_v = self.db.get("registro_ventas?select=id_venta,factura_no,fecha,descripcion,cantidad,total,tipo_documento", timeout=12)
+            ventas_items = res_v.json() if (res_v and res_v.status_code == 200) else []
+
+            # 2. Agrupar por número de factura
+            facturas_dict = {}
+            for item in ventas_items:
+                fac_no = str(item.get("factura_no") or "S/N").strip()
+                if fac_no not in facturas_dict:
+                    facturas_dict[fac_no] = {
+                        "factura_no": fac_no,
+                        "fecha": (item.get("fecha") or "")[:10],
+                        "tipo_documento": item.get("tipo_documento") or "Factura POS",
+                        "total_factura": 0.0,
+                        "total_abonado": 0.0,
+                        "saldo_pendiente": 0.0,
+                        "items_cantidad": 0,
+                        "estado_factura": "PENDIENTE"
+                    }
+                
+                facturas_dict[fac_no]["total_factura"] += float(item.get("total") or 0.0)
+                facturas_dict[fac_no]["items_cantidad"] += 1
+                if item.get("fecha") and (not facturas_dict[fac_no]["fecha"] or item["fecha"][:10] < facturas_dict[fac_no]["fecha"]):
+                    facturas_dict[fac_no]["fecha"] = item["fecha"][:10]
+
+            facs_list = list(facturas_dict.keys())
+            if not facs_list:
+                return []
+
+            # 3. Obtener detalles directos deduplicados
+            detalles = self._get_detalles_deduplicados(facs_list)
+            abonos_directos_por_factura = {f: 0.0 for f in facs_list}
+            for d in detalles:
+                f_no = str(d.get("factura_no"))
+                if f_no in abonos_directos_por_factura:
+                    abonos_directos_por_factura[f_no] += float(d.get("monto_aplicado") or 0.0)
+
+            # 4. Obtener todos los pagos válidos deduplicados del cliente
+            pagos_cliente = self._get_todos_pagos_deduplicados(nombre_cliente=nom_clean)
+            total_pagos_cliente = sum(float(p.get("monto_total") or 0.0) for p in pagos_cliente)
+
+            # Total asignado mediante detalles directos
+            total_asignado_directo = sum(abonos_directos_por_factura.values())
+            # Remanente para distribuir vía FIFO automático
+            remanente_fifo = max(0.0, total_pagos_cliente - total_asignado_directo)
+
+            # 5. Ordenar facturas cronológicamente para aplicar FIFO (más antiguas primero; a igual fecha, más cuantiosa primero)
+            lista_facturas = list(facturas_dict.values())
+            lista_facturas.sort(key=lambda x: (x["fecha"] or "9999-99-99", -float(x.get("total_factura", 0.0)), x["factura_no"]))
+
+            for f_obj in lista_facturas:
+                f_no = f_obj["factura_no"]
+                f_obj["total_factura"] = round(f_obj["total_factura"], 2)
+                abono_directo = abonos_directos_por_factura.get(f_no, 0.0)
+
+                # Saldo pendiente antes de FIFO
+                saldo_previo = max(0.0, f_obj["total_factura"] - abono_directo)
+                abono_fifo = 0.0
+                if remanente_fifo > 0 and saldo_previo > 0:
+                    abono_fifo = min(remanente_fifo, saldo_previo)
+                    remanente_fifo -= abono_fifo
+
+                total_abono = abono_directo + abono_fifo
+                f_obj["total_abonado"] = round(min(f_obj["total_factura"], total_abono), 2)
+                f_obj["saldo_pendiente"] = round(max(0.0, f_obj["total_factura"] - f_obj["total_abonado"]), 2)
+
+                if f_obj["saldo_pendiente"] <= 0.01:
+                    f_obj["estado_factura"] = "PAGADA"
+                elif f_obj["total_abonado"] > 0:
+                    f_obj["estado_factura"] = "PARCIAL"
+                else:
+                    f_obj["estado_factura"] = "PENDIENTE"
+
+            # Ordenar para presentación en pantalla: facturas pendientes primero, luego fecha descendente
+            lista_facturas.sort(key=lambda x: (x["saldo_pendiente"] > 0.01, x["fecha"] or ""), reverse=True)
+            return lista_facturas
+
         except Exception as ex:
-            log_error("anular_ajuste", ex, {"id_ajuste": id_ajuste})
+            log_error(f"get_facturas_cliente({nom_clean})", ex)
+            return []
+
+    def get_historial_pagos_cliente(self, nombre_cliente: str) -> list[dict]:
+        """Retorna el historial de pagos registrados para un cliente con sus facturas afectadas desde Supabase."""
+        nom_clean = self.clientes_repo.normalizar_nombre_cliente(nombre_cliente)
+        try:
+            pagos = self._get_todos_pagos_deduplicados(nombre_cliente=nom_clean)
+            if not pagos:
+                return []
+
+            pagos.sort(key=lambda x: x.get("fecha_pago", "") or x.get("created_at", ""), reverse=True)
+
+            pago_ids = [p.get("id_pago") for p in pagos if p.get("id_pago")]
+            detalles_map = {}
+            if pago_ids:
+                p_ids_str = ",".join([urllib.parse.quote(str(pid).strip()) for pid in pago_ids])
+                try:
+                    res_d = self.db.get(f"detalle_pagos_cartera?id_pago=in.({p_ids_str})&select=id_pago,factura_no,monto_aplicado", timeout=8)
+                    if res_d and res_d.status_code == 200 and res_d.json():
+                        for d in res_d.json():
+                            pid = d.get("id_pago")
+                            detalles_map.setdefault(pid, []).append(d)
+                except Exception:
+                    pass
+
+            for p in pagos:
+                p_id = p.get("id_pago")
+                p["monto_total"] = float(p.get("monto_total") or 0.0)
+                p["fecha_formateada"] = (p.get("fecha_pago") or "")[:10]
+                p["facturas_afectadas"] = detalles_map.get(p_id, [])
+
+            return pagos
+        except Exception as ex:
+            log_error(f"get_historial_pagos_cliente({nom_clean})", ex)
+            return []
+
+    def registrar_pago_cartera(
+        self,
+        id_cliente: str | None,
+        nombre_cliente: str,
+        monto_total: float,
+        metodo_pago: str = "EFECTIVO",
+        banco_origen: str | None = None,
+        referencia: str = "",
+        observaciones: str = "",
+        facturas_seleccionadas: dict | None = None,
+        usuario: str = "admin"
+    ) -> bool:
+        """
+        Registra un pago de cartera directamente en Supabase y lo distribuye a las facturas correspondientes.
+        Si facturas_seleccionadas es None: Aplica algoritmo FIFO (de más antigua a más nueva).
+        """
+        nom_clean = self.clientes_repo.normalizar_nombre_cliente(nombre_cliente)
+        monto_float = round(float(monto_total or 0.0), 2)
+        if monto_float <= 0:
             return False
 
-    def insert_ajustes_masivo(self, ajustes: list[dict]) -> bool:
-        """Inserta múltiples registros de ajuste de inventario en lote (batch)."""
-        if not ajustes:
-            return True
         try:
-            from core.fecha_utils import get_ahora_iso
-            ahora_iso = get_ahora_iso()
-            payloads = []
-            for a in ajustes:
-                p = dict(a)
-                if "estado_registro" not in p:
-                    p["estado_registro"] = "VÁLIDO"
-                if "fecha_ajuste" not in p or not p["fecha_ajuste"]:
-                    p["fecha_ajuste"] = ahora_iso
-                payloads.append(p)
+            if not id_cliente:
+                cli = self.clientes_repo.get_or_create_cliente(nom_clean)
+                id_cliente = cli.get("id_cliente")
 
-            chunk_size = 100
-            for i in range(0, len(payloads), chunk_size):
-                chunk = payloads[i:i + chunk_size]
-                res = self.db.post("registro_ajustes_inventario", json_data=chunk, timeout=15)
-                if not (res and res.status_code in (200, 201, 204)):
-                    return False
+            id_pago_gen = str(uuid.uuid4())
+            ahora_iso = datetime.datetime.now().isoformat()
 
-            from core.audit_logger import registrar_accion
+            pago_payload = {
+                "id_pago": id_pago_gen,
+                "id_cliente": id_cliente,
+                "nombre_cliente": nom_clean,
+                "monto_total": monto_float,
+                "metodo_pago": metodo_pago.upper(),
+                "banco_origen": banco_origen if metodo_pago.upper() == "TRANSFERENCIA" else None,
+                "referencia_comprobante": referencia.strip() if referencia else None,
+                "observaciones": observaciones.strip() if observaciones else None,
+                "usuario_registro": usuario,
+                "estado_registro": "VÁLIDO",
+                "fecha_pago": ahora_iso
+            }
+
+            # 1. Calcular distribución de facturas
+            detalles_payload = []
+            if facturas_seleccionadas:
+                for fac_no, monto_aplicar in facturas_seleccionadas.items():
+                    m_ap = round(float(monto_aplicar or 0), 2)
+                    if m_ap > 0:
+                        detalles_payload.append({
+                            "id_detalle": str(uuid.uuid4()),
+                            "id_pago": id_pago_gen,
+                            "factura_no": str(fac_no),
+                            "monto_aplicado": m_ap
+                        })
+            else:
+                facturas_cliente = self.get_facturas_cliente(nom_clean)
+                pendientes = [f for f in facturas_cliente if f["saldo_pendiente"] > 0]
+                pendientes.sort(key=lambda x: (x["fecha"] or "9999-99-99", -float(x.get("total_factura", 0.0)), x["factura_no"]))
+
+                monto_restante = monto_float
+                for f_item in pendientes:
+                    if monto_restante <= 0:
+                        break
+                    saldo_f = f_item["saldo_pendiente"]
+                    aplicar = min(monto_restante, saldo_f)
+                    detalles_payload.append({
+                        "id_detalle": str(uuid.uuid4()),
+                        "id_pago": id_pago_gen,
+                        "factura_no": str(f_item["factura_no"]),
+                        "monto_aplicado": round(aplicar, 2),
+                        "saldo_anterior": saldo_f,
+                        "saldo_restante": round(max(0.0, saldo_f - aplicar), 2)
+                    })
+                    monto_restante -= aplicar
+
+            # 2. Guardar pago en Supabase
+            res_pago = self.db.post("pagos_cartera", json_data=pago_payload, timeout=8)
+            if not res_pago or res_pago.status_code not in (200, 201):
+                logger.error(f"Error al registrar pago en Supabase: {res_pago.status_code if res_pago else 'No response'}")
+                return False
+
+            # 3. Guardar detalles en Supabase
+            if detalles_payload:
+                self.db.post("detalle_pagos_cartera", json_data=detalles_payload, timeout=8)
+
             registrar_accion(
-                accion=f"Registro masivo de {len(payloads)} ajustes de inventario por cierre",
-                modulo="AJUSTES",
-                detalles={"total_ajustes": len(payloads)}
+                accion=f"Recaudo Cartera: ${monto_float:,.0f} ({metodo_pago}) a cliente {nom_clean}",
+                modulo="CARTERA",
+                detalles={
+                    "cliente": nom_clean,
+                    "monto": monto_float,
+                    "metodo": metodo_pago,
+                    "banco": banco_origen,
+                    "facturas_afectadas": len(detalles_payload)
+                }
+            )
+            return True
+
+        except Exception as ex:
+            log_error(f"registrar_pago_cartera({nom_clean})", ex)
+            return False
+
+    def anular_pago_cartera(self, id_pago: str) -> bool:
+        """Marca un pago como ANULADO en Supabase revirtiendo su impacto en la cartera."""
+        try:
+            id_enc = urllib.parse.quote(str(id_pago))
+            self.db.patch(f"pagos_cartera?id_pago=eq.{id_enc}", json_data={"estado_registro": "ANULADO"}, timeout=8)
+
+            registrar_accion(
+                accion=f"Anulación de pago de cartera {id_pago}",
+                modulo="CARTERA",
+                detalles={"id_pago": id_pago}
             )
             return True
         except Exception as ex:
-            log_error("insert_ajustes_masivo", ex, {"total": len(ajustes)})
+            log_error(f"anular_pago_cartera({id_pago})", ex)
             return False
 
-    def actualizar_costo_unitario(self, codigo_insumo: str, costo: float) -> bool:
-        """Actualiza el costo unitario de un insumo en el catálogo maestro."""
+    def crear_plan_cuotas(
+        self,
+        id_cliente: str | None,
+        nombre_cliente: str,
+        saldo_a_diferir: float,
+        num_cuotas: int,
+        periodicidad: str = "MENSUAL",
+        fecha_inicio: str | None = None,
+        observacion: str = ""
+    ) -> bool:
+        """
+        Genera y almacena un cronograma de cuotas directamente en Supabase con fechas automáticas de cobro.
+        """
+        nom_clean = self.clientes_repo.normalizar_nombre_cliente(nombre_cliente)
         try:
-            cod_enc = urllib.parse.quote(str(codigo_insumo).strip())
-            endpoint = f"catalogo_insumos?codigo_insumo=eq.{cod_enc}"
-            res = self.db.patch(endpoint, json_data={"costo_unitario": costo}, timeout=8)
+            if not id_cliente:
+                cli = self.clientes_repo.get_or_create_cliente(nom_clean)
+                id_cliente = cli.get("id_cliente")
+
+            num_cuotas = max(1, int(num_cuotas or 1))
+            monto_cuota = round(float(saldo_a_diferir) / num_cuotas, 2)
+
+            f_base = datetime.date.today()
+            if fecha_inicio:
+                try:
+                    f_base = datetime.date.fromisoformat(fecha_inicio[:10])
+                except Exception:
+                    pass
+
+            dias_delta = 30
+            if periodicidad.upper() == "SEMANAL":
+                dias_delta = 7
+            elif periodicidad.upper() == "QUINCENAL":
+                dias_delta = 15
+
+            cuotas_payload = []
+            for i in range(1, num_cuotas + 1):
+                f_cobro = f_base + datetime.timedelta(days=(i - 1) * dias_delta)
+                cuotas_payload.append({
+                    "id_cuota": str(uuid.uuid4()),
+                    "id_cliente": id_cliente,
+                    "nombre_cliente": nom_clean,
+                    "numero_cuota": i,
+                    "total_cuotas": num_cuotas,
+                    "monto_cuota": monto_cuota,
+                    "fecha_cobro_sugerida": f_cobro.isoformat(),
+                    "estado": "PENDIENTE",
+                    "observacion": observacion or f"Cuota {i} de {num_cuotas} ({periodicidad})"
+                })
+
+            # Reemplazar cuotas activas previas para este cliente en Supabase
+            try:
+                nom_enc = urllib.parse.quote(nom_clean)
+                self.db.delete(f"cuotas_cartera?nombre_cliente=eq.{nom_enc}", timeout=5)
+            except Exception:
+                pass
+
+            self.db.post("cuotas_cartera", json_data=cuotas_payload, timeout=8)
+
+            registrar_accion(
+                accion=f"Plan de Cuotas Cartera: {num_cuotas} cuotas de ${monto_cuota:,.0f} a {nom_clean}",
+                modulo="CARTERA",
+                detalles={"cliente": nom_clean, "cuotas": num_cuotas, "monto_total": saldo_a_diferir}
+            )
+            return True
+
+        except Exception as ex:
+            log_error(f"crear_plan_cuotas({nom_clean})", ex)
+            return False
+
+    def get_cuotas_cliente(self, nombre_cliente: str, saldo_actual_cliente: float | None = None) -> list[dict]:
+        """
+        Obtiene el cronograma de cuotas programadas para un cliente desde Supabase,
+        amortizando dinámicamente los pagos realizados contra las cuotas más cercanas.
+        """
+        nom_clean = self.clientes_repo.normalizar_nombre_cliente(nombre_cliente)
+        try:
+            nom_enc = urllib.parse.quote(nom_clean)
+            res = self.db.get(f"cuotas_cartera?nombre_cliente=eq.{nom_enc}&order=fecha_cobro_sugerida.asc", timeout=8)
+            if not res or res.status_code != 200 or not res.json():
+                return []
+
+            cuotas = res.json()
+            cuotas.sort(key=lambda x: (x.get("fecha_cobro_sugerida") or "9999-99-99", x.get("numero_cuota", 1)))
+
+            # Calcular amortización de cuotas:
+            if saldo_actual_cliente is None:
+                estados = self.get_estado_cuenta_clientes(search=nom_clean)
+                cli_info = next((c for c in estados if c["nombre"] == nom_clean), None)
+                saldo_actual_cliente = cli_info.get("saldo_pendiente", 0.0) if cli_info else 0.0
+
+            total_plan_cuotas = sum(float(c.get("monto_cuota") or 0.0) for c in cuotas)
+            total_amortizado_plan = max(0.0, total_plan_cuotas - saldo_actual_cliente)
+
+            remanente_amortizar = total_amortizado_plan
+
+            for c in cuotas:
+                monto_c = float(c.get("monto_cuota") or 0.0)
+                c["monto_cuota"] = monto_c
+                c["fecha_cobro"] = (c.get("fecha_cobro_sugerida") or "")[:10]
+
+                abono_c = 0.0
+                if remanente_amortizar > 0 and monto_c > 0:
+                    abono_c = min(remanente_amortizar, monto_c)
+                    remanente_amortizar -= abono_c
+
+                c["monto_abonado"] = round(abono_c, 2)
+                c["saldo_cuota"] = round(max(0.0, monto_c - abono_c), 2)
+
+                if c["saldo_cuota"] <= 0.01:
+                    c["estado"] = "COBRADO"
+                elif c["monto_abonado"] > 0:
+                    c["estado"] = "PARCIAL"
+                else:
+                    c["estado"] = "PENDIENTE"
+
+            return cuotas
+        except Exception as ex:
+            log_error(f"get_cuotas_cliente({nom_clean})", ex)
+            return []
+````
+
+## File: core/repositories/compras_repo.py
+````python
+"""
+Repositorio para la gestión de compras y entradas de insumos.
+"""
+import datetime
+import threading
+import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
+
+from core.database import BaseDatabase
+from core.logger import get_logger, log_error
+from core.audit_logger import registrar_accion
+from core.repositories.insumos_repo import InsumosRepository
+
+logger = get_logger("ComprasRepo")
+
+
+class ComprasRepository:
+    def __init__(self, db: BaseDatabase | None = None):
+        self.db = db or BaseDatabase()
+        self.insumos_repo = InsumosRepository(self.db)
+
+    def get_compras(
+        self,
+        page: int = 1,
+        page_size: int = 15,
+        search: str = "",
+        fecha_corte: str | None = None,
+        factura_filtro: str | None = None,
+        proveedor_filtro: str | None = None
+    ) -> tuple[list, int]:
+        """
+        Obtiene las compras paginadas y filtradas directamente en el motor de base de datos.
+        """
+        try:
+            offset = max(0, (page - 1) * page_size)
+            select_query = (
+                "id_compra,fecha,numero_entrada,numero_factura,proveedor,"
+                "codigo_insumo,cantidad,costo_unitario,iva,valor_iva,costo_total,"
+                "estado_registro,catalogo_insumos(nombre)"
+            )
+            filtros = ["estado_registro=eq.VÁLIDO"]
+
+            if fecha_corte:
+                fc_clean = fecha_corte.strip()
+                filtros.append(f"fecha=lte.{fc_clean}T23:59:59")
+
+            if factura_filtro:
+                fac_q = urllib.parse.quote(str(factura_filtro).strip())
+                filtros.append(f"or=(numero_entrada.eq.{fac_q},numero_factura.eq.{fac_q})")
+
+            if proveedor_filtro and proveedor_filtro != "TODOS":
+                prov_q = urllib.parse.quote(str(proveedor_filtro).strip())
+                filtros.append(f"proveedor=eq.{prov_q}")
+
+            if search and search.strip():
+                s_val = search.strip()
+                s_q = urllib.parse.quote(f"*{s_val}*")
+                filtros.append(
+                    f"or=(codigo_insumo.ilike.{s_q},proveedor.ilike.{s_q},"
+                    f"numero_factura.ilike.{s_q},numero_entrada.ilike.{s_q})"
+                )
+
+            query_filtros = "&" + "&".join(filtros)
+            endpoint = f"registro_compras?select={select_query}{query_filtros}&order=fecha.desc"
+            
+            headers = {
+                "Range": f"{offset}-{offset + page_size - 1}",
+                "Prefer": "count=exact"
+            }
+
+            res = self.db.get(endpoint, custom_headers=headers, timeout=12)
+            if res and res.status_code in (200, 206):
+                data = res.json()
+                total_records = len(data)
+                
+                # Extraer total exacto desde header Content-Range (ej. '0-14/1250')
+                cr = res.headers.get("Content-Range") or res.headers.get("content-range")
+                if cr and "/" in cr:
+                    try:
+                        total_records = int(cr.split("/")[-1])
+                    except (ValueError, IndexError):
+                        pass
+
+                return data, total_records
+
+            return [], 0
+        except Exception as ex:
+            log_error("get_compras", ex)
+            return [], 0
+
+    def get_proveedores_unicos(self) -> list:
+        try:
+            res = self.db.get("registro_compras?select=proveedor&estado_registro=eq.VÁLIDO&limit=5000", timeout=10)
+            if res and res.status_code == 200:
+                provs = sorted(list({str(x.get("proveedor")).strip() for x in res.json() if x.get("proveedor") and str(x.get("proveedor")).strip()}))
+                return provs
+            return []
+        except Exception as ex:
+            log_error("get_proveedores_unicos", ex)
+            return []
+
+    def get_historial_compras_dia(
+        self,
+        fecha_dia: str | None = None,
+        agrupar_por: str = "FACTURA",
+        proveedor_filtro: str | None = None
+    ) -> list:
+        items_resultado = []
+        try:
+            filtros = ["estado_registro=eq.VÁLIDO"]
+            if fecha_dia:
+                filtros.append(f"fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59")
+            if proveedor_filtro and proveedor_filtro != "TODOS":
+                import urllib.parse
+                filtros.append(f"proveedor=eq.{urllib.parse.quote(proveedor_filtro.strip())}")
+
+            query_filtros = ("&" + "&".join(filtros)) if filtros else ""
+            endpoint = f"registro_compras?select=numero_entrada,numero_factura,proveedor,costo_total,fecha,cantidad{query_filtros}&order=fecha.desc"
+            
+            data_c = []
+            offset = 0
+            limit = 2500
+            while True:
+                headers = {"Range": f"{offset}-{offset + limit - 1}"}
+                res_c = self.db.get(endpoint, custom_headers=headers, timeout=10)
+                if not res_c or res_c.status_code not in (200, 206):
+                    break
+                chunk = res_c.json()
+                if not chunk:
+                    break
+                data_c.extend(chunk)
+                if len(chunk) < limit:
+                    break
+                offset += limit
+
+            if agrupar_por == "FACTURA":
+                agrupado = {}
+                for r in data_c:
+                    ref = r.get("numero_entrada") or r.get("numero_factura") or "S/N"
+                    if ref not in agrupado:
+                        agrupado[ref] = {
+                            "tipo": "COMPRA",
+                            "ref": ref,
+                            "factura": r.get("numero_factura") or ref,
+                            "proveedor": r.get("proveedor") or "Varios",
+                            "total": 0.0,
+                            "unidades": 0.0,
+                            "hora": r.get("fecha", "")[:10]
+                        }
+                    agrupado[ref]["total"] += float(r.get("costo_total") or 0)
+                    agrupado[ref]["unidades"] += float(r.get("cantidad") or 0)
+                items_resultado.extend(list(agrupado.values()))
+
+            elif agrupar_por == "PROVEEDOR":
+                agrupado = {}
+                facturas_por_prov = {}
+                for r in data_c:
+                    prov = r.get("proveedor") or "Varios"
+                    ref_f = r.get("numero_factura") or r.get("numero_entrada") or "S/N"
+                    if prov not in agrupado:
+                        agrupado[prov] = {
+                            "tipo": "PROVEEDOR_RESUMEN",
+                            "ref": prov,
+                            "proveedor": prov,
+                            "facturas_cant": 0,
+                            "total": 0.0,
+                            "unidades": 0.0,
+                            "hora": r.get("fecha", "")[:10]
+                        }
+                        facturas_por_prov[prov] = set()
+                    facturas_por_prov[prov].add(ref_f)
+                    agrupado[prov]["total"] += float(r.get("costo_total") or 0)
+                    agrupado[prov]["unidades"] += float(r.get("cantidad") or 0)
+
+                for prov in agrupado:
+                    agrupado[prov]["facturas_cant"] = len(facturas_por_prov[prov])
+
+                items_resultado.extend(list(agrupado.values()))
+
+            items_resultado.sort(key=lambda x: x["total"], reverse=True)
+            return items_resultado
+        except Exception as ex:
+            log_error(f"get_historial_compras_dia({fecha_dia})", ex)
+            return []
+
+    def insert_compras(self, compras_list: list) -> bool:
+        """Inserta compras por lotes y actualiza los costos del catálogo concurrentemente en background."""
+        if not compras_list:
+            return True
+        try:
+            self.insumos_repo.asegurar_insumos_existen(compras_list)
+
+            # Chunking para inserciones grandes
+            chunk_size = 100
+            for i in range(0, len(compras_list), chunk_size):
+                chunk = compras_list[i:i + chunk_size]
+                res = self.db.post("registro_compras", json_data=chunk, timeout=30)
+                if not (res and res.status_code in (200, 201, 204)):
+                    err = res.text if res else "No response"
+                    logger.error(f"Error en insert_compras chunk {i}: {err}")
+                    return False
+
+            # Desduplicar y actualizar costo_unitario en catalogo_insumos concurrentemente
+            costos_map = {}
+            for c in compras_list:
+                cod = str(c.get("codigo_insumo") or "").strip()
+                costo_u = float(c.get("costo_unitario") or 0)
+                if cod and costo_u > 0:
+                    costos_map[cod] = costo_u
+
+            def _actualizar_costo_item(item_tuple):
+                cod, cost = item_tuple
+                try:
+                    cod_q = urllib.parse.quote(cod)
+                    self.db.patch(f"catalogo_insumos?codigo_insumo=eq.{cod_q}", json_data={"costo_unitario": cost}, timeout=5)
+                except Exception as ex:
+                    logger.warning(f"Error actualizando costo insumo {cod}: {ex}")
+
+            def _actualizar_costos_worker(c_map):
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    executor.map(_actualizar_costo_item, c_map.items())
+
+            if costos_map:
+                threading.Thread(target=_actualizar_costos_worker, args=(costos_map,), daemon=True).start()
+
+            facs = list(set([
+                str(c.get("numero_factura") or c.get("numero_entrada") or "") 
+                for c in compras_list 
+                if (c.get("numero_factura") or c.get("numero_entrada"))
+            ]))
+            fac_txt = f" (Docs: {', '.join(facs[:3])}{'...' if len(facs)>3 else ''})" if facs else ""
+            tot_monto = sum([float(c.get("costo_total") or 0) for c in compras_list])
+            registrar_accion(
+                accion=f"Guardado de compras en BD: {len(compras_list)} registros{fac_txt} por ${tot_monto:,.0f}",
+                modulo="COMPRAS",
+                detalles={"registros": len(compras_list), "total": tot_monto, "documentos": facs}
+            )
+            return True
+        except Exception as ex:
+            log_error("insert_compras", ex)
+            return False
+
+    def get_entradas_existentes(self, lista_eas: list, lista_facturas: list = None) -> set:
+        """Consulta documentos de entrada y facturas ya registradas en la base de datos."""
+        existentes = set()
+        if lista_eas:
+            chunk_size = 50
+            for i in range(0, len(lista_eas), chunk_size):
+                chunk = lista_eas[i:i + chunk_size]
+                try:
+                    eas_str = ",".join([urllib.parse.quote(str(x).strip()) for x in chunk if str(x).strip()])
+                    endpoint = f"registro_compras?select=numero_entrada&numero_entrada=in.({eas_str})"
+                    res = self.db.get(endpoint, timeout=10)
+                    if res and res.status_code == 200:
+                        data = res.json()
+                        for item in data:
+                            if item.get("numero_entrada"):
+                                existentes.add(str(item["numero_entrada"]))
+                except Exception as ex:
+                    log_error("get_entradas_existentes", ex)
+
+        if lista_facturas:
+            chunk_size = 50
+            for i in range(0, len(lista_facturas), chunk_size):
+                chunk = lista_facturas[i:i + chunk_size]
+                try:
+                    fac_str = ",".join([urllib.parse.quote(str(x).strip()) for x in chunk if str(x).strip()])
+                    endpoint = f"registro_compras?select=numero_factura&numero_factura=in.({fac_str})"
+                    res = self.db.get(endpoint, timeout=10)
+                    if res and res.status_code == 200:
+                        data = res.json()
+                        for item in data:
+                            if item.get("numero_factura"):
+                                existentes.add(str(item["numero_factura"]))
+                except Exception as ex:
+                    log_error("get_entradas_existentes_fac", ex)
+        return existentes
+
+    def eliminar_compras_por_entradas(self, lista_entradas: list) -> bool:
+        """Elimina compras asociadas a los números de factura o entrada especificados."""
+        if not lista_entradas:
+            return True
+        try:
+            for ref in lista_entradas:
+                ref_q = urllib.parse.quote(str(ref).strip())
+                endpoint = f"registro_compras?or=(numero_entrada.eq.{ref_q},numero_factura.eq.{ref_q})"
+                self.db.delete(endpoint, timeout=10)
+
+            registrar_accion(
+                accion=f"Eliminación / Anulación de compras para documentos: {', '.join(lista_entradas)}",
+                modulo="COMPRAS",
+                detalles={"referencias_eliminadas": lista_entradas}
+            )
+            return True
+        except Exception as ex:
+            log_error("eliminar_compras_por_entradas", ex)
+            return False
+
+    def get_compras_summary(self, fecha_corte=None) -> dict:
+        """Calcula el resumen financiero de compras del mes y del día."""
+        try:
+            hoy = datetime.date.today().strftime("%Y-%m-%d")
+            mes_actual = hoy[:7]
+            
+            data = []
+            offset = 0
+            limit = 2500
+            while True:
+                headers = {"Range": f"{offset}-{offset + limit - 1}"}
+                res = self.db.get(
+                    "registro_compras?select=fecha,cantidad,costo_total,iva,valor_iva,estado_registro&estado_registro=eq.VÁLIDO", 
+                    custom_headers=headers, 
+                    timeout=15
+                )
+                if not res or res.status_code not in (200, 206):
+                    break
+                chunk = res.json()
+                if not chunk:
+                    break
+                data.extend(chunk)
+                if len(chunk) < limit:
+                    break
+                offset += limit
+
+            total_mes = 0.0
+            total_hoy = 0.0
+            cant_tot = 0.0
+            iva_mes = 0.0
+            iva_hoy = 0.0
+
+            for c in data:
+                f = str(c.get("fecha") or "")[:10]
+                if fecha_corte and f > fecha_corte:
+                    continue
+                monto = float(c.get("costo_total") or 0)
+                cant = float(c.get("cantidad") or 0)
+                iva_val = float(c.get("iva") or c.get("valor_iva") or 0)
+
+                if f.startswith(mes_actual):
+                    total_mes += monto
+                    iva_mes += iva_val
+                if f == hoy:
+                    total_hoy += monto
+                    iva_hoy += iva_val
+                cant_tot += cant
+
+            return {
+                "total_mes": total_mes,
+                "total_hoy": total_hoy,
+                "cantidad_total": cant_tot,
+                "iva_mes": iva_mes,
+                "iva_hoy": iva_hoy
+            }
+        except Exception as ex:
+            log_error("get_compras_summary", ex)
+            return {"total_mes": 0, "total_hoy": 0, "cantidad_total": 0, "iva_mes": 0, "iva_hoy": 0}
+
+    def update_compra_individual(self, id_compra: str, datos: dict) -> bool:
+        """Actualiza un registro individual de compra."""
+        try:
+            id_q = urllib.parse.quote(str(id_compra).strip())
+            endpoint = f"registro_compras?id_compra=eq.{id_q}"
+            res = self.db.patch(endpoint, json_data=datos, timeout=10)
             return bool(res and res.status_code in (200, 204))
         except Exception as ex:
-            log_error(f"actualizar_costo_unitario({codigo_insumo})", ex)
+            log_error(f"update_compra_individual({id_compra})", ex)
             return False
 
-    def asegurar_insumos_existen(self, items_list: list):
-        """Verifica la existencia de insumos en el catálogo y auto-registra los faltantes de manera centralizada."""
-        if not items_list:
-            return
-        import urllib.parse
-        codigos_entrantes = {
-            str(x.get("codigo_insumo") or x.get("codigo_item") or "").strip()
-            for x in items_list
-            if str(x.get("codigo_insumo") or x.get("codigo_item") or "").strip()
-        }
-        if not codigos_entrantes:
-            return
-
-        existentes = set()
-        chunk_size = 50
-        codigos_arr = list(codigos_entrantes)
-        for i in range(0, len(codigos_arr), chunk_size):
-            chk = codigos_arr[i:i + chunk_size]
-            c_str = ",".join([urllib.parse.quote(c) for c in chk])
-            try:
-                res = self.db.get(f"catalogo_insumos?select=codigo_insumo&codigo_insumo=in.({c_str})", timeout=8)
-                if res and res.status_code == 200:
-                    for row in res.json():
-                        existentes.add(str(row["codigo_insumo"]).strip())
-            except Exception as ex:
-                logger.warning(f"Error consultando existencia de insumos chunk {i}: {ex}")
-
-        faltantes = codigos_entrantes - existentes
-        if faltantes:
-            nuevos = []
-            for cod in faltantes:
-                nom = "INSUMO AUTO-REGISTRADO"
-                for item in items_list:
-                    if str(item.get("codigo_insumo") or item.get("codigo_item") or "").strip() == cod:
-                        nom = item.get("descripcion") or item.get("nombre") or nom
-                        break
-                nuevos.append({
-                    "codigo_insumo": cod,
-                    "nombre": nom[:100],
-                    "categoria": "DESECHABLES",
-                    "costo_unitario": 0.0,
-                    "precio_venta": 0.0,
-                    "stock_actual": 0.0,
-                    "stock_minimo": 5.0,
-                    "estado": True,
-                    "zona": "NO UBICADO",
-                    "ubicacion": "BODEGA",
-                    "tipo_unidad": "und"
-                })
-            try:
-                res_post = self.db.post("catalogo_insumos", json_data=nuevos, timeout=10)
-                if not (res_post and res_post.status_code in (200, 201, 204)):
-                    logger.error(f"Fallo al auto-registrar insumos faltantes: {res_post.text if res_post else 'Sin respuesta'}")
-                else:
-                    logger.info(f"Auto-registrados {len(nuevos)} insumos nuevos en catálogo exitosamente")
-            except Exception as ex:
-                log_error("Error auto-registrando nuevos insumos", ex)
+    def eliminar_compra_individual(self, id_compra: str) -> bool:
+        """Elimina un registro individual de compra por su ID único."""
+        try:
+            id_q = urllib.parse.quote(str(id_compra).strip())
+            endpoint = f"registro_compras?id_compra=eq.{id_q}"
+            res = self.db.delete(endpoint, timeout=10)
+            return bool(res and res.status_code in (200, 204))
+        except Exception as ex:
+            log_error(f"eliminar_compra_individual({id_compra})", ex)
+            return False
 ````
 
 ## File: core/repositories/ventas_repo.py
@@ -332048,6 +334955,7 @@ from core.database import BaseDatabase
 from core.logger import get_logger, log_error
 from core.audit_logger import registrar_accion
 from core.repositories.insumos_repo import InsumosRepository
+from core.repositories.clientes_repo import ClientesRepository
 
 logger = get_logger("VentasRepo")
 
@@ -332056,6 +334964,7 @@ class VentasRepository:
     def __init__(self, db: BaseDatabase | None = None):
         self.db = db or BaseDatabase()
         self.insumos_repo = InsumosRepository(self.db)
+        self.clientes_repo = ClientesRepository(self.db)
 
     def get_ventas(
         self,
@@ -332275,11 +335184,20 @@ class VentasRepository:
             return False
 
     def insert_ventas(self, ventas_list: list) -> bool:
-        """Inserta ventas por lotes y sincroniza precios de catálogo concurrentemente en background."""
+        """Inserta ventas por lotes optimizados y sincroniza clientes y catálogo masivamente."""
         if not ventas_list:
             return True
+
+        # 1. Asegurar y sincronizar todos los clientes de las ventas en 1 sola consulta batch
+        self.clientes_repo.asegurar_clientes_existen(ventas_list)
+
+        # 2. Construir payload en memoria ultrarrápido
         payload = []
         for v in ventas_list:
+            nom_cli = self.clientes_repo.normalizar_nombre_cliente(v.get("cliente") or v.get("nombre_cliente"))
+            cli_obj = self.clientes_repo.get_or_create_cliente(nom_cli)
+            id_cli = cli_obj.get("id_cliente")
+
             venta = {
                 "fecha": v.get("fecha"),
                 "factura_no": str(v.get("factura_no") or v.get("numero_factura", "")),
@@ -332290,20 +335208,36 @@ class VentasRepository:
                 "iva": float(v.get("iva", 0) or 0),
                 "total": float(v.get("total") if v.get("total") is not None else (v.get("costo_total", 0) or 0)),
                 "tipo_documento": str(v.get("tipo_documento", "Factura POS")),
-                "pagina_origen": int(v.get("pagina_origen", 1))
+                "pagina_origen": int(v.get("pagina_origen", 1)),
+                "cliente": nom_cli
             }
+            if id_cli:
+                venta["id_cliente"] = id_cli
             payload.append(venta)
 
         try:
+            # 3. Asegurar existencia de insumos en lote
             self.insumos_repo.asegurar_insumos_existen(payload)
-            chunk_size = 100
+
+            # 4. Inserción masiva en chunks grandes de 500 registros
+            chunk_size = 500
             for i in range(0, len(payload), chunk_size):
                 chunk = payload[i:i + chunk_size]
-                res = self.db.post("registro_ventas", json_data=chunk, timeout=30)
+                res = self.db.post("registro_ventas", json_data=chunk, timeout=40)
                 if not (res and res.status_code in (200, 201, 204)):
+                    # Si falla por columna cliente/id_cliente aún no presente en Supabase, reintentar sin ellas
                     err = res.text if res else "No response"
-                    logger.error(f"Error en insert_ventas chunk {i}: {err}")
-                    return False
+                    logger.warning(f"Error en chunk con cliente ({err}), reintentando formato base...")
+                    chunk_fallback = []
+                    for item in chunk:
+                        c_copy = dict(item)
+                        c_copy.pop("cliente", None)
+                        c_copy.pop("id_cliente", None)
+                        chunk_fallback.append(c_copy)
+                    res_fb = self.db.post("registro_ventas", json_data=chunk_fallback, timeout=40)
+                    if not (res_fb and res_fb.status_code in (200, 201, 204)):
+                        logger.error(f"Error crítico en insert_ventas: {res_fb.text if res_fb else 'No res'}")
+                        return False
 
             # Desduplicar y actualizar precio_venta en catalogo_insumos concurrentemente
             precios_map = {}
@@ -332988,42 +335922,41 @@ class GeminiParser:
             class FacturaVenta(TypedDict):
                 fecha: str
                 numero_factura: str
+                cliente: str
                 productos: list[ProductoVenta]
             
             if tipo_documento == "Factura POS":
                 prompt = """
-                Extrae los datos de ventas formato POS de este documento y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
-                Solo se requiere el numero de factura, codigo insumo, cantidad y precio unitario.
-                NO extraigas fechas (el sistema las asignará), ni nombres de clientes.
+                Extrae los datos de ventas formato POS (Facturas Diarias / WXManager / Tipo PP o PE) de este documento y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
                 
-                REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
-                1. BLOQUES DE FACTURA: Cada factura inicia debajo de la palabra "TIPO NUMERO" con el prefijo "PP" seguido del número (ej. "PP 26396"). Extrae SOLO los números.
-                2. PRODUCTOS: Debajo de "Clientes Varios", cada línea de producto tiene 3 valores separados por espacios. 
-                   - "codigo_item": El primer número de la línea (ej. 2151).
-                   - "cantidad": El segundo número (ej. 50.00).
-                   - "precio_unitario": El tercer número (ej. 1900.00).
-                3. CÁLCULOS OBLIGATORIOS PARA EL JSON:
-                   - "subtotal": DEBES multiplicar la "cantidad" por el "precio_unitario".
-                   - "iva": Siempre será 0.0 para este formato.
-                   - "costo_total": Será exactamente igual al "subtotal".
-                4. FORMATO NUMÉRICO: Todo valor monetario o cantidad debe ser número (float). Usa puntos (.) solo para decimales. NO uses comas.
+                REGLAS DE EXTRACCIÓN:
+                1. BLOQUES DE FACTURA: Cada factura inicia debajo del encabezado con el prefijo "PP" o "PE" (o "POS") seguido del número (ej. "PP 26396", "PE 22549", "PE 22550"). Extrae SOLO el número de la factura en "numero_factura".
+                2. CLIENTE: Extrae el nombre del cliente que aparece en la misma línea de 'PP/PE XXXXX' o en la línea inmediatamente inferior (ej. 'CONSUMIDOR FINAL', 'CLIENTES VARIOS', o el nombre particular del cliente/empresa si fue registrado). Si no aparece o dice 'Clientes Varios' o 'CONSUMIDOR FINAL', asigna 'CONSUMIDOR FINAL' o 'CLIENTES VARIOS'.
+                3. FECHA: La fecha general de las ventas está en el encabezado superior (ej. '24/08/2026'). Conviértela siempre al formato estándar 'YYYY-MM-DD' (ej. '2026-08-24').
+                4. PRODUCTOS: Cada producto en la factura contiene:
+                   - "codigo_item": El código numérico tras 'COD:' o al inicio de la línea (ej. 1754, 0170, 5483, 2151).
+                   - "cantidad": El dato de cantidad vendida (ej. 1.00, 2.00, 200.00).
+                   - "subtotal": El valor o importe total del item. Si solo viene precio unitario y cantidad, calcula cantidad * precio_unitario.
+                   - "iva": Siempre 0.0 para este formato.
+                   - "costo_total": Exactamente igual al "subtotal".
+                5. FORMATO NUMÉRICO: Todo valor monetario o cantidad debe ser número (float). Usa puntos (.) solo para decimales. NO uses comas.
                 """
             else:
                 prompt = """
-                Extrae TODOS los datos de TODAS las páginas de este fragmento del reporte de facturas y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
-                NO extraigas el nombre del cliente ni la descripción del producto. Limítate a los datos numéricos y códigos.
+                Extrae TODOS los datos de TODAS las páginas de este reporte de facturas / remisiones y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
                 
                 REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
                 1. BLOQUES: Cada bloque de venta inicia con "Fact.No." seguido del número de factura. Procesa TODOS los que encuentres.
-                2. FECHA Y FACTURA: La "fecha" suele estar en la misma línea que el "Fact.No.". Extrae el número de factura.
-                3. PRODUCTOS: Extrae cada línea de insumo hasta llegar a "Total Factura:".
-                4. CAMPOS POR PRODUCTO:
+                2. CLIENTE: Ubica el encabezado de cada factura y extrae el texto que está inmediatamente después de "Cliente:" (ej. "Cliente: RESTAURANTE EL PAISA", "Cliente: JUAN PEREZ", "Cliente: Clientes Varios"). Si no figura o dice varios, asigna "CLIENTES VARIOS".
+                3. FECHA Y FACTURA: La "fecha" suele estar en la misma línea que el "Fact.No." después de "Fecha:". Extrae el número de factura en "numero_factura".
+                4. PRODUCTOS: Extrae cada línea de insumo hasta llegar a "Total Factura:".
+                5. CAMPOS POR PRODUCTO:
                    - "codigo_item": Código al extremo izquierdo.
                    - "cantidad": Dato bajo la columna 'Cantidad'.
                    - "subtotal": Dato bajo la columna 'Subtotal'. NO HAGAS NINGÚN CÁLCULO.
                    - "iva": Dato bajo la columna 'IVA' (Si está vacía, pon 0.0).
                    - "costo_total": Dato bajo la columna 'Total'.
-                5. FORMATO NUMÉRICO: Usa puntos (.) solo para decimales. NO uses comas (,).
+                6. FORMATO NUMÉRICO: Usa puntos (.) solo para decimales. NO uses comas (,).
                 """
             
             writer = PdfWriter()
@@ -333201,773 +336134,6 @@ class GeminiParser:
         except Exception as ex:
             print(f"Error procesando formato de ajustes con Gemini: {ex}")
             return None
-````
-
-## File: main.py
-````python
-import flet as ft
-from ui.app import AppLayout
-from ui.views.login import LoginView
-from config import Config
-from core.mobile_server import iniciar_servidor_en_hilo
-
-def main(page: ft.Page):
-    # Iniciar servidor web móvil en red local Wi-Fi (puerto 8550)
-    iniciar_servidor_en_hilo(port=8550)
-    page.title = "Abarrotes y Desechables Doña Mary"
-    page.padding = 0
-    page.theme_mode = ft.ThemeMode.LIGHT
-    page.window_width = 1200
-    page.window_height = 800
-    page.window_min_width = 800
-    page.window_min_height = 600
-    page.window_maximized = True
-
-    page.theme = ft.Theme(
-        font_family="Inter",
-        color_scheme=ft.ColorScheme(
-            primary=Config.COLOR_ACCENT,
-            primary_container=Config.COLOR_MUTED,
-            secondary=Config.COLOR_SECONDARY,
-            background=Config.COLOR_BACKGROUND,
-            surface=Config.COLOR_SURFACE,
-            on_surface=Config.COLOR_TEXT,
-            outline=Config.COLOR_BORDER,
-        ),
-        visual_density=ft.ThemeVisualDensity.COMFORTABLE,
-    )
-
-    def cerrar_sesion():
-        page.overlay.clear()  # Purga diálogos flotantes residuales
-        page.clean()
-        mostrar_login()
-
-    def on_login_success(usuario_data):
-        page.overlay.clear()  # Asegura que el modal de bienvenida sea destruido
-        page.clean()
-        from core.audit_logger import set_current_user
-        set_current_user(usuario_data)
-        # Instanciar el layout e iniciar la carga inmediata
-        app_layout = AppLayout(page, usuario_data=usuario_data, on_logout=cerrar_sesion)
-        page.add(app_layout)
-        page.update()
-
-    def mostrar_login():
-        login_view = LoginView(on_login_success=on_login_success)
-        page.add(login_view)
-        page.update()
-
-    # Iniciar en pantalla de Login
-    mostrar_login()
-
-if __name__ == "__main__":
-    ft.app(target=main, assets_dir="assets")
-````
-
-## File: core/repositories/compras_repo.py
-````python
-"""
-Repositorio para la gestión de compras y entradas de insumos.
-"""
-import datetime
-import threading
-import urllib.parse
-from concurrent.futures import ThreadPoolExecutor
-
-from core.database import BaseDatabase
-from core.logger import get_logger, log_error
-from core.audit_logger import registrar_accion
-from core.repositories.insumos_repo import InsumosRepository
-
-logger = get_logger("ComprasRepo")
-
-
-class ComprasRepository:
-    def __init__(self, db: BaseDatabase | None = None):
-        self.db = db or BaseDatabase()
-        self.insumos_repo = InsumosRepository(self.db)
-
-    def get_compras(
-        self,
-        page: int = 1,
-        page_size: int = 15,
-        search: str = "",
-        fecha_corte: str | None = None,
-        factura_filtro: str | None = None,
-        proveedor_filtro: str | None = None
-    ) -> tuple[list, int]:
-        """
-        Obtiene las compras paginadas y filtradas directamente en el motor de base de datos.
-        """
-        try:
-            offset = max(0, (page - 1) * page_size)
-            select_query = (
-                "id_compra,fecha,numero_entrada,numero_factura,proveedor,"
-                "codigo_insumo,cantidad,costo_unitario,iva,valor_iva,costo_total,"
-                "estado_registro,catalogo_insumos(nombre)"
-            )
-            filtros = ["estado_registro=eq.VÁLIDO"]
-
-            if fecha_corte:
-                fc_clean = fecha_corte.strip()
-                filtros.append(f"fecha=lte.{fc_clean}T23:59:59")
-
-            if factura_filtro:
-                fac_q = urllib.parse.quote(str(factura_filtro).strip())
-                filtros.append(f"or=(numero_entrada.eq.{fac_q},numero_factura.eq.{fac_q})")
-
-            if proveedor_filtro and proveedor_filtro != "TODOS":
-                prov_q = urllib.parse.quote(str(proveedor_filtro).strip())
-                filtros.append(f"proveedor=eq.{prov_q}")
-
-            if search and search.strip():
-                s_val = search.strip()
-                s_q = urllib.parse.quote(f"*{s_val}*")
-                filtros.append(
-                    f"or=(codigo_insumo.ilike.{s_q},proveedor.ilike.{s_q},"
-                    f"numero_factura.ilike.{s_q},numero_entrada.ilike.{s_q})"
-                )
-
-            query_filtros = "&" + "&".join(filtros)
-            endpoint = f"registro_compras?select={select_query}{query_filtros}&order=fecha.desc"
-            
-            headers = {
-                "Range": f"{offset}-{offset + page_size - 1}",
-                "Prefer": "count=exact"
-            }
-
-            res = self.db.get(endpoint, custom_headers=headers, timeout=12)
-            if res and res.status_code in (200, 206):
-                data = res.json()
-                total_records = len(data)
-                
-                # Extraer total exacto desde header Content-Range (ej. '0-14/1250')
-                cr = res.headers.get("Content-Range") or res.headers.get("content-range")
-                if cr and "/" in cr:
-                    try:
-                        total_records = int(cr.split("/")[-1])
-                    except (ValueError, IndexError):
-                        pass
-
-                return data, total_records
-
-            return [], 0
-        except Exception as ex:
-            log_error("get_compras", ex)
-            return [], 0
-
-    def get_proveedores_unicos(self) -> list:
-        try:
-            res = self.db.get("registro_compras?select=proveedor&estado_registro=eq.VÁLIDO&limit=5000", timeout=10)
-            if res and res.status_code == 200:
-                provs = sorted(list({str(x.get("proveedor")).strip() for x in res.json() if x.get("proveedor") and str(x.get("proveedor")).strip()}))
-                return provs
-            return []
-        except Exception as ex:
-            log_error("get_proveedores_unicos", ex)
-            return []
-
-    def get_historial_compras_dia(
-        self,
-        fecha_dia: str | None = None,
-        agrupar_por: str = "FACTURA",
-        proveedor_filtro: str | None = None
-    ) -> list:
-        items_resultado = []
-        try:
-            filtros = ["estado_registro=eq.VÁLIDO"]
-            if fecha_dia:
-                filtros.append(f"fecha=gte.{fecha_dia}T00:00:00&fecha=lte.{fecha_dia}T23:59:59")
-            if proveedor_filtro and proveedor_filtro != "TODOS":
-                import urllib.parse
-                filtros.append(f"proveedor=eq.{urllib.parse.quote(proveedor_filtro.strip())}")
-
-            query_filtros = ("&" + "&".join(filtros)) if filtros else ""
-            endpoint = f"registro_compras?select=numero_entrada,numero_factura,proveedor,costo_total,fecha,cantidad{query_filtros}&order=fecha.desc"
-            
-            data_c = []
-            offset = 0
-            limit = 2500
-            while True:
-                headers = {"Range": f"{offset}-{offset + limit - 1}"}
-                res_c = self.db.get(endpoint, custom_headers=headers, timeout=10)
-                if not res_c or res_c.status_code not in (200, 206):
-                    break
-                chunk = res_c.json()
-                if not chunk:
-                    break
-                data_c.extend(chunk)
-                if len(chunk) < limit:
-                    break
-                offset += limit
-
-            if agrupar_por == "FACTURA":
-                agrupado = {}
-                for r in data_c:
-                    ref = r.get("numero_entrada") or r.get("numero_factura") or "S/N"
-                    if ref not in agrupado:
-                        agrupado[ref] = {
-                            "tipo": "COMPRA",
-                            "ref": ref,
-                            "factura": r.get("numero_factura") or ref,
-                            "proveedor": r.get("proveedor") or "Varios",
-                            "total": 0.0,
-                            "unidades": 0.0,
-                            "hora": r.get("fecha", "")[:10]
-                        }
-                    agrupado[ref]["total"] += float(r.get("costo_total") or 0)
-                    agrupado[ref]["unidades"] += float(r.get("cantidad") or 0)
-                items_resultado.extend(list(agrupado.values()))
-
-            elif agrupar_por == "PROVEEDOR":
-                agrupado = {}
-                facturas_por_prov = {}
-                for r in data_c:
-                    prov = r.get("proveedor") or "Varios"
-                    ref_f = r.get("numero_factura") or r.get("numero_entrada") or "S/N"
-                    if prov not in agrupado:
-                        agrupado[prov] = {
-                            "tipo": "PROVEEDOR_RESUMEN",
-                            "ref": prov,
-                            "proveedor": prov,
-                            "facturas_cant": 0,
-                            "total": 0.0,
-                            "unidades": 0.0,
-                            "hora": r.get("fecha", "")[:10]
-                        }
-                        facturas_por_prov[prov] = set()
-                    facturas_por_prov[prov].add(ref_f)
-                    agrupado[prov]["total"] += float(r.get("costo_total") or 0)
-                    agrupado[prov]["unidades"] += float(r.get("cantidad") or 0)
-
-                for prov in agrupado:
-                    agrupado[prov]["facturas_cant"] = len(facturas_por_prov[prov])
-
-                items_resultado.extend(list(agrupado.values()))
-
-            items_resultado.sort(key=lambda x: x["total"], reverse=True)
-            return items_resultado
-        except Exception as ex:
-            log_error(f"get_historial_compras_dia({fecha_dia})", ex)
-            return []
-
-    def insert_compras(self, compras_list: list) -> bool:
-        """Inserta compras por lotes y actualiza los costos del catálogo concurrentemente en background."""
-        if not compras_list:
-            return True
-        try:
-            self.insumos_repo.asegurar_insumos_existen(compras_list)
-
-            # Chunking para inserciones grandes
-            chunk_size = 100
-            for i in range(0, len(compras_list), chunk_size):
-                chunk = compras_list[i:i + chunk_size]
-                res = self.db.post("registro_compras", json_data=chunk, timeout=30)
-                if not (res and res.status_code in (200, 201, 204)):
-                    err = res.text if res else "No response"
-                    logger.error(f"Error en insert_compras chunk {i}: {err}")
-                    return False
-
-            # Desduplicar y actualizar costo_unitario en catalogo_insumos concurrentemente
-            costos_map = {}
-            for c in compras_list:
-                cod = str(c.get("codigo_insumo") or "").strip()
-                costo_u = float(c.get("costo_unitario") or 0)
-                if cod and costo_u > 0:
-                    costos_map[cod] = costo_u
-
-            def _actualizar_costo_item(item_tuple):
-                cod, cost = item_tuple
-                try:
-                    cod_q = urllib.parse.quote(cod)
-                    self.db.patch(f"catalogo_insumos?codigo_insumo=eq.{cod_q}", json_data={"costo_unitario": cost}, timeout=5)
-                except Exception as ex:
-                    logger.warning(f"Error actualizando costo insumo {cod}: {ex}")
-
-            def _actualizar_costos_worker(c_map):
-                with ThreadPoolExecutor(max_workers=5) as executor:
-                    executor.map(_actualizar_costo_item, c_map.items())
-
-            if costos_map:
-                threading.Thread(target=_actualizar_costos_worker, args=(costos_map,), daemon=True).start()
-
-            facs = list(set([
-                str(c.get("numero_factura") or c.get("numero_entrada") or "") 
-                for c in compras_list 
-                if (c.get("numero_factura") or c.get("numero_entrada"))
-            ]))
-            fac_txt = f" (Docs: {', '.join(facs[:3])}{'...' if len(facs)>3 else ''})" if facs else ""
-            tot_monto = sum([float(c.get("costo_total") or 0) for c in compras_list])
-            registrar_accion(
-                accion=f"Guardado de compras en BD: {len(compras_list)} registros{fac_txt} por ${tot_monto:,.0f}",
-                modulo="COMPRAS",
-                detalles={"registros": len(compras_list), "total": tot_monto, "documentos": facs}
-            )
-            return True
-        except Exception as ex:
-            log_error("insert_compras", ex)
-            return False
-
-    def get_entradas_existentes(self, lista_eas: list, lista_facturas: list = None) -> set:
-        """Consulta documentos de entrada y facturas ya registradas en la base de datos."""
-        existentes = set()
-        if lista_eas:
-            chunk_size = 50
-            for i in range(0, len(lista_eas), chunk_size):
-                chunk = lista_eas[i:i + chunk_size]
-                try:
-                    eas_str = ",".join([urllib.parse.quote(str(x).strip()) for x in chunk if str(x).strip()])
-                    endpoint = f"registro_compras?select=numero_entrada&numero_entrada=in.({eas_str})"
-                    res = self.db.get(endpoint, timeout=10)
-                    if res and res.status_code == 200:
-                        data = res.json()
-                        for item in data:
-                            if item.get("numero_entrada"):
-                                existentes.add(str(item["numero_entrada"]))
-                except Exception as ex:
-                    log_error("get_entradas_existentes", ex)
-
-        if lista_facturas:
-            chunk_size = 50
-            for i in range(0, len(lista_facturas), chunk_size):
-                chunk = lista_facturas[i:i + chunk_size]
-                try:
-                    fac_str = ",".join([urllib.parse.quote(str(x).strip()) for x in chunk if str(x).strip()])
-                    endpoint = f"registro_compras?select=numero_factura&numero_factura=in.({fac_str})"
-                    res = self.db.get(endpoint, timeout=10)
-                    if res and res.status_code == 200:
-                        data = res.json()
-                        for item in data:
-                            if item.get("numero_factura"):
-                                existentes.add(str(item["numero_factura"]))
-                except Exception as ex:
-                    log_error("get_entradas_existentes_fac", ex)
-        return existentes
-
-    def eliminar_compras_por_entradas(self, lista_entradas: list) -> bool:
-        """Elimina compras asociadas a los números de factura o entrada especificados."""
-        if not lista_entradas:
-            return True
-        try:
-            for ref in lista_entradas:
-                ref_q = urllib.parse.quote(str(ref).strip())
-                endpoint = f"registro_compras?or=(numero_entrada.eq.{ref_q},numero_factura.eq.{ref_q})"
-                self.db.delete(endpoint, timeout=10)
-
-            registrar_accion(
-                accion=f"Eliminación / Anulación de compras para documentos: {', '.join(lista_entradas)}",
-                modulo="COMPRAS",
-                detalles={"referencias_eliminadas": lista_entradas}
-            )
-            return True
-        except Exception as ex:
-            log_error("eliminar_compras_por_entradas", ex)
-            return False
-
-    def get_compras_summary(self, fecha_corte=None) -> dict:
-        """Calcula el resumen financiero de compras del mes y del día."""
-        try:
-            hoy = datetime.date.today().strftime("%Y-%m-%d")
-            mes_actual = hoy[:7]
-            
-            data = []
-            offset = 0
-            limit = 2500
-            while True:
-                headers = {"Range": f"{offset}-{offset + limit - 1}"}
-                res = self.db.get(
-                    "registro_compras?select=fecha,cantidad,costo_total,iva,valor_iva,estado_registro&estado_registro=eq.VÁLIDO", 
-                    custom_headers=headers, 
-                    timeout=15
-                )
-                if not res or res.status_code not in (200, 206):
-                    break
-                chunk = res.json()
-                if not chunk:
-                    break
-                data.extend(chunk)
-                if len(chunk) < limit:
-                    break
-                offset += limit
-
-            total_mes = 0.0
-            total_hoy = 0.0
-            cant_tot = 0.0
-            iva_mes = 0.0
-            iva_hoy = 0.0
-
-            for c in data:
-                f = str(c.get("fecha") or "")[:10]
-                if fecha_corte and f > fecha_corte:
-                    continue
-                monto = float(c.get("costo_total") or 0)
-                cant = float(c.get("cantidad") or 0)
-                iva_val = float(c.get("iva") or c.get("valor_iva") or 0)
-
-                if f.startswith(mes_actual):
-                    total_mes += monto
-                    iva_mes += iva_val
-                if f == hoy:
-                    total_hoy += monto
-                    iva_hoy += iva_val
-                cant_tot += cant
-
-            return {
-                "total_mes": total_mes,
-                "total_hoy": total_hoy,
-                "cantidad_total": cant_tot,
-                "iva_mes": iva_mes,
-                "iva_hoy": iva_hoy
-            }
-        except Exception as ex:
-            log_error("get_compras_summary", ex)
-            return {"total_mes": 0, "total_hoy": 0, "cantidad_total": 0, "iva_mes": 0, "iva_hoy": 0}
-
-    def update_compra_individual(self, id_compra: str, datos: dict) -> bool:
-        """Actualiza un registro individual de compra."""
-        try:
-            id_q = urllib.parse.quote(str(id_compra).strip())
-            endpoint = f"registro_compras?id_compra=eq.{id_q}"
-            res = self.db.patch(endpoint, json_data=datos, timeout=10)
-            return bool(res and res.status_code in (200, 204))
-        except Exception as ex:
-            log_error(f"update_compra_individual({id_compra})", ex)
-            return False
-
-    def eliminar_compra_individual(self, id_compra: str) -> bool:
-        """Elimina un registro individual de compra por su ID único."""
-        try:
-            id_q = urllib.parse.quote(str(id_compra).strip())
-            endpoint = f"registro_compras?id_compra=eq.{id_q}"
-            res = self.db.delete(endpoint, timeout=10)
-            return bool(res and res.status_code in (200, 204))
-        except Exception as ex:
-            log_error(f"eliminar_compra_individual({id_compra})", ex)
-            return False
-````
-
-## File: ui/layout/sidebar.py
-````python
-"""
-Barra lateral de navegación (Sidebar) para Sistema Doña Mary.
-Diseño moderno, responsivo por roles, con micro-interacciones y botón de despliegue siempre visible.
-"""
-import flet as ft
-from config import Config
-
-class Sidebar(ft.Container):
-    def __init__(self, on_route_change, usuario_data=None, on_logout=None):
-        super().__init__()
-        self.on_route_change = on_route_change
-        self.usuario_data = usuario_data or {}
-        self.on_logout = on_logout
-        self.is_expanded = True
-        
-        self.width = 250
-        self.bgcolor = Config.COLOR_PRIMARY
-        self.padding = ft.padding.all(12)
-        self.border_radius = ft.border_radius.only(top_right=16, bottom_right=16)
-        self.animate = ft.animation.Animation(280, ft.AnimationCurve.EASE_OUT)
-
-        # Encabezado de Marca
-        self.logo_icon = ft.Icon(ft.icons.STOREFRONT_ROUNDED, color=Config.COLOR_ACCENT, size=22)
-        self.lbl_brand = ft.Text("Doña Mary", size=16, weight="bold", color="white", no_wrap=True)
-        self.lbl_brand_sub = ft.Text("Inventario & POS", size=10, color="white54", no_wrap=True)
-        
-        self.brand_text_col = ft.Column([self.lbl_brand, self.lbl_brand_sub], spacing=0)
-        
-        self.toggle_btn = ft.IconButton(
-            icon=ft.icons.MENU_OPEN_ROUNDED,
-            icon_color="white",
-            icon_size=20,
-            on_click=self.toggle_sidebar,
-            tooltip="Colapsar menú"
-        )
-
-        self.logo_box = ft.Container(
-            content=self.logo_icon,
-            bgcolor=ft.colors.with_opacity(0.15, Config.COLOR_ACCENT),
-            padding=6,
-            border_radius=8,
-            on_click=self.toggle_sidebar,
-            tooltip="Alternar menú"
-        )
-
-        self.brand_header = ft.Container(
-            content=ft.Row([
-                self.logo_box,
-                self.brand_text_col,
-                ft.Container(expand=True),
-                self.toggle_btn
-            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=ft.padding.only(left=2, right=2, top=4, bottom=8)
-        )
-
-        # Extraer Datos de Usuario
-        nombre_completo = self.usuario_data.get("nombre_completo") or self.usuario_data.get("usuario") or "Usuario"
-        partes = nombre_completo.split()
-        primer_nombre = partes[0] if partes else "Usuario"
-        if primer_nombre.lower() in ["doña", "dona"] and len(partes) > 1:
-            primer_nombre = f"{partes[0]} {partes[1]}"
-            
-        rol_txt = str(self.usuario_data.get("rol", "OPERADOR")).capitalize()
-
-        # Avatar y Badge de Usuario
-        iniciales = primer_nombre[:2].upper()
-        self.user_avatar = ft.Container(
-            content=ft.Text(iniciales, size=12, weight="bold", color="white"),
-            width=32,
-            height=32,
-            bgcolor=Config.COLOR_ACCENT,
-            border_radius=16,
-            alignment=ft.alignment.center
-        )
-
-        self.lbl_saludo = ft.Text(f"{primer_nombre}", color="white", size=12, weight="w600", no_wrap=True)
-        self.lbl_rol = ft.Text(rol_txt, color="white54", size=10, no_wrap=True)
-
-        self.user_info_col = ft.Column([
-            self.lbl_saludo,
-            self.lbl_rol
-        ], spacing=0, alignment=ft.MainAxisAlignment.CENTER)
-
-        self.btn_logout = ft.IconButton(
-            icon=ft.icons.LOGOUT_ROUNDED,
-            icon_color="white54",
-            icon_size=18,
-            tooltip="Cerrar Sesión",
-            on_click=lambda e: self.on_logout() if self.on_logout else None
-        )
-
-        self.user_badge = ft.Container(
-            content=ft.Row([
-                self.user_avatar,
-                self.user_info_col,
-                ft.Container(expand=True),
-                self.btn_logout
-            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=ft.padding.symmetric(horizontal=8, vertical=6),
-            bgcolor=ft.colors.with_opacity(0.08, "white"),
-            border=ft.border.all(1, ft.colors.with_opacity(0.12, "white")),
-            border_radius=10,
-            margin=ft.padding.only(bottom=10)
-        )
-
-        self.menu_items = {}
-        self.footer_text = ft.Text(
-            "v1.0 • Eliana Garces 2026",
-            color="white38", size=10, text_align=ft.TextAlign.CENTER
-        )
-
-        # Control de Permisos
-        username = str(self.usuario_data.get("usuario", "")).lower()
-        rol = str(self.usuario_data.get("rol", "OPERADOR")).upper()
-        es_admin = username in ["eliana", "cesar", "mary"] or rol == "ADMINISTRADOR"
-
-        menu_controls = [
-            self.brand_header,
-            self.user_badge
-        ]
-
-        if es_admin:
-            menu_controls.append(self._create_menu_item("Dashboard", ft.icons.DASHBOARD_ROUNDED, "dashboard"))
-
-        menu_controls.append(self._create_menu_item("Inventario", ft.icons.INVENTORY_2_ROUNDED, "inventario"))
-        menu_controls.append(self._create_menu_item("Compras", ft.icons.ADD_SHOPPING_CART_ROUNDED, "compras"))
-        menu_controls.append(self._create_menu_item("Ventas", ft.icons.POINT_OF_SALE_ROUNDED, "ventas"))
-        menu_controls.append(self._create_menu_item("Ajustes de Stock", ft.icons.TUNE_ROUNDED, "ajustes_inventario"))
-
-        if es_admin or rol == "AUDITOR":
-            menu_controls.append(self._create_menu_item("Cierre de Mes", ft.icons.FACT_CHECK_ROUNDED, "cierre_mes"))
-            menu_controls.append(self._create_menu_item("Informes", ft.icons.INSERT_CHART_ROUNDED, "informes"))
-
-        menu_controls.extend([
-            ft.Container(expand=True),
-            ft.Container(
-                content=self.footer_text,
-                alignment=ft.alignment.center,
-                padding=ft.padding.only(top=5, bottom=5),
-                on_click=self.mostrar_disclaimer,
-                tooltip="Ver Créditos e Información Legal"
-            )
-        ])
-
-        self.content = ft.Column(controls=menu_controls, spacing=4)
-
-    def _create_menu_item(self, text, icon, route):
-        item = ft.ListTile(
-            leading=ft.Icon(icon, color="white70", size=20),
-            title=ft.Text(text, color="white70", size=13, weight="w500"),
-            hover_color=ft.colors.with_opacity(0.08, "white"),
-            content_padding=ft.padding.only(left=10, right=10),
-            on_click=lambda _, r=route: self.on_route_change(r),
-            tooltip=text
-        )
-        self.menu_items[route] = item
-        return item
-
-    def actualizar_estado_activo(self, ruta_actual):
-        for route, item in self.menu_items.items():
-            is_active = (route == ruta_actual)
-            item.bgcolor = ft.colors.with_opacity(0.18, Config.COLOR_ACCENT) if is_active else None
-            item.leading.color = Config.COLOR_ACCENT if is_active else "white70"
-            item.title.color = "white" if is_active else "white70"
-            item.title.weight = "bold" if is_active else "w500"
-        try:
-            self.update()
-        except Exception:
-            pass
-
-    def toggle_sidebar(self, e):
-        self.is_expanded = not self.is_expanded
-        self.width = 250 if self.is_expanded else 70
-        self.toggle_btn.icon = ft.icons.MENU_OPEN_ROUNDED if self.is_expanded else ft.icons.MENU_ROUNDED
-        self.toggle_btn.tooltip = "Colapsar menú" if self.is_expanded else "Desplegar menú"
-
-        self.brand_text_col.visible = self.is_expanded
-        self.user_info_col.visible = self.is_expanded
-        self.btn_logout.visible = self.is_expanded
-        self.footer_text.visible = self.is_expanded
-
-        # Alternar estructura del encabezado según esté colapsado o expandido
-        if self.is_expanded:
-            self.brand_header.content = ft.Row([
-                self.logo_box,
-                self.brand_text_col,
-                ft.Container(expand=True),
-                self.toggle_btn
-            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-            self.brand_header.padding = ft.padding.only(left=2, right=2, top=4, bottom=8)
-        else:
-            # En modo colapsado, centrar el botón de menú para fácil despliegue
-            self.brand_header.content = ft.Row([
-                self.toggle_btn
-            ], alignment=ft.MainAxisAlignment.CENTER)
-            self.brand_header.padding = ft.padding.only(top=4, bottom=8)
-
-        self.user_avatar.width = 32 if self.is_expanded else 26
-        self.user_avatar.height = 32 if self.is_expanded else 26
-        self.user_badge.padding = ft.padding.symmetric(horizontal=8, vertical=6) if self.is_expanded else ft.padding.all(4)
-
-        for control in self.content.controls:
-            if isinstance(control, ft.ListTile):
-                control.title.visible = self.is_expanded
-                control.content_padding = ft.padding.only(left=10 if self.is_expanded else 6, right=10 if self.is_expanded else 6)
-
-        try:
-            self.update()
-        except Exception:
-            pass
-
-    def mostrar_disclaimer(self, e):
-        dlg = ft.AlertDialog(
-            title=ft.Row([
-                ft.Icon(ft.icons.GAVEL_ROUNDED, color=Config.COLOR_ACCENT),
-                ft.Text("Información Legal y Créditos", size=16, weight="bold", color=Config.COLOR_PRIMARY)
-            ]),
-            content=ft.Column([
-                ft.Text("Versión del Software: 1.0", size=13, weight="bold"),
-                ft.Divider(height=10, color=Config.COLOR_BORDER),
-                ft.Text("Autoría Intelectual:", size=13, weight="bold", color=Config.COLOR_PRIMARY),
-                ft.Text("Este software fue diseñado, estructurado y desarrollado en su totalidad por Eliana Garces. Todos los derechos sobre el código fuente y la arquitectura de la aplicación están reservados a su autor.", size=12, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.JUSTIFY),
-                ft.Divider(height=10, color=Config.COLOR_BORDER),
-                ft.Text("Descargo de Responsabilidad:", size=13, weight="bold", color=Config.COLOR_DANGER),
-                ft.Text("La veracidad de la información, el manejo de inventarios, la gestión financiera y el uso general de los datos introducidos en esta plataforma, así como las decisiones operativas tomadas en base a los mismos, son responsabilidad única y exclusiva de Abarrotes y Desechables de Doña Mary SAS.", size=12, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.JUSTIFY)
-            ], tight=True, spacing=5, width=420),
-            actions=[
-                ft.TextButton("Cerrar", on_click=lambda e: self._cerrar_dialogo(dlg))
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-            shape=ft.RoundedRectangleBorder(radius=12)
-        )
-        if self.page:
-            if hasattr(self.page, "open"):
-                self.page.open(dlg)
-            else:
-                self.page.overlay.append(dlg)
-                dlg.open = True
-                self.page.update()
-
-    def _cerrar_dialogo(self, dlg):
-        if self.page:
-            if hasattr(self.page, "close"):
-                self.page.close(dlg)
-            else:
-                dlg.open = False
-                self.page.update()
-
-    def mostrar_modal_qr(self, e=None):
-        from core.mobile_service import MobileCountingService
-        from core.mobile_server import iniciar_servidor_en_hilo
-        iniciar_servidor_en_hilo(port=8550)
-        
-        service = MobileCountingService()
-        url = service.get_server_url(port=8550)
-        qr_b64 = service.get_qr_base64(port=8550)
-
-        def copiar_url(ev):
-            if self.page:
-                self.page.set_clipboard(url)
-                self.page.snack_bar = ft.SnackBar(ft.Text(f"Enlace copiado al portapapeles: {url}"), bgcolor=Config.COLOR_SUCCESS)
-                self.page.snack_bar.open = True
-                self.page.update()
-
-        dlg = ft.AlertDialog(
-            title=ft.Row([
-                ft.Icon(ft.icons.PHONE_ANDROID_ROUNDED, color=Config.COLOR_ACCENT),
-                ft.Text("Conteo Móvil Wi-Fi (Bodega)", size=16, weight="bold", color=Config.COLOR_PRIMARY)
-            ]),
-            content=ft.Column([
-                ft.Row([
-                    ft.Container(
-                        content=ft.Row([
-                            ft.Container(width=8, height=8, bgcolor=Config.COLOR_SUCCESS, border_radius=4),
-                            ft.Text("Servidor Activo en Red Local", size=11, weight="bold", color=Config.COLOR_SUCCESS)
-                        ], spacing=6),
-                        padding=ft.padding.symmetric(horizontal=10, vertical=4),
-                        bgcolor=Config.COLOR_SUCCESS_BG,
-                        border_radius=12,
-                        border=ft.border.all(1, ft.colors.with_opacity(0.3, Config.COLOR_SUCCESS))
-                    )
-                ], alignment=ft.MainAxisAlignment.CENTER),
-                ft.Container(
-                    content=ft.Image(src_base64=qr_b64, width=190, height=190, fit=ft.ImageFit.CONTAIN),
-                    alignment=ft.alignment.center,
-                    padding=10,
-                    bgcolor="white",
-                    border=ft.border.all(1, Config.COLOR_BORDER),
-                    border_radius=12
-                ),
-                ft.Container(
-                    content=ft.Row([
-                        ft.Icon(ft.icons.LINK_ROUNDED, size=16, color=Config.COLOR_ACCENT),
-                        ft.Text(url, size=13, weight="bold", color=Config.COLOR_ACCENT, selectable=True),
-                        ft.IconButton(icon=ft.icons.COPY_ALL_ROUNDED, icon_size=18, tooltip="Copiar enlace", on_click=copiar_url)
-                    ], alignment=ft.MainAxisAlignment.CENTER),
-                    padding=ft.padding.symmetric(horizontal=10, vertical=4),
-                    bgcolor=Config.COLOR_BACKGROUND,
-                    border=ft.border.all(1, Config.COLOR_BORDER),
-                    border_radius=8
-                ),
-                ft.Text(
-                    "Apunta con la cámara de cualquier teléfono conectado a la red Wi-Fi de la bodega para registrar el stock inicial de Agosto sin cables ni instalaciones.",
-                    size=11, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.CENTER
-                )
-            ], tight=True, spacing=10, width=380, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            actions=[
-                ft.TextButton("Copiar Enlace", on_click=copiar_url),
-                ft.ElevatedButton("Cerrar", bgcolor=Config.COLOR_PRIMARY, color="white", on_click=lambda e: self._cerrar_dialogo(dlg))
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-            shape=ft.RoundedRectangleBorder(radius=14)
-        )
-        if self.page:
-            if hasattr(self.page, "open"):
-                self.page.open(dlg)
-            else:
-                self.page.overlay.append(dlg)
-                dlg.open = True
-                self.page.update()
 ````
 
 ## File: ui/views/informes.py
@@ -335102,9 +337268,1795 @@ class InformesView(ft.Container):
                 self.page.update()
 ````
 
+## File: ui/layout/sidebar.py
+````python
+"""
+Barra lateral de navegación (Sidebar) para Sistema Doña Mary.
+Diseño moderno, responsivo por roles, con micro-interacciones y botón de despliegue siempre visible.
+"""
+import flet as ft
+from config import Config
+
+class Sidebar(ft.Container):
+    def __init__(self, on_route_change, usuario_data=None, on_logout=None):
+        super().__init__()
+        self.on_route_change = on_route_change
+        self.usuario_data = usuario_data or {}
+        self.on_logout = on_logout
+        self.is_expanded = True
+        
+        self.width = 250
+        self.bgcolor = Config.COLOR_PRIMARY
+        self.padding = ft.padding.all(12)
+        self.border_radius = ft.border_radius.only(top_right=16, bottom_right=16)
+        self.animate = ft.animation.Animation(280, ft.AnimationCurve.EASE_OUT)
+
+        # Encabezado de Marca
+        self.logo_icon = ft.Icon(ft.icons.STOREFRONT_ROUNDED, color=Config.COLOR_ACCENT, size=22)
+        self.lbl_brand = ft.Text("Doña Mary", size=16, weight="bold", color="white", no_wrap=True)
+        self.lbl_brand_sub = ft.Text("Inventario & POS", size=10, color="white54", no_wrap=True)
+        
+        self.brand_text_col = ft.Column([self.lbl_brand, self.lbl_brand_sub], spacing=0)
+        
+        self.toggle_btn = ft.IconButton(
+            icon=ft.icons.MENU_OPEN_ROUNDED,
+            icon_color="white",
+            icon_size=20,
+            on_click=self.toggle_sidebar,
+            tooltip="Colapsar menú"
+        )
+
+        self.logo_box = ft.Container(
+            content=self.logo_icon,
+            bgcolor=ft.colors.with_opacity(0.15, Config.COLOR_ACCENT),
+            padding=6,
+            border_radius=8,
+            on_click=self.toggle_sidebar,
+            tooltip="Alternar menú"
+        )
+
+        self.brand_header = ft.Container(
+            content=ft.Row([
+                self.logo_box,
+                self.brand_text_col,
+                ft.Container(expand=True),
+                self.toggle_btn
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.padding.only(left=2, right=2, top=4, bottom=8)
+        )
+
+        # Extraer Datos de Usuario
+        nombre_completo = self.usuario_data.get("nombre_completo") or self.usuario_data.get("usuario") or "Usuario"
+        partes = nombre_completo.split()
+        primer_nombre = partes[0] if partes else "Usuario"
+        if primer_nombre.lower() in ["doña", "dona"] and len(partes) > 1:
+            primer_nombre = f"{partes[0]} {partes[1]}"
+            
+        rol_txt = str(self.usuario_data.get("rol", "OPERADOR")).capitalize()
+
+        # Avatar y Badge de Usuario
+        iniciales = primer_nombre[:2].upper()
+        self.user_avatar = ft.Container(
+            content=ft.Text(iniciales, size=12, weight="bold", color="white"),
+            width=32,
+            height=32,
+            bgcolor=Config.COLOR_ACCENT,
+            border_radius=16,
+            alignment=ft.alignment.center
+        )
+
+        self.lbl_saludo = ft.Text(f"{primer_nombre}", color="white", size=12, weight="w600", no_wrap=True)
+        self.lbl_rol = ft.Text(rol_txt, color="white54", size=10, no_wrap=True)
+
+        self.user_info_col = ft.Column([
+            self.lbl_saludo,
+            self.lbl_rol
+        ], spacing=0, alignment=ft.MainAxisAlignment.CENTER)
+
+        self.btn_logout = ft.IconButton(
+            icon=ft.icons.LOGOUT_ROUNDED,
+            icon_color="white54",
+            icon_size=18,
+            tooltip="Cerrar Sesión",
+            on_click=lambda e: self.on_logout() if self.on_logout else None
+        )
+
+        self.user_badge = ft.Container(
+            content=ft.Row([
+                self.user_avatar,
+                self.user_info_col,
+                ft.Container(expand=True),
+                self.btn_logout
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.padding.symmetric(horizontal=8, vertical=6),
+            bgcolor=ft.colors.with_opacity(0.08, "white"),
+            border=ft.border.all(1, ft.colors.with_opacity(0.12, "white")),
+            border_radius=10,
+            margin=ft.padding.only(bottom=10)
+        )
+
+        self.menu_items = {}
+        self.footer_text = ft.Text(
+            "v1.0 • Eliana Garces 2026",
+            color="white38", size=10, text_align=ft.TextAlign.CENTER
+        )
+
+        # Control de Permisos
+        username = str(self.usuario_data.get("usuario", "")).lower()
+        rol = str(self.usuario_data.get("rol", "OPERADOR")).upper()
+        es_admin = username in ["eliana", "cesar", "mary"] or rol == "ADMINISTRADOR"
+
+        menu_controls = [
+            self.brand_header,
+            self.user_badge
+        ]
+
+        if es_admin:
+            menu_controls.append(self._create_menu_item("Dashboard", ft.icons.DASHBOARD_ROUNDED, "dashboard"))
+
+        menu_controls.append(self._create_menu_item("Inventario", ft.icons.INVENTORY_2_ROUNDED, "inventario"))
+        menu_controls.append(self._create_menu_item("Compras", ft.icons.ADD_SHOPPING_CART_ROUNDED, "compras"))
+        menu_controls.append(self._create_menu_item("Ventas", ft.icons.POINT_OF_SALE_ROUNDED, "ventas"))
+        menu_controls.append(self._create_menu_item("Cartera", ft.icons.ACCOUNT_BALANCE_WALLET_ROUNDED, "cartera"))
+        menu_controls.append(self._create_menu_item("Ajustes de Stock", ft.icons.TUNE_ROUNDED, "ajustes_inventario"))
+
+        if es_admin or rol == "AUDITOR":
+            menu_controls.append(self._create_menu_item("Cierre de Mes", ft.icons.FACT_CHECK_ROUNDED, "cierre_mes"))
+            menu_controls.append(self._create_menu_item("Informes", ft.icons.INSERT_CHART_ROUNDED, "informes"))
+
+        menu_controls.extend([
+            ft.Container(expand=True),
+            ft.Container(
+                content=self.footer_text,
+                alignment=ft.alignment.center,
+                padding=ft.padding.only(top=5, bottom=5),
+                on_click=self.mostrar_disclaimer,
+                tooltip="Ver Créditos e Información Legal"
+            )
+        ])
+
+        self.content = ft.Column(controls=menu_controls, spacing=4)
+
+    def _create_menu_item(self, text, icon, route):
+        item = ft.ListTile(
+            leading=ft.Icon(icon, color="white70", size=20),
+            title=ft.Text(text, color="white70", size=13, weight="w500"),
+            hover_color=ft.colors.with_opacity(0.08, "white"),
+            content_padding=ft.padding.only(left=10, right=10),
+            on_click=lambda _, r=route: self.on_route_change(r),
+            tooltip=text
+        )
+        self.menu_items[route] = item
+        return item
+
+    def actualizar_estado_activo(self, ruta_actual):
+        for route, item in self.menu_items.items():
+            is_active = (route == ruta_actual)
+            item.bgcolor = ft.colors.with_opacity(0.18, Config.COLOR_ACCENT) if is_active else None
+            item.leading.color = Config.COLOR_ACCENT if is_active else "white70"
+            item.title.color = "white" if is_active else "white70"
+            item.title.weight = "bold" if is_active else "w500"
+        try:
+            self.update()
+        except Exception:
+            pass
+
+    def toggle_sidebar(self, e):
+        self.is_expanded = not self.is_expanded
+        self.width = 250 if self.is_expanded else 70
+        self.toggle_btn.icon = ft.icons.MENU_OPEN_ROUNDED if self.is_expanded else ft.icons.MENU_ROUNDED
+        self.toggle_btn.tooltip = "Colapsar menú" if self.is_expanded else "Desplegar menú"
+
+        self.brand_text_col.visible = self.is_expanded
+        self.user_info_col.visible = self.is_expanded
+        self.btn_logout.visible = self.is_expanded
+        self.footer_text.visible = self.is_expanded
+
+        # Alternar estructura del encabezado según esté colapsado o expandido
+        if self.is_expanded:
+            self.brand_header.content = ft.Row([
+                self.logo_box,
+                self.brand_text_col,
+                ft.Container(expand=True),
+                self.toggle_btn
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            self.brand_header.padding = ft.padding.only(left=2, right=2, top=4, bottom=8)
+        else:
+            # En modo colapsado, centrar el botón de menú para fácil despliegue
+            self.brand_header.content = ft.Row([
+                self.toggle_btn
+            ], alignment=ft.MainAxisAlignment.CENTER)
+            self.brand_header.padding = ft.padding.only(top=4, bottom=8)
+
+        self.user_avatar.width = 32 if self.is_expanded else 26
+        self.user_avatar.height = 32 if self.is_expanded else 26
+        self.user_badge.padding = ft.padding.symmetric(horizontal=8, vertical=6) if self.is_expanded else ft.padding.all(4)
+
+        for control in self.content.controls:
+            if isinstance(control, ft.ListTile):
+                control.title.visible = self.is_expanded
+                control.content_padding = ft.padding.only(left=10 if self.is_expanded else 6, right=10 if self.is_expanded else 6)
+
+        try:
+            self.update()
+        except Exception:
+            pass
+
+    def mostrar_disclaimer(self, e):
+        dlg = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.GAVEL_ROUNDED, color=Config.COLOR_ACCENT),
+                ft.Text("Información Legal y Créditos", size=16, weight="bold", color=Config.COLOR_PRIMARY)
+            ]),
+            content=ft.Column([
+                ft.Text("Versión del Software: 1.0", size=13, weight="bold"),
+                ft.Divider(height=10, color=Config.COLOR_BORDER),
+                ft.Text("Autoría Intelectual:", size=13, weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Text("Este software fue diseñado, estructurado y desarrollado en su totalidad por Eliana Garces. Todos los derechos sobre el código fuente y la arquitectura de la aplicación están reservados a su autor.", size=12, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.JUSTIFY),
+                ft.Divider(height=10, color=Config.COLOR_BORDER),
+                ft.Text("Descargo de Responsabilidad:", size=13, weight="bold", color=Config.COLOR_DANGER),
+                ft.Text("La veracidad de la información, el manejo de inventarios, la gestión financiera y el uso general de los datos introducidos en esta plataforma, así como las decisiones operativas tomadas en base a los mismos, son responsabilidad única y exclusiva de Abarrotes y Desechables de Doña Mary SAS.", size=12, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.JUSTIFY)
+            ], tight=True, spacing=5, width=420),
+            actions=[
+                ft.TextButton("Cerrar", on_click=lambda e: self._cerrar_dialogo(dlg))
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+            shape=ft.RoundedRectangleBorder(radius=12)
+        )
+        if self.page:
+            if hasattr(self.page, "open"):
+                self.page.open(dlg)
+            else:
+                self.page.overlay.append(dlg)
+                dlg.open = True
+                self.page.update()
+
+    def _cerrar_dialogo(self, dlg):
+        if self.page:
+            if hasattr(self.page, "close"):
+                self.page.close(dlg)
+            else:
+                dlg.open = False
+                self.page.update()
+
+    def mostrar_modal_qr(self, e=None):
+        from core.mobile_service import MobileCountingService
+        from core.mobile_server import iniciar_servidor_en_hilo
+        iniciar_servidor_en_hilo(port=8550)
+        
+        service = MobileCountingService()
+        url = service.get_server_url(port=8550)
+        qr_b64 = service.get_qr_base64(port=8550)
+
+        def copiar_url(ev):
+            if self.page:
+                self.page.set_clipboard(url)
+                self.page.snack_bar = ft.SnackBar(ft.Text(f"Enlace copiado al portapapeles: {url}"), bgcolor=Config.COLOR_SUCCESS)
+                self.page.snack_bar.open = True
+                self.page.update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.PHONE_ANDROID_ROUNDED, color=Config.COLOR_ACCENT),
+                ft.Text("Conteo Móvil Wi-Fi (Bodega)", size=16, weight="bold", color=Config.COLOR_PRIMARY)
+            ]),
+            content=ft.Column([
+                ft.Row([
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Container(width=8, height=8, bgcolor=Config.COLOR_SUCCESS, border_radius=4),
+                            ft.Text("Servidor Activo en Red Local", size=11, weight="bold", color=Config.COLOR_SUCCESS)
+                        ], spacing=6),
+                        padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                        bgcolor=Config.COLOR_SUCCESS_BG,
+                        border_radius=12,
+                        border=ft.border.all(1, ft.colors.with_opacity(0.3, Config.COLOR_SUCCESS))
+                    )
+                ], alignment=ft.MainAxisAlignment.CENTER),
+                ft.Container(
+                    content=ft.Image(src_base64=qr_b64, width=190, height=190, fit=ft.ImageFit.CONTAIN),
+                    alignment=ft.alignment.center,
+                    padding=10,
+                    bgcolor="white",
+                    border=ft.border.all(1, Config.COLOR_BORDER),
+                    border_radius=12
+                ),
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.icons.LINK_ROUNDED, size=16, color=Config.COLOR_ACCENT),
+                        ft.Text(url, size=13, weight="bold", color=Config.COLOR_ACCENT, selectable=True),
+                        ft.IconButton(icon=ft.icons.COPY_ALL_ROUNDED, icon_size=18, tooltip="Copiar enlace", on_click=copiar_url)
+                    ], alignment=ft.MainAxisAlignment.CENTER),
+                    padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                    bgcolor=Config.COLOR_BACKGROUND,
+                    border=ft.border.all(1, Config.COLOR_BORDER),
+                    border_radius=8
+                ),
+                ft.Text(
+                    "Apunta con la cámara de cualquier teléfono conectado a la red Wi-Fi de la bodega para registrar el stock inicial de Agosto sin cables ni instalaciones.",
+                    size=11, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.CENTER
+                )
+            ], tight=True, spacing=10, width=380, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            actions=[
+                ft.TextButton("Copiar Enlace", on_click=copiar_url),
+                ft.ElevatedButton("Cerrar", bgcolor=Config.COLOR_PRIMARY, color="white", on_click=lambda e: self._cerrar_dialogo(dlg))
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+            shape=ft.RoundedRectangleBorder(radius=14)
+        )
+        if self.page:
+            if hasattr(self.page, "open"):
+                self.page.open(dlg)
+            else:
+                self.page.overlay.append(dlg)
+                dlg.open = True
+                self.page.update()
+````
+
 ## File: cargas_compras_locales.json
 ````json
 {}
+````
+
+## File: ui/views/dashboard.py
+````python
+import flet as ft
+import threading
+import datetime
+import calendar
+from concurrent.futures import ThreadPoolExecutor
+from config import Config
+from core.supabase_client import SupabaseClient
+from core.fecha_utils import get_ahora_local, get_hoy_local_str, get_mes_actual_str
+
+class DashboardView(ft.Container):
+    def __init__(self, page: ft.Page = None):
+        super().__init__()
+        self.page = page
+        self.expand = True
+        self.padding = 20
+        self.db = SupabaseClient()
+        
+        self.lbl_periodo_dash = ft.Text("Periodo: ...", size=13, weight="bold", color=Config.COLOR_PRIMARY)
+        self.lbl_estado_dash = ft.Text("Estado: ...", size=13, weight="bold")
+        self.lbl_fecha_hora = ft.Text("...", size=12, color="grey")
+
+        self.fecha_filtro_dash = None
+        self.date_picker_dash = ft.DatePicker(
+            on_change=self.on_fecha_dash_change,
+            first_date=datetime.datetime(2020, 1, 1),
+            last_date=datetime.datetime(2035, 12, 31)
+        )
+
+        self.btn_fecha_dash = ft.OutlinedButton(
+            text=f"Fecha: {get_ahora_local().strftime('%d/%m/%Y')}",
+            icon=ft.icons.CALENDAR_MONTH,
+            on_click=lambda e: self.date_picker_dash.pick_date(),
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            height=38
+        )
+        self.btn_clear_fecha_dash = ft.IconButton(
+            icon=ft.icons.CLEAR, icon_color="red", tooltip="Restablecer a Hoy",
+            visible=False, on_click=self.limpiar_filtro_fecha_dash
+        )
+
+        badge_info = ft.Container(
+            content=ft.Row([
+                ft.Column([
+                    ft.Row([self.lbl_periodo_dash, ft.Text("|", color="grey", size=13), self.lbl_estado_dash], spacing=5),
+                    ft.Row([ft.Icon(ft.icons.ACCESS_TIME, size=14, color="grey"), self.lbl_fecha_hora], spacing=5)
+                ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=2),
+                ft.Container(width=10),
+                self.btn_fecha_dash,
+                self.btn_clear_fecha_dash
+            ], alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.padding.symmetric(horizontal=15, vertical=10),
+            bgcolor="white",
+            border_radius=8,
+            border=ft.border.all(1, Config.COLOR_BORDER),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.04, "black"), offset=ft.Offset(0, 1))
+        )
+
+        header_row = ft.Row([
+            ft.Column([
+                ft.Text("Dashboard General", size=26, weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Text("Resumen ejecutivo del sistema", size=13, color=Config.COLOR_TEXT_MUTED),
+            ], spacing=2),
+            badge_info
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        
+        # Tarjetas de KPIs (Valores Iniciales) - SECCIÓN COSTOS
+        self.val_inventario = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
+        self.sub_inventario = ft.Text("Valoración real stock > 0", size=10, color="grey600")
+        
+        self.val_compras = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
+        self.sub_compras = ft.Text("Entradas acumuladas del mes", size=10, color="grey600")
+        
+        self.val_compras_hoy = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
+        self.sub_compras_hoy = ft.Text("Registradas hoy", size=10, color="grey600")
+        
+        self.val_rotacion = ft.Text("N/D", size=13, weight="bold", color="teal800")
+        
+        # SECCIÓN VENTAS
+        self.val_ingresos = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
+        self.sub_ingresos = ft.Text("Salidas acumuladas del mes", size=10, color="grey600")
+        
+        self.val_cumplimiento_mes = ft.Text("0.0%", size=22, weight="bold", color="teal800")
+        self.sub_cumplimiento_mes = ft.Text("Capacidad: $ 0", size=10, color="grey600")
+
+        self.val_ventas_hoy = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
+        self.sub_ventas_hoy = ft.Text("Registradas hoy", size=10, color="grey600")
+        
+        self.val_cumplimiento_hoy = ft.Text("0.0%", size=22, weight="bold", color="teal800")
+        self.sub_cumplimiento_hoy = ft.Text("Meta diaria: $ 0", size=10, color="grey600")
+
+        self.val_rentabilidad = ft.Text("0.0%", size=13, weight="bold", color="teal800")
+        self.val_proyeccion_ventas = ft.Text("$ 0", size=13, weight="bold", color=Config.COLOR_PRIMARY)
+        self.val_proyeccion_rentabilidad = ft.Text("0.0%", size=13, weight="bold", color="teal800")
+        
+        self.kpi_costos_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("Costo Inv. Actual", self.val_inventario, ft.icons.INVENTORY_2_ROUNDED, subtext_control=self.sub_inventario, card_color="#3b82f6"), col={"xs": 12, "sm": 6, "md": 4}),
+            ft.Container(content=self._build_kpi_card("Total Compras (Mes)", self.val_compras, ft.icons.SHOPPING_BAG_ROUNDED, subtext_control=self.sub_compras, card_color="#8b5cf6"), col={"xs": 12, "sm": 6, "md": 4}),
+            ft.Container(content=self._build_kpi_card("Compras (Hoy)", self.val_compras_hoy, ft.icons.PAYMENTS_ROUNDED, subtext_control=self.sub_compras_hoy, card_color="#f59e0b"), col={"xs": 12, "sm": 6, "md": 4}),
+        ], spacing=12, run_spacing=12)
+
+        self.kpi_ventas_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("Total Ventas (Mes)", self.val_ingresos, ft.icons.TRENDING_UP_ROUNDED, subtext_control=self.sub_ingresos, card_color="#10b981"), col={"xs": 12, "sm": 6, "md": 3}),
+            ft.Container(content=self._build_kpi_card("Cumplimiento Mes", self.val_cumplimiento_mes, ft.icons.SPEED_ROUNDED, subtext_control=self.sub_cumplimiento_mes, card_color="#0284c7"), col={"xs": 12, "sm": 6, "md": 3}),
+            ft.Container(content=self._build_kpi_card("Ventas (Hoy)", self.val_ventas_hoy, ft.icons.MONETIZATION_ON_ROUNDED, subtext_control=self.sub_ventas_hoy, card_color="#059669"), col={"xs": 12, "sm": 6, "md": 3}),
+            ft.Container(content=self._build_kpi_card("Cumplimiento Hoy", self.val_cumplimiento_hoy, ft.icons.CHECK_CIRCLE_OUTLINE_ROUNDED, subtext_control=self.sub_cumplimiento_hoy, card_color="#0d9488"), col={"xs": 12, "sm": 6, "md": 3}),
+        ], spacing=12, run_spacing=12)
+        
+        # SECCIÓN CARTERA (Total Recaudado y Saldo por Cobrar)
+        self.val_total_recaudado = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
+        self.sub_total_recaudado = ft.Text("Recaudo efectivo y bancos", size=10, color="grey600")
+
+        self.val_saldo_por_cobrar = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
+        self.sub_saldo_por_cobrar = ft.Text("Cartera pendiente a clientes", size=10, color="grey600")
+
+        self.kpi_cartera_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("Total Recaudado (Cartera)", self.val_total_recaudado, ft.icons.SAVINGS_ROUNDED, subtext_control=self.sub_total_recaudado, card_color="#059669"), col={"xs": 12, "sm": 6, "md": 6}),
+            ft.Container(content=self._build_kpi_card("Saldo por Cobrar (Cartera)", self.val_saldo_por_cobrar, ft.icons.WARNING_AMBER_ROUNDED, subtext_control=self.sub_saldo_por_cobrar, card_color="#d97706"), col={"xs": 12, "sm": 6, "md": 6}),
+        ], spacing=12, run_spacing=12)
+
+        # Paso 3: Barra de Métricas Secundarias
+        self.val_meta_diaria = ft.Text("$ 0 / día", size=13, weight="bold", color="teal700")
+
+        self.kpi_secundarios = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.INSIGHTS, size=16, color=Config.COLOR_PRIMARY),
+                ft.Text("Objetivo Comercial:", weight="bold", color=Config.COLOR_PRIMARY, size=12),
+                ft.Text("Proy. Ventas Stock:", size=12, color="grey700"), self.val_proyeccion_ventas,
+                ft.Text(" | Margen Proy.:", size=12, color="grey700"), self.val_proyeccion_rentabilidad,
+                ft.Container(width=1, height=18, bgcolor="#e2e8f0", margin=ft.padding.symmetric(horizontal=6)),
+                ft.Icon(ft.icons.FLAG, size=16, color="teal700"),
+                ft.Text("Meta Venta Diaria:", weight="bold", size=12, color="grey700"), self.val_meta_diaria,
+                ft.Container(expand=True),
+                ft.Text("Rotación Global:", size=12, color="grey700"), self.val_rotacion,
+            ], spacing=5, alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.padding.symmetric(horizontal=16, vertical=10),
+            bgcolor="white", border_radius=10, border=ft.border.all(1, "#e2e8f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=6, color=ft.colors.with_opacity(0.04, "black"), offset=ft.Offset(0, 2))
+        )
+
+        # SECCIÓN AJUSTES
+        self.col_ajustes_salida = ft.Column(spacing=5)
+        self.col_ajustes_entrada = ft.Column(spacing=5)
+        
+        self.lbl_neto_ajustes_header = ft.Text("NETO: $0", weight="bold", size=16)
+        header_ajustes = ft.Row([
+            ft.Text("Impacto de Ajustes de Inventario (Mes Actual)", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+            self.lbl_neto_ajustes_header
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+
+        self.panel_ajustes = ft.Row([
+            # Panel Salida
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Ajustes de Salida (-)", size=15, weight="bold", color="red700"),
+                    ft.Divider(height=1, color="#fee2e2"),
+                    self.col_ajustes_salida
+                ]),
+                bgcolor="white",
+                padding=15,
+                border_radius=10,
+                expand=True,
+                border=ft.border.all(1, "#fecaca"),
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.04, "black"))
+            ),
+            # Panel Entrada
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Ajustes de Entrada (+)", size=15, weight="bold", color="teal700"),
+                    ft.Divider(height=1, color="#d1fae5"),
+                    self.col_ajustes_entrada
+                ]),
+                bgcolor="white",
+                padding=15,
+                border_radius=10,
+                expand=True,
+                border=ft.border.all(1, "#a7f3d0"),
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.04, "black"))
+            )
+        ], spacing=15)
+
+        # Botón para copiar resumen al portapapeles
+        self.btn_copiar_resumen = ft.IconButton(
+            icon=ft.icons.COPY_ROUNDED,
+            icon_size=18,
+            icon_color=Config.COLOR_PRIMARY,
+            tooltip="Copiar Resumen Financiero al Portapapeles",
+            on_click=self.copiar_resumen_kpis
+        )
+        
+        header_kpis_row = ft.Row([
+            ft.Text("Resumen Financiero y Operativo", size=18, weight="bold", color=Config.COLOR_PRIMARY),
+            self.btn_copiar_resumen
+        ], tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+        # Ensamblaje del Layout
+        self.seccion_kpis = ft.Column([
+            header_kpis_row,
+            self.kpi_costos_row,
+            self.kpi_ventas_row,
+            self.kpi_cartera_row,
+            self.kpi_secundarios
+        ], spacing=10)
+
+        # SECCIÓN RESUMEN DE IMPUESTOS
+        self.val_iva_generado_mes = ft.Text("$ 0", size=20, weight="bold", color="blue800")
+        self.sub_iva_gen_mes = ft.Text("IVA facturado en ventas", size=10, color="grey600")
+        
+        self.val_iva_generado_hoy = ft.Text("$ 0", size=20, weight="bold", color="blue800")
+        self.sub_iva_gen_hoy = ft.Text("IVA cobrado hoy", size=10, color="grey600")
+        
+        self.val_iva_pagado_mes = ft.Text("$ 0", size=20, weight="bold", color="purple800")
+        self.sub_iva_pag_mes = ft.Text("Crédito fiscal en compras", size=10, color="grey600")
+        
+        self.val_iva_pagado_hoy = ft.Text("$ 0", size=20, weight="bold", color="purple800")
+        self.sub_iva_pag_hoy = ft.Text("IVA compras de hoy", size=10, color="grey600")
+
+        header_impuestos_row = ft.Row([
+            ft.Text("Resumen de Impuestos (IVA)", size=18, weight="bold", color=Config.COLOR_PRIMARY),
+        ], tight=True)
+
+        self.kpi_iva_generado_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("IVA Generado (Mes)", self.val_iva_generado_mes, ft.icons.RECEIPT_LONG_ROUNDED, subtext_control=self.sub_iva_gen_mes, card_color="#2563eb"), col={"xs": 12, "sm": 6}),
+            ft.Container(content=self._build_kpi_card("IVA Generado (Hoy)", self.val_iva_generado_hoy, ft.icons.POINT_OF_SALE_ROUNDED, subtext_control=self.sub_iva_gen_hoy, card_color="#3b82f6"), col={"xs": 12, "sm": 6}),
+        ], spacing=12, run_spacing=12)
+
+        self.kpi_iva_pagado_row = ft.ResponsiveRow([
+            ft.Container(content=self._build_kpi_card("IVA Pagado (Mes)", self.val_iva_pagado_mes, ft.icons.SHOPPING_CART_CHECKOUT_ROUNDED, subtext_control=self.sub_iva_pag_mes, card_color="#7c3aed"), col={"xs": 12, "sm": 6}),
+            ft.Container(content=self._build_kpi_card("IVA Pagado (Hoy)", self.val_iva_pagado_hoy, ft.icons.SHOPPING_BAG_ROUNDED, subtext_control=self.sub_iva_pag_hoy, card_color="#9333ea"), col={"xs": 12, "sm": 6}),
+        ], spacing=12, run_spacing=12)
+
+        self.seccion_impuestos = ft.Column([
+            header_impuestos_row,
+            self.kpi_iva_generado_row,
+            self.kpi_iva_pagado_row
+        ], spacing=10)
+
+        self.seccion_ajustes = ft.Column([
+            header_ajustes,
+            self.panel_ajustes
+        ], spacing=10)
+
+        # Gráficos y Tablas
+        # Contenedor de Categorías (Grilla Responsiva)
+        self.categorias_row = ft.ResponsiveRow(columns=12, spacing=15, run_spacing=15)
+        self.categorias_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Rendimiento Detallado por Categoría", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                self.categorias_row
+            ]),
+            margin=ft.padding.only(top=10, bottom=10)
+        )
+
+        # Gráfico de Barras Moderno
+        self.bar_chart = ft.BarChart(
+            bar_groups=[],
+            border=ft.border.all(1, "#f0f0f0"),
+            min_y=0,
+            expand=True,
+            tooltip_bgcolor="white",
+            interactive=True,
+            left_axis=ft.ChartAxis(labels_size=50), 
+            bottom_axis=ft.ChartAxis(labels_size=40), 
+        )
+
+        # Indicadores de Resumen del Gráfico
+        self.badge_dias_cumplidos = ft.Text("...", size=13, weight="bold", color="teal800")
+        self.badge_mejor_dia = ft.Text("...", size=13, weight="bold", color="blue800")
+        self.badge_promedio_diario = ft.Text("...", size=13, weight="bold", color="grey800")
+        self.badge_meta_promedio = ft.Text("...", size=13, weight="bold", color="purple800")
+
+        kpi_strip_chart = ft.ResponsiveRow([
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("DÍAS META CUMPLIDA", size=10, color="grey600", weight="w600"),
+                    self.badge_dias_cumplidos
+                ], spacing=2),
+                padding=10, bgcolor="#ecfdf5", border_radius=8, border=ft.border.all(1, "#a7f3d0"),
+                col={"xs": 6, "sm": 3}
+            ),
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("MEJOR DÍA DE VENTAS", size=10, color="grey600", weight="w600"),
+                    self.badge_mejor_dia
+                ], spacing=2),
+                padding=10, bgcolor="#eff6ff", border_radius=8, border=ft.border.all(1, "#bfdbfe"),
+                col={"xs": 6, "sm": 3}
+            ),
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("PROMEDIO VENTA DÍA", size=10, color="grey600", weight="w600"),
+                    self.badge_promedio_diario
+                ], spacing=2),
+                padding=10, bgcolor="#f8fafc", border_radius=8, border=ft.border.all(1, "#e2e8f0"),
+                col={"xs": 6, "sm": 3}
+            ),
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("META DIARIA BASE", size=10, color="grey600", weight="w600"),
+                    self.badge_meta_promedio
+                ], spacing=2),
+                padding=10, bgcolor="#faf5ff", border_radius=8, border=ft.border.all(1, "#e9d5ff"),
+                col={"xs": 6, "sm": 3}
+            ),
+        ], spacing=10, run_spacing=10)
+
+        # Leyenda moderna
+        leyenda = ft.Row([
+            ft.Row([ft.Container(width=12, height=12, bgcolor="#10b981", border_radius=3), ft.Text("Ventas (Meta Superada)", size=11, weight="bold", color="black87")]),
+            ft.Row([ft.Container(width=12, height=12, bgcolor="#3b82f6", border_radius=3), ft.Text("Ventas (En progreso)", size=11, weight="bold", color="black87")]),
+            ft.Row([ft.Container(width=12, height=12, bgcolor="#a78bfa", border_radius=3), ft.Text("Meta Diaria", size=11, weight="bold", color="black87")]),
+            ft.Row([ft.Container(width=12, height=12, bgcolor="#06b6d4", border_radius=3), ft.Text("Compras", size=11, weight="bold", color="black87")]),
+        ], spacing=20, alignment=ft.MainAxisAlignment.CENTER, wrap=True)
+
+        # Tira de tarjetas diarias
+        self.cards_diarias_row = ft.Row(scroll=ft.ScrollMode.ALWAYS, spacing=10)
+
+        self.chart_container = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Column([
+                        ft.Text("Desempeño Diario: Ventas vs Meta de Venta vs Compras", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                        ft.Text("Monitoreo día a día con cumplimiento porcentual de la meta de ventas", size=12, color="grey"),
+                    ], expand=True, spacing=2),
+                ]),
+                ft.Divider(height=5, color="transparent"),
+                kpi_strip_chart,
+                ft.Divider(height=10, color="transparent"),
+                leyenda,
+                ft.Container(content=self.bar_chart, height=320, margin=ft.padding.only(top=10, bottom=15)),
+                ft.Divider(height=1, color="#f0f0f0"),
+                ft.Row([
+                    ft.Icon(ft.icons.CALENDAR_VIEW_DAY, size=16, color=Config.COLOR_PRIMARY),
+                    ft.Text("Seguimiento Día a Día (Desliza horizontalmente para ver el mes completo)", size=13, weight="bold", color="grey800"),
+                ], spacing=6),
+                ft.Container(
+                    content=self.cards_diarias_row,
+                    padding=ft.padding.symmetric(vertical=8),
+                )
+            ]),
+            bgcolor="white",
+            padding=20,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
+        )
+        
+        # Tables
+        self.dt_ventas = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Código", size=12)),
+                ft.DataColumn(ft.Text("Producto", size=12)),
+                ft.DataColumn(ft.Text("Unidades", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Ingreso Total", size=12), numeric=True)
+            ],
+            rows=[],
+            data_row_min_height=30,
+            data_row_max_height=30,
+            heading_row_height=40,
+            column_spacing=15,
+        )
+        
+        self.dt_costos = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Código", size=12)),
+                ft.DataColumn(ft.Text("Producto", size=12)),
+                ft.DataColumn(ft.Text("Valor Inv.", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Rotación", size=12))
+            ],
+            rows=[],
+            data_row_min_height=30,
+            data_row_max_height=30,
+            heading_row_height=40,
+            column_spacing=15,
+        )
+        
+        table_ventas_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Top 10 Productos con Mayor Ingreso", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                self.dt_ventas
+            ], scroll=ft.ScrollMode.AUTO),
+            bgcolor="white",
+            padding=15,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
+            col={"xs": 12, "md": 6}
+        )
+        
+        table_costos_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Top 10 Productos con Mayor Costo", size=16, weight="bold", color=Config.COLOR_PRIMARY),
+                self.dt_costos
+            ], scroll=ft.ScrollMode.AUTO),
+            bgcolor="white",
+            padding=15,
+            border_radius=10,
+            border=ft.border.all(1, "#f0f0f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
+            col={"xs": 12, "md": 6}
+        )
+        
+        self.tables_row = ft.ResponsiveRow([
+            table_ventas_container,
+            table_costos_container
+        ], spacing=15, run_spacing=15)
+
+        # Indicador de carga superior
+        self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
+
+        # ── TAB 1: Contenido del Resumen General (vista actual) ──────────────
+        self.tab1_content = ft.Column([
+            self.seccion_kpis,
+            ft.Divider(height=10, color="transparent"),
+            self.seccion_impuestos,
+            ft.Divider(height=10, color="transparent"),
+            self.seccion_ajustes,
+            ft.Divider(height=10, color="transparent"),
+            self.categorias_container,
+            ft.Divider(height=10, color="transparent"),
+            self.chart_container,
+            ft.Divider(height=10, color="transparent"),
+            self.tables_row,
+            ft.Container(height=30)
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
+
+        # ── TAB 2: Resumen Financiero por Día ────────────────────────────────
+        self.dias_grid = ft.ResponsiveRow(columns=12, spacing=14, run_spacing=14)
+        self._dias_cargados = False
+
+        self._tab2_loading = ft.Row(
+            [ft.ProgressRing(width=28, height=28, color=Config.COLOR_PRIMARY),
+             ft.Text("Cargando resumen diario...", size=13, color="grey600")],
+            alignment=ft.MainAxisAlignment.CENTER,
+            visible=False
+        )
+
+        self.tab2_content = ft.Column([
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.CALENDAR_MONTH_ROUNDED, size=20, color=Config.COLOR_PRIMARY),
+                    ft.Text("Matriz Financiera Diaria del Mes", size=16, weight="bold",
+                            color=Config.COLOR_PRIMARY),
+                    ft.Container(expand=True),
+                    ft.Text("Indicadores detallados día a día", size=12, color="grey600"),
+                ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                bgcolor="white", padding=ft.padding.symmetric(horizontal=16, vertical=12),
+                border_radius=10,
+                border=ft.border.all(1, "#e8edf2"),
+                shadow=ft.BoxShadow(spread_radius=1, blur_radius=4,
+                                    color=ft.colors.with_opacity(0.04, "black")),
+                margin=ft.padding.only(bottom=8)
+            ),
+            self._tab2_loading,
+            self.dias_grid,
+            ft.Container(height=40)
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
+
+        # ── Selector de Pestañas (SegmentedButton) ────────────────────────────
+        self.tab_selector = ft.SegmentedButton(
+            selected={"GENERAL"},
+            allow_multiple_selection=False,
+            segments=[
+                ft.Segment(
+                    value="GENERAL",
+                    label=ft.Text("Resumen General", size=12.5, weight="w600"),
+                    icon=ft.Icon(ft.icons.DASHBOARD_ROUNDED, size=16)
+                ),
+                ft.Segment(
+                    value="DIAS",
+                    label=ft.Text("Resumen Financiero por Día", size=12.5, weight="w600"),
+                    icon=ft.Icon(ft.icons.CALENDAR_VIEW_MONTH_ROUNDED, size=16)
+                ),
+            ],
+            height=36,
+            on_change=self._on_tab_selector_change
+        )
+
+        self.tab1_content.visible = True
+        self.tab2_content.visible = False
+
+        # ── Layout raíz ───────────────────────────────────────────────────────
+        self.content = ft.Column([
+            self.progress_bar,
+            header_row,
+            ft.Container(
+                content=ft.Row([
+                    self.tab_selector,
+                    ft.Container(expand=True),
+                ]),
+                margin=ft.padding.only(top=4, bottom=6)
+            ),
+            self.tab1_content,
+            self.tab2_content,
+        ], expand=True)
+
+    def _on_tab_selector_change(self, e) -> None:
+        """Cambia el contenido activo entre Resumen General y Resumen por Día."""
+        sel = "GENERAL"
+        if e and getattr(e, "data", None):
+            try:
+                import json
+                parsed = json.loads(e.data)
+                if isinstance(parsed, list) and parsed:
+                    sel = str(parsed[0])
+                elif isinstance(parsed, str):
+                    sel = str(parsed)
+            except Exception:
+                sel = str(e.data)
+
+        if sel not in ("GENERAL", "DIAS") and self.tab_selector.selected:
+            sel = str(list(self.tab_selector.selected)[0])
+
+        self.tab_selector.selected = {sel}
+        self.tab1_content.visible = (sel == "GENERAL")
+        self.tab2_content.visible = (sel == "DIAS")
+
+        if sel == "DIAS" and not self._dias_cargados:
+            self._tab2_loading.visible = True
+            threading.Thread(target=self._fetch_dias_worker, daemon=True).start()
+
+        self.safe_update()
+
+    def did_mount(self):
+        if not hasattr(self, "overlay_added"):
+            self.page.overlay.append(self.date_picker_dash)
+            self.overlay_added = True
+        self.load_data()
+
+    def safe_update(self):
+        """Actualiza la UI con seguridad."""
+        try:
+            if self.page:
+                self.page.update()
+            elif self.uid:
+                self.update()
+        except Exception:
+            pass
+
+    def load_data(self):
+        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
+        self._dias_cargados = False
+        self.progress_bar.visible = True
+        self.safe_update()
+
+        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
+
+    def on_fecha_dash_change(self, e):
+        if self.date_picker_dash.value:
+            self.fecha_filtro_dash = self.date_picker_dash.value.strftime("%Y-%m-%d")
+            self.btn_fecha_dash.text = f"Fecha: {self.date_picker_dash.value.strftime('%d/%m/%Y')}"
+            self.btn_clear_fecha_dash.visible = True
+            self.load_data()
+
+    def limpiar_filtro_fecha_dash(self, e):
+        self.fecha_filtro_dash = None
+        self.date_picker_dash.value = None
+        self.btn_fecha_dash.text = f"Fecha: {datetime.date.today().strftime('%d/%m/%Y')}"
+        self.btn_clear_fecha_dash.visible = False
+        self.load_data()
+
+    def _clasificar_ajustes(self, ajustes_bd: list) -> tuple[dict, dict, float, float, float, float, float]:
+        """Clasifica los ajustes de inventario en entradas y salidas calculando totales y neto."""
+        tipos_salida = {
+            "Daño / Merma": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Vencimiento": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Pérdida": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Consumo Familiar": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Consumo Cliente (Cortesía)": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Donación Saliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Otro (Salida)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
+        }
+
+        tipos_entrada = {
+            "Sobrante de Inventario": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Donación Entrante": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Devolución Cliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
+            "Otro (Entrada)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
+        }
+
+        for fila in (ajustes_bd or []):
+            tipo_bd = fila.get("tipo_ajuste", "")
+            motivo_bd = fila.get("motivo_observacion", "")
+            cant = float(fila.get("cantidad_total") or 0)
+            costo = float(fila.get("costo_total") or 0)
+            conteo = int(fila.get("conteo") or 0)
+
+            asignado = False
+            if tipo_bd in ("AJUSTE_ENTRADA", "ENTRADA_POR_SOBRANTE"):
+                for key in tipos_entrada.keys():
+                    if key.lower() in motivo_bd.lower():
+                        tipos_entrada[key]["conteo"] += conteo
+                        tipos_entrada[key]["cantidad"] += cant
+                        tipos_entrada[key]["costo"] += costo
+                        asignado = True
+                        break
+                if not asignado:
+                    tipos_entrada["Otro (Entrada)"]["conteo"] += conteo
+                    tipos_entrada["Otro (Entrada)"]["cantidad"] += cant
+                    tipos_entrada["Otro (Entrada)"]["costo"] += costo
+            else:
+                for key in tipos_salida.keys():
+                    if key.lower() in motivo_bd.lower():
+                        tipos_salida[key]["conteo"] += conteo
+                        tipos_salida[key]["cantidad"] += cant
+                        tipos_salida[key]["costo"] += costo
+                        asignado = True
+                        break
+                if not asignado:
+                    if tipo_bd == "BAJA_VENCIMIENTO": k = "Vencimiento"
+                    elif tipo_bd == "SALIDA_POR_FALTANTE": k = "Pérdida"
+                    else: k = "Otro (Salida)"
+                    tipos_salida[k]["conteo"] += conteo
+                    tipos_salida[k]["cantidad"] += cant
+                    tipos_salida[k]["costo"] += costo
+
+        tot_cost_ent = sum([d["costo"] for d in tipos_entrada.values()])
+        tot_cost_sal = sum([d["costo"] for d in tipos_salida.values()])
+        tot_cant_ent = sum([d["cantidad"] for d in tipos_entrada.values()])
+        tot_cant_sal = sum([d["cantidad"] for d in tipos_salida.values()])
+        neto = tot_cost_ent - tot_cost_sal
+
+        return tipos_entrada, tipos_salida, tot_cost_ent, tot_cost_sal, tot_cant_ent, tot_cant_sal, neto
+
+    def _fetch_data_worker(self):
+        """Ejecuta todas las llamadas concurrentes con ThreadPoolExecutor y actualiza la UI."""
+        try:
+            hoy_obj = (
+                datetime.datetime.strptime(self.fecha_filtro_dash, "%Y-%m-%d").date()
+                if self.fecha_filtro_dash
+                else datetime.date.today()
+            )
+            mes_actual = hoy_obj.strftime("%Y-%m")
+
+            # 1. Cargar todas las consultas independientes en paralelo
+            with ThreadPoolExecutor(max_workers=12) as executor:
+                f_cierre = executor.submit(self.db.obtener_estado_cierre, mes_actual)
+                f_cat_kpis = executor.submit(self.db.get_rendimiento_categorias_periodo, None, self.fecha_filtro_dash)
+                f_ven = executor.submit(self.db.get_ventas_summary, fecha_corte=self.fecha_filtro_dash)
+                f_com = executor.submit(self.db.get_compras_summary, fecha_corte=self.fecha_filtro_dash)
+                f_proy = executor.submit(self.db.get_proyeccion_ventas, fecha_corte=self.fecha_filtro_dash)
+                f_ajustes = executor.submit(self.db.get_ajustes_mes, mes_actual, fecha_corte=self.fecha_filtro_dash)
+                f_tendencia = executor.submit(self.db.get_tendencia_diaria, fecha_corte=self.fecha_filtro_dash)
+                f_top_ventas = executor.submit(self.db.get_top_ventas_mes, limit=10, fecha_corte=self.fecha_filtro_dash)
+                f_top_costos = executor.submit(self.db.get_top_costo_inventario, limit=10, fecha_corte=self.fecha_filtro_dash)
+                f_cartera = executor.submit(self.db.cartera_repo.get_resumen_cartera, fecha_filtro=self.fecha_filtro_dash or "")
+                f_detalle_dias = executor.submit(self.db.get_detalle_diario_mes, mes_actual)
+
+                datos_cierre = f_cierre.result() or {}
+                kpis_cat = f_cat_kpis.result() or []
+                res_ven = f_ven.result() or {}
+                res_com = f_com.result() or {}
+                proyeccion_ventas = float(f_proy.result() or 0.0)
+                ajustes_bd = f_ajustes.result() or []
+                tendencia = f_tendencia.result() or {}
+                top_ventas = f_top_ventas.result() or []
+                top_costos = f_top_costos.result() or []
+                res_cartera_kpis, _, _ = f_cartera.result() or ({}, [], [])
+                detalle_mes = f_detalle_dias.result() or {}
+
+            # 2. Contexto Temporal y Estado de Periodo
+            estado_periodo = datos_cierre.get('periodo', {}).get('estado', 'ABIERTO') if datos_cierre and datos_cierre.get('periodo') else 'ABIERTO'
+            meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+            partes = mes_actual.split('-')
+            nombre_mes = f"{meses[int(partes[1]) - 1]} {partes[0]}"
+
+            self.lbl_periodo_dash.value = f"Periodo: {nombre_mes}"
+            self.lbl_estado_dash.value = f"Estado: {estado_periodo}"
+
+            colores_estado = {'ABIERTO': 'green', 'PRELIMINAR': 'orange', 'EN_AUDITORIA': 'blue', 'CERRADO': 'red'}
+            self.lbl_estado_dash.color = colores_estado.get(estado_periodo, 'black')
+
+            ahora = get_ahora_local()
+            self.lbl_fecha_hora.value = ahora.strftime("%d/%m/%Y - %I:%M %p")
+
+            # 3. KPIs de Inventario, Ventas, Compras e IVA
+            val_inv = sum([float(c.get("inventario_costo") or 0.0) for c in kpis_cat])
+            self.val_inventario.value = f"$ {val_inv:,.0f}"
+
+            ingresos = float(res_ven.get('total_mes') or 0.0)
+            compras = float(res_com.get('total_mes') or 0.0)
+            ventas_hoy = float(res_ven.get('total_hoy') or 0.0)
+            compras_hoy = float(res_com.get('total_hoy') or 0.0)
+
+            self.val_ingresos.value = f"$ {ingresos:,.0f}"
+            self.val_ventas_hoy.value = f"$ {ventas_hoy:,.0f}"
+            self.val_compras.value = f"$ {compras:,.0f}"
+            self.val_compras_hoy.value = f"$ {compras_hoy:,.0f}"
+
+            iva_gen_mes = float(res_ven.get('iva_mes') or 0.0)
+            iva_gen_hoy = float(res_ven.get('iva_hoy') or 0.0)
+            iva_pag_mes = float(res_com.get('iva_mes') or 0.0)
+            iva_pag_hoy = float(res_com.get('iva_hoy') or 0.0)
+
+            self.val_iva_generado_mes.value = f"$ {iva_gen_mes:,.0f}"
+            self.val_iva_generado_hoy.value = f"$ {iva_gen_hoy:,.0f}"
+            self.val_iva_pagado_mes.value = f"$ {iva_pag_mes:,.0f}"
+            self.val_iva_pagado_hoy.value = f"$ {iva_pag_hoy:,.0f}"
+
+            # 4. KPIs de Cartera y Recaudos
+            tot_recaudado = float(res_cartera_kpis.get('total_recaudado') or 0.0)
+            tot_efectivo = float(res_cartera_kpis.get('total_efectivo') or 0.0)
+            tot_transferencias = float(res_cartera_kpis.get('total_transferencias') or 0.0)
+            saldo_pendiente = float(res_cartera_kpis.get('total_saldo_pendiente') or 0.0)
+            clientes_deuda = int(res_cartera_kpis.get('clientes_con_deuda') or 0)
+
+            self.val_total_recaudado.value = f"$ {tot_recaudado:,.0f}"
+            self.sub_total_recaudado.value = f"Efectivo: ${tot_efectivo:,.0f} | Bancos: ${tot_transferencias:,.0f}"
+
+            self.val_saldo_por_cobrar.value = f"$ {saldo_pendiente:,.0f}"
+            self.sub_saldo_por_cobrar.value = f"{clientes_deuda} Clientes con saldo pendiente"
+
+            rentabilidad = ((ingresos - compras) / ingresos * 100) if ingresos > 0 else 0.0
+            self.val_rentabilidad.value = f"{rentabilidad:.1f}%"
+            self.val_rentabilidad.color = "teal800" if rentabilidad >= 0 else "red700"
+
+            rotacion_global = (ingresos / val_inv) if val_inv > 0 else 0.0
+            self.val_rotacion.value = f"{rotacion_global:.2f}x" if val_inv > 0 else "N/D"
+
+            self.val_proyeccion_ventas.value = f"$ {proyeccion_ventas:,.0f}"
+            proy_rent = ((proyeccion_ventas - val_inv) / proyeccion_ventas * 100) if (proyeccion_ventas > 0 and val_inv > 0) else 0.0
+            self.val_proyeccion_rentabilidad.value = f"{proy_rent:.1f}%"
+            self.val_proyeccion_rentabilidad.color = "teal800" if proy_rent >= 0 else "red700"
+
+            # Cumplimiento Mes: Ventas acumuladas / (Ventas acumuladas + Proyección Stock)
+            meta_total_mes = ingresos + proyeccion_ventas
+            pct_cumplimiento_mes = (ingresos / meta_total_mes * 100) if meta_total_mes > 0 else 0.0
+            self.val_cumplimiento_mes.value = f"{pct_cumplimiento_mes:.1f}%"
+            self.val_cumplimiento_mes.color = "teal800" if pct_cumplimiento_mes >= 100 else ("blue800" if pct_cumplimiento_mes >= 50 else "amber800")
+            self.sub_cumplimiento_mes.value = f"Capacidad total: $ {meta_total_mes:,.0f}"
+
+            # Cumplimiento Hoy y Meta Diaria (Uso nativo de calendar)
+            dias_en_mes = calendar.monthrange(hoy_obj.year, hoy_obj.month)[1]
+            dias_restantes = max(1, dias_en_mes - hoy_obj.day + 1)
+            meta_diaria = (proyeccion_ventas / dias_restantes) if dias_restantes > 0 and proyeccion_ventas > 0 else 0.0
+            self.val_meta_diaria.value = f"$ {meta_diaria:,.0f} / día"
+            self.val_meta_diaria.tooltip = f"Meta calculada para alcanzar la proyección de stock ($ {proyeccion_ventas:,.0f}) en los {dias_restantes} días restantes del mes"
+
+            pct_cumplimiento_hoy = (ventas_hoy / meta_diaria * 100) if meta_diaria > 0 else 0.0
+            self.val_cumplimiento_hoy.value = f"{pct_cumplimiento_hoy:.1f}%"
+            self.val_cumplimiento_hoy.color = "teal800" if pct_cumplimiento_hoy >= 100 else ("blue800" if pct_cumplimiento_hoy > 0 else "grey700")
+            self.sub_cumplimiento_hoy.value = f"Meta diaria: $ {meta_diaria:,.0f}"
+
+            # 4. Clasificación y Renderizado de Ajustes
+            tipos_ent, tipos_sal, tot_cost_ent, tot_cost_sal, tot_cant_ent, tot_cant_sal, neto = self._clasificar_ajustes(ajustes_bd)
+
+            if neto > 0:
+                self.lbl_neto_ajustes_header.value = f"NETO (POSITIVO): +${neto:,.0f}"
+                self.lbl_neto_ajustes_header.color = "#2ecca0"
+            elif neto < 0:
+                self.lbl_neto_ajustes_header.value = f"NETO (NEGATIVO): -${abs(neto):,.0f}"
+                self.lbl_neto_ajustes_header.color = "#f26c61"
+            else:
+                self.lbl_neto_ajustes_header.value = "NETO: $0"
+                self.lbl_neto_ajustes_header.color = "grey"
+
+            self.col_ajustes_entrada.controls.clear()
+            self.col_ajustes_salida.controls.clear()
+
+            for key, datos in tipos_ent.items():
+                self.col_ajustes_entrada.controls.append(
+                    ft.Row([
+                        ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
+                        ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
+                        ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#2ecca0")
+                    ])
+                )
+            filas_faltantes = len(tipos_sal) - len(tipos_ent)
+            for _ in range(max(0, filas_faltantes)):
+                self.col_ajustes_entrada.controls.append(
+                    ft.Container(height=18, content=ft.Text(""))
+                )
+            self.col_ajustes_entrada.controls.append(ft.Divider(color="black12", height=10))
+            self.col_ajustes_entrada.controls.append(
+                ft.Row([
+                    ft.Text("TOTAL ENTRADAS", size=12, weight="bold"),
+                    ft.Text(f"{tot_cant_ent:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
+                    ft.Text(f"${tot_cost_ent:,.0f}", size=12, weight="bold", color="#2ecca0")
+                ])
+            )
+
+            for key, datos in tipos_sal.items():
+                self.col_ajustes_salida.controls.append(
+                    ft.Row([
+                        ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
+                        ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
+                        ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#f26c61")
+                    ])
+                )
+            self.col_ajustes_salida.controls.append(ft.Divider(color="black12", height=10))
+            self.col_ajustes_salida.controls.append(
+                ft.Row([
+                    ft.Text("TOTAL SALIDAS", size=12, weight="bold"),
+                    ft.Text(f"{tot_cant_sal:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
+                    ft.Text(f"${tot_cost_sal:,.0f}", size=12, weight="bold", color="#f26c61")
+                ])
+            )
+
+            # 5. Gráfico de Barras Comparativo y Tarjetas de Detalle Diario
+            meta_diaria_base = (meta_total_mes / dias_en_mes) if (dias_en_mes > 0 and meta_total_mes > 0) else 0.0
+            dias_ordenados = sorted(tendencia.keys())
+            
+            dias_cumplidos = 0
+            dias_activos = 0
+            suma_ventas_activos = 0.0
+            mejor_dia_fecha = ""
+            mejor_dia_venta = 0.0
+
+            max_val_y = meta_diaria_base
+            bar_groups = []
+            etiquetas_x = []
+
+            for i, dia in enumerate(dias_ordenados):
+                v = float(tendencia[dia]["ventas"])
+                c = float(tendencia[dia]["compras"])
+                m = meta_diaria_base
+                
+                if v > 0:
+                    dias_activos += 1
+                    suma_ventas_activos += v
+                if v >= m and m > 0:
+                    dias_cumplidos += 1
+                if v > mejor_dia_venta:
+                    mejor_dia_venta = v
+                    mejor_dia_fecha = dia
+
+                if v > max_val_y: max_val_y = v
+                if c > max_val_y: max_val_y = c
+
+                pct_dia = (v / m * 100) if m > 0 else 0.0
+                col_v = "#10b981" if pct_dia >= 100 else ("#3b82f6" if v > 0 else "#cbd5e1")
+
+                dt = datetime.datetime.strptime(dia, "%Y-%m-%d").date()
+                dias_semana = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+                dia_tag = f"{dias_semana[dt.weekday()]} {dt.day:02d}"
+
+                tt_v = f"{dia} ({dias_semana[dt.weekday()]})\n💰 Ventas: ${v:,.0f} ({pct_dia:.1f}% Meta)"
+                tt_m = f"{dia}\n🎯 Meta: ${m:,.0f}"
+                tt_c = f"{dia}\n🛒 Compras: ${c:,.0f}"
+
+                rod_v = ft.BarChartRod(
+                    from_y=0, to_y=v, color=col_v, width=8,
+                    border_radius=ft.border_radius.vertical(top=4),
+                    tooltip=tt_v
+                )
+                rod_m = ft.BarChartRod(
+                    from_y=0, to_y=m, color="#a78bfa", width=8,
+                    border_radius=ft.border_radius.vertical(top=4),
+                    tooltip=tt_m
+                )
+                rod_c = ft.BarChartRod(
+                    from_y=0, to_y=c, color="#06b6d4", width=8,
+                    border_radius=ft.border_radius.vertical(top=4),
+                    tooltip=tt_c
+                )
+
+                bar_groups.append(ft.BarChartGroup(x=i, bar_rods=[rod_v, rod_m, rod_c]))
+                etiquetas_x.append(
+                    ft.ChartAxisLabel(
+                        value=i,
+                        label=ft.Container(
+                            content=ft.Text(f"{dt.day:02d}", size=9, color="grey700"),
+                            padding=ft.padding.only(top=5)
+                        )
+                    )
+                )
+
+            # Actualizar Badges de Resumen del Gráfico
+            pct_dias_cumplidos = (dias_cumplidos / dias_activos * 100) if dias_activos > 0 else 0.0
+            self.badge_dias_cumplidos.value = f"{dias_cumplidos} / {dias_activos} días ({pct_dias_cumplidos:.0f}%)"
+            
+            dt_mejor = datetime.datetime.strptime(mejor_dia_fecha, "%Y-%m-%d") if mejor_dia_fecha else None
+            str_mejor = f"{dt_mejor.strftime('%d/%m')} (${mejor_dia_venta/1000000:.1f}M)" if dt_mejor else "N/D"
+            self.badge_mejor_dia.value = str_mejor
+
+            prom_v = (suma_ventas_activos / dias_activos) if dias_activos > 0 else 0.0
+            self.badge_promedio_diario.value = f"${prom_v:,.0f} / día"
+            self.badge_meta_promedio.value = f"${meta_diaria_base:,.0f} / día"
+
+            # Configurar Ejes y Cuadrícula del BarChart
+            self.bar_chart.bar_groups = bar_groups
+            self.bar_chart.max_y = max_val_y * 1.15 if max_val_y > 0 else 1000.0
+
+            def formato_moneda_corta(valor):
+                if valor >= 1000000: return f"${valor/1000000:.1f}M"
+                if valor >= 1000: return f"${valor/1000:.0f}k"
+                return f"${valor:.0f}"
+
+            intervalo_y = self.bar_chart.max_y / 6 if self.bar_chart.max_y > 0 else 100
+            etiquetas_y = [
+                ft.ChartAxisLabel(value=step * intervalo_y, label=ft.Text(formato_moneda_corta(step * intervalo_y), size=10, color="grey"))
+                for step in range(7)
+            ]
+            self.bar_chart.left_axis.labels = etiquetas_y
+            self.bar_chart.left_axis.labels_interval = intervalo_y
+            self.bar_chart.bottom_axis.labels = etiquetas_x
+            self.bar_chart.bottom_axis.labels_interval = 1
+
+            self.bar_chart.horizontal_grid_lines = ft.ChartGridLines(
+                interval=intervalo_y,
+                color=ft.colors.with_opacity(0.05, "black"),
+                width=1,
+                dash_pattern=[4, 4]
+            )
+
+            # Llenar la Tira de Tarjetas Diarias (Daily Tracker)
+            self.cards_diarias_row.controls.clear()
+            for dia in dias_ordenados:
+                v_dia = float(tendencia[dia]["ventas"])
+                c_dia = float(tendencia[dia]["compras"])
+                card = self._crear_card_dia(dia, v_dia, c_dia, meta_diaria_base)
+                self.cards_diarias_row.controls.append(card)
+
+            # 6. Tablas y Tarjetas de Rendimiento
+            self.dt_ventas.rows.clear()
+            for item in top_ventas:
+                self.dt_ventas.rows.append(
+                    ft.DataRow(cells=[
+                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
+                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
+                        ft.DataCell(ft.Text(str(item.get('unidades_vendidas') or 0), size=11)),
+                        ft.DataCell(ft.Text(f"${float(item.get('ingreso_total') or 0):,.2f}", size=11))
+                    ])
+                )
+
+            self.dt_costos.rows.clear()
+            for item in top_costos:
+                self.dt_costos.rows.append(
+                    ft.DataRow(cells=[
+                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
+                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
+                        ft.DataCell(ft.Text(f"${float(item.get('valor_inventario') or 0):,.2f}", size=11)),
+                        ft.DataCell(ft.Text(str(item.get('rotacion') or ''), size=11))
+                    ])
+                )
+
+            self.categorias_row.controls.clear()
+            for cat in kpis_cat:
+                self.categorias_row.controls.append(self._crear_card_categoria(cat))
+
+            # 7. Renderizar Tab 2: Matriz Financiera Diaria
+            meta_diaria_base = (meta_total_mes / dias_en_mes) if (dias_en_mes > 0 and meta_total_mes > 0) else ((proyeccion_ventas / dias_en_mes) if dias_en_mes > 0 else 0.0)
+            self._render_dias_grid(detalle_mes, hoy_obj, meta_diaria_base, val_inv)
+
+        except Exception as ex:
+            import traceback
+            traceback.print_exc()
+        finally:
+            self.progress_bar.visible = False
+            self.safe_update()
+
+    # ─── TAB 2: Carga y Renderizado del Resumen por Día ────────────────────────
+
+    def _render_dias_grid(
+        self,
+        detalle_mes: dict,
+        hoy_obj: datetime.date,
+        meta_diaria: float,
+        costo_inv_global: float,
+    ) -> None:
+        """Construye y agrega las tarjetas de cada día del mes a la cuadrícula."""
+        try:
+            dias_en_mes = calendar.monthrange(hoy_obj.year, hoy_obj.month)[1]
+            dias_semana = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+            cards = []
+            for num_dia in range(1, dias_en_mes + 1):
+                fecha_obj = datetime.date(hoy_obj.year, hoy_obj.month, num_dia)
+                dia_key = fecha_obj.strftime("%Y-%m-%d")
+                datos_dia = detalle_mes.get(dia_key, {})
+                nombre_dia = dias_semana[fecha_obj.weekday()]
+                es_futuro = fecha_obj > hoy_obj
+
+                card = self._build_card_dia_resumen(
+                    fecha_obj=fecha_obj,
+                    nombre_dia=nombre_dia,
+                    datos=datos_dia,
+                    meta_diaria=meta_diaria,
+                    costo_inv_global=costo_inv_global,
+                    es_futuro=es_futuro,
+                )
+                cards.append(
+                    ft.Container(content=card, col={"xs": 12, "sm": 12, "md": 6, "lg": 6})
+                )
+
+            self.dias_grid.controls = cards
+            self._dias_cargados = True
+            self._tab2_loading.visible = False
+        except Exception as ex:
+            import traceback
+            traceback.print_exc()
+
+    def _fetch_dias_worker(self) -> None:
+        """
+        Descarga los datos diarios del mes desde Supabase y renderiza
+        la cuadrícula de tarjetas del Resumen Financiero por Día.
+        """
+        try:
+            self._tab2_loading.visible = True
+            self.safe_update()
+
+            hoy_obj = (
+                datetime.datetime.strptime(self.fecha_filtro_dash, "%Y-%m-%d").date()
+                if self.fecha_filtro_dash
+                else datetime.date.today()
+            )
+            mes_actual = hoy_obj.strftime("%Y-%m")
+            dias_en_mes = calendar.monthrange(hoy_obj.year, hoy_obj.month)[1]
+
+            # Calcular meta diaria
+            try:
+                ing_raw = self.val_ingresos.value.replace("$", "").replace(",", "").strip()
+                ingresos = float(ing_raw) if ing_raw else 0.0
+            except (ValueError, AttributeError):
+                ingresos = 0.0
+
+            try:
+                proyeccion_raw = self.val_proyeccion_ventas.value.replace("$", "").replace(",", "").strip()
+                proyeccion = float(proyeccion_raw) if proyeccion_raw else 0.0
+            except (ValueError, AttributeError):
+                proyeccion = 0.0
+
+            meta_total_mes = ingresos + proyeccion
+            meta_diaria = (meta_total_mes / dias_en_mes) if (dias_en_mes > 0 and meta_total_mes > 0) else ((proyeccion / dias_en_mes) if dias_en_mes > 0 else 0.0)
+
+            # Costo de inventario global (snapshot actual)
+            try:
+                inv_raw = self.val_inventario.value.replace("$", "").replace(",", "").strip()
+                costo_inv_global = float(inv_raw) if inv_raw else 0.0
+            except (ValueError, AttributeError):
+                costo_inv_global = 0.0
+
+            # Descargar detalle diario del mes en paralelo
+            detalle_mes = self.db.get_detalle_diario_mes(mes_actual)
+
+            self._render_dias_grid(detalle_mes, hoy_obj, meta_diaria, costo_inv_global)
+        except Exception as ex:
+            import traceback
+            traceback.print_exc()
+        finally:
+            self._tab2_loading.visible = False
+            self.safe_update()
+
+    def _build_card_dia_resumen(
+        self,
+        fecha_obj: datetime.date,
+        nombre_dia: str,
+        datos: dict,
+        meta_diaria: float,
+        costo_inv_global: float,
+        es_futuro: bool = False,
+    ) -> ft.Container:
+        """
+        Construye la tarjeta visual de un día con todos sus indicadores financieros.
+
+        Args:
+            fecha_obj: Objeto date del día.
+            nombre_dia: Nombre abreviado del día (Lun, Mar, etc.).
+            datos: Dict con KPIs del día desde get_detalle_diario_mes.
+            meta_diaria: Meta de ventas diaria base del mes
+                         (= proyección de ventas stock ÷ días del mes).
+            costo_inv_global: Costo del inventario actual (snapshot global).
+            es_futuro: True si el día no ha ocurrido aún.
+
+        Returns:
+            Contenedor Flet con la tarjeta del día.
+        """
+        v_total = float(datos.get("ventas_total") or 0.0)
+        v_pos = float(datos.get("ventas_pos") or 0.0)
+        v_rem = float(datos.get("ventas_remision") or 0.0)
+        iva_ven = float(datos.get("iva_ventas") or 0.0)
+        compras = float(datos.get("compras") or 0.0)
+        iva_com = float(datos.get("iva_compras") or 0.0)
+        recaudado = float(datos.get("recaudado") or 0.0)
+        rec_efec = float(datos.get("recaudado_efectivo") or 0.0)
+        rec_banco = float(datos.get("recaudado_banco") or 0.0)
+        aj_ent_costo = float(datos.get("ajustes_entrada_costo") or 0.0)
+        aj_sal_costo = float(datos.get("ajustes_salida_costo") or 0.0)
+        aj_ent_count = int(datos.get("ajustes_entrada_count") or 0)
+        aj_sal_count = int(datos.get("ajustes_salida_count") or 0)
+
+        tiene_datos = bool(datos and (v_total > 0 or compras > 0 or recaudado > 0 or aj_ent_costo > 0 or aj_sal_costo > 0))
+        pct_meta = (v_total / meta_diaria * 100) if meta_diaria > 0 else 0.0
+
+        # ── Badge de cumplimiento ──────────────────────────────────────────────
+        if es_futuro:
+            badge_txt, badge_bg, badge_col = "Pendiente", "#f1f5f9", "#94a3b8"
+        elif not tiene_datos:
+            badge_txt, badge_bg, badge_col = "Sin movimientos", "#f8fafc", "#94a3b8"
+        elif pct_meta >= 100:
+            badge_txt, badge_bg, badge_col = f"✓ {pct_meta:.0f}% meta", "#ecfdf5", "#059669"
+        elif pct_meta >= 60:
+            badge_txt, badge_bg, badge_col = f"◑ {pct_meta:.0f}% meta", "#eff6ff", "#2563eb"
+        else:
+            badge_txt, badge_bg, badge_col = f"↓ {pct_meta:.0f}% meta", "#fff7ed", "#c2410c"
+
+        def _c(v: float) -> str:
+            """Formatea como COP completo con separador de miles. Siempre muestra el valor completo."""
+            return f"$ {v:,.0f}"
+
+        def _bloque(
+            icono: str,
+            etiqueta: str,
+            valor: str,
+            color_valor: str = "#1e293b",
+            sub_lineas: list[str] | None = None,
+            bg: str | None = None,
+        ) -> ft.Container:
+            """
+            Bloque de métrica: ícono + etiqueta a la izquierda, valor principal
+            alineado a la derecha. Sub-líneas en gris debajo del valor.
+            """
+            valor_col = ft.Column(
+                spacing=1,
+                horizontal_alignment=ft.CrossAxisAlignment.END,
+                controls=[
+                    ft.Text(valor, size=12, weight="bold", color=color_valor,
+                            text_align=ft.TextAlign.RIGHT)
+                ] + [
+                    ft.Text(s, size=10, color="grey500", text_align=ft.TextAlign.RIGHT)
+                    for s in (sub_lineas or [])
+                ],
+            )
+            height = 30 + 14 * len(sub_lineas or [])
+            return ft.Container(
+                content=ft.Row([
+                    ft.Icon(icono, size=14, color="grey400"),
+                    ft.Text(etiqueta, size=11, color="grey600", expand=True),
+                    valor_col,
+                ], spacing=8, height=height,
+                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                bgcolor=bg,
+                padding=ft.padding.symmetric(horizontal=14, vertical=3),
+            )
+
+        def _sep() -> ft.Divider:
+            return ft.Divider(height=1, thickness=0.6, color="#f0f4f8")
+
+        def _seccion(titulo: str) -> ft.Container:
+            """Encabezado de sección dentro de la tarjeta."""
+            return ft.Container(
+                content=ft.Text(titulo, size=9, weight="w700", color="grey400"),
+                padding=ft.padding.only(left=14, top=8, bottom=2),
+            )
+
+        # ── Estilos de cabecera ────────────────────────────────────────────────
+        es_finde = fecha_obj.weekday() >= 5
+        if tiene_datos and pct_meta >= 100:
+            hdr_bg = "#f0fdf4"
+            hdr_border = "#bbf7d0"
+        elif es_finde:
+            hdr_bg, hdr_border = "#f0f9ff", "#bae6fd"
+        else:
+            hdr_bg, hdr_border = "#f8fafc", "#e2e8f0"
+
+        card = ft.Container(
+            content=ft.Column([
+                # ── CABECERA ──────────────────────────────────────────────────
+                ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Column([
+                                ft.Row([
+                                    ft.Text(
+                                        f"{nombre_dia}",
+                                        size=13, weight="bold",
+                                        color="#94a3b8" if es_futuro else "#334155"
+                                    ),
+                                    ft.Text(
+                                        f"{fecha_obj.day:02d}",
+                                        size=22, weight="bold",
+                                        color="#94a3b8" if es_futuro else "#0f172a"
+                                    ),
+                                ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.BASELINE),
+                                ft.Text(
+                                    fecha_obj.strftime("%d de %B %Y"),
+                                    size=10, color="grey400"
+                                ),
+                            ], spacing=1, expand=True),
+                            ft.Container(
+                                content=ft.Text(badge_txt, size=10, weight="bold",
+                                                color=badge_col),
+                                bgcolor=badge_bg,
+                                padding=ft.padding.symmetric(horizontal=10, vertical=5),
+                                border_radius=20,
+                                border=ft.border.all(1, badge_col + "40"),
+                            ),
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ], spacing=4),
+                    bgcolor=hdr_bg,
+                    padding=ft.padding.symmetric(horizontal=14, vertical=10),
+                    border_radius=ft.border_radius.only(top_left=10, top_right=10),
+                    border=ft.border.only(bottom=ft.BorderSide(1, hdr_border)),
+                ),
+                # ── INVENTARIO Y COMPRAS ───────────────────────────────────────
+                _seccion("INVENTARIO Y COMPRAS"),
+                _bloque(ft.icons.INVENTORY_2_ROUNDED, "Costo Inventario",
+                        _c(costo_inv_global), "#3b82f6",
+                        sub_lineas=["(Snapshot actual)"] if not es_futuro else None),
+                _bloque(ft.icons.SHOPPING_CART_ROUNDED, "Compras del día",
+                        _c(compras), "#8b5cf6"),
+                _sep(),
+                # ── VENTAS ────────────────────────────────────────────────────
+                _seccion("VENTAS"),
+                _bloque(
+                    ft.icons.TRENDING_UP_ROUNDED, "Ventas Total",
+                    _c(v_total), "#10b981",
+                    sub_lineas=[
+                        f"POS: {_c(v_pos)}",
+                        f"Remisión: {_c(v_rem)}",
+                    ] if not es_futuro else None,
+                ),
+                _bloque(
+                    ft.icons.FLAG_ROUNDED, "Meta del día",
+                    _c(meta_diaria), "#0284c7",
+                    sub_lineas=[f"Cumplimiento: {pct_meta:.1f}%"] if not es_futuro else None,
+                    bg=badge_bg if (tiene_datos and not es_futuro) else None,
+                ),
+                _sep(),
+                # ── CARTERA ───────────────────────────────────────────────────
+                _seccion("CARTERA"),
+                _bloque(
+                    ft.icons.SAVINGS_ROUNDED, "Recaudado",
+                    _c(recaudado), "#059669",
+                    sub_lineas=[
+                        f"Efectivo: {_c(rec_efec)}",
+                        f"Banco: {_c(rec_banco)}",
+                    ] if not es_futuro else None,
+                ),
+                _sep(),
+                # ── IVA ───────────────────────────────────────────────────────
+                _seccion("IMPUESTOS"),
+                _bloque(ft.icons.RECEIPT_LONG_ROUNDED, "IVA Generado",
+                        _c(iva_ven), "#1d4ed8"),
+                _bloque(ft.icons.RECEIPT_ROUNDED, "IVA Pagado",
+                        _c(iva_com), "#7c3aed"),
+                _sep(),
+                # ── AJUSTES ───────────────────────────────────────────────────
+                _seccion("AJUSTES DE INVENTARIO"),
+                _bloque(
+                    ft.icons.ARROW_CIRCLE_UP_ROUNDED, "Ajuste Entrada",
+                    _c(aj_ent_costo), "#16a34a",
+                    sub_lineas=[f"{aj_ent_count} movimiento(s)"] if not es_futuro else None,
+                ),
+                _bloque(
+                    ft.icons.ARROW_CIRCLE_DOWN_ROUNDED, "Ajuste Salida",
+                    _c(aj_sal_costo), "#dc2626",
+                    sub_lineas=[f"{aj_sal_count} movimiento(s)"] if not es_futuro else None,
+                ),
+                ft.Container(height=6),
+            ], spacing=0),
+            bgcolor="white",
+            border_radius=10,
+            border=ft.border.all(1, "#e2e8f0"),
+            shadow=ft.BoxShadow(
+                spread_radius=1, blur_radius=6,
+                color=ft.colors.with_opacity(0.06, "black"),
+                offset=ft.Offset(0, 2)
+            ),
+            opacity=0.55 if es_futuro else 1.0,
+        )
+        return card
+
+
+    def _build_kpi_card(self, title, value_control, icon, subtext_control=None, card_color=None):
+        accent = card_color or Config.COLOR_ACCENT
+        column_controls = [
+            ft.Row([
+                ft.Text(title.upper(), size=11, color=Config.COLOR_TEXT_MUTED, weight="w600", expand=True),
+            ], spacing=5),
+            value_control,
+        ]
+        if subtext_control:
+            column_controls.append(subtext_control)
+            
+        value_control.size = 20
+        value_control.weight = "bold"
+        value_control.color = Config.COLOR_PRIMARY
+            
+        return ft.Container(
+            content=ft.Row([
+                ft.Container(
+                    content=ft.Icon(icon, color=accent, size=22),
+                    bgcolor=ft.colors.with_opacity(0.12, accent),
+                    padding=10,
+                    border_radius=10
+                ),
+                ft.Column(column_controls, spacing=2, expand=True)
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor=Config.COLOR_SURFACE,
+            padding=ft.padding.symmetric(horizontal=16, vertical=14),
+            border_radius=12,
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=6, color=ft.colors.with_opacity(0.04, "black"), offset=ft.Offset(0, 2))
+        )
+
+    def _crear_card_dia(self, fecha_str: str, venta: float, compras: float, meta_diaria: float) -> ft.Container:
+        """Crea una tarjeta estética para el seguimiento individual de ventas, meta y compras de cada día."""
+        dt = datetime.datetime.strptime(fecha_str, "%Y-%m-%d").date()
+        dias_semana = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+        nombre_dia = f"{dias_semana[dt.weekday()]} {dt.day:02d}"
+        
+        pct_meta = (venta / meta_diaria * 100) if meta_diaria > 0 else 0.0
+        
+        if pct_meta >= 100:
+            badge_bg, badge_col = "#ecfdf5", "#059669"
+            badge_txt = f"{pct_meta:.0f}% 🎯"
+            border_col = "#a7f3d0"
+        elif pct_meta >= 50:
+            badge_bg, badge_col = "#eff6ff", "#2563eb"
+            badge_txt = f"{pct_meta:.0f}%"
+            border_col = "#bfdbfe"
+        elif venta > 0:
+            badge_bg, badge_col = "#fffbeb", "#d97706"
+            badge_txt = f"{pct_meta:.0f}%"
+            border_col = "#fde68a"
+        else:
+            badge_bg, badge_col = "#f1f5f9", "#64748b"
+            badge_txt = "0%"
+            border_col = "#e2e8f0"
+
+        progreso_val = min(1.0, pct_meta / 100.0) if pct_meta > 0 else 0.0
+        progreso_col = "#10b981" if pct_meta >= 100 else ("#3b82f6" if pct_meta >= 50 else ("#f59e0b" if venta > 0 else "#cbd5e1"))
+
+        return ft.Container(
+            width=175,
+            padding=12,
+            bgcolor="white",
+            border_radius=10,
+            border=ft.border.all(1, border_col),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.04, "black")),
+            content=ft.Column([
+                ft.Row([
+                    ft.Text(nombre_dia, size=11, weight="bold", color="grey800"),
+                    ft.Container(
+                        content=ft.Text(badge_txt, size=10, weight="bold", color=badge_col),
+                        padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                        bgcolor=badge_bg,
+                        border_radius=6
+                    )
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Divider(height=6, color="transparent"),
+                ft.Text(f"${venta:,.0f}", size=13, weight="bold", color="#1e293b" if venta > 0 else "grey500"),
+                ft.ProgressBar(value=progreso_val, color=progreso_col, bgcolor="#f1f5f9", height=4),
+                ft.Divider(height=4, color="transparent"),
+                ft.Row([
+                    ft.Text("Meta:", size=9, color="grey600"),
+                    ft.Text(f"${meta_diaria:,.0f}", size=9, weight="bold", color="#7c3aed")
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Row([
+                    ft.Text("Compras:", size=9, color="grey600"),
+                    ft.Text(f"${compras:,.0f}", size=9, weight="w600", color="#0891b2" if compras > 0 else "grey500")
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ], spacing=3)
+        )
+
+    def _crear_card_categoria(self, cat_data):
+        nombre = cat_data["categoria"]
+        inv_costo = cat_data["inventario_costo"]
+        ventas = cat_data["ventas_realizadas"]
+        proy_venta = cat_data["proyeccion_venta"]
+        cumplimiento = cat_data["cumplimiento_pct"]
+        rotacion = cat_data["rotacion"]
+        rendimiento = cat_data["rendimiento_pct"]
+    
+        # Color condicional para cumplimiento
+        color_cumplimiento = "green700" if cumplimiento >= 50 else ("orange700" if cumplimiento > 0 else "grey")
+        color_rendimiento = "green700" if rendimiento >= 0 else "red700"
+    
+        return ft.Container(
+            content=ft.Column([
+                # Cabecera Categoría
+                ft.Row([
+                    ft.Icon(ft.icons.CATEGORY_OUTLINED, size=16, color=Config.COLOR_PRIMARY),
+                    ft.Text(nombre.upper(), weight="bold", size=12, color=Config.COLOR_PRIMARY, expand=True)
+                ]),
+                ft.Divider(height=1, color="#eeeeee"),
+                
+                # Fila 1: Inventario Costo vs Ventas
+                ft.Row([
+                    ft.Text("Inventario (Costo):", size=11, color="grey", expand=True),
+                    ft.Text(f"${inv_costo:,.0f}", size=11, weight="bold")
+                ]),
+                ft.Row([
+                    ft.Text("Ventas Realizadas:", size=11, color="grey", expand=True),
+                    ft.Text(f"${ventas:,.0f}", size=11, weight="bold", color="green700")
+                ]),
+                
+                # Fila 2: Proyección Venta vs % Cumplimiento
+                ft.Row([
+                    ft.Text("Proyección Venta:", size=11, color="grey", expand=True),
+                    ft.Text(f"${proy_venta:,.0f}", size=11, weight="bold", color="blue700")
+                ]),
+                ft.Row([
+                    ft.Text("% Cumplimiento:", size=11, color="grey", expand=True),
+                    ft.Text(f"{cumplimiento:.1f}%", size=11, weight="bold", color=color_cumplimiento)
+                ]),
+                
+                ft.Divider(height=1, color="#f0f0f0"),
+                
+                # Fila 3: Rotación y Rendimiento Real
+                ft.Row([
+                    ft.Text("Rotación:", size=11, color="grey"),
+                    ft.Text(f"{rotacion:.2f}x", size=11, weight="bold"),
+                    ft.Container(expand=True),
+                    ft.Text("Rendimiento Real:", size=11, color="grey"),
+                    ft.Text(f"{rendimiento:.1f}%", size=11, weight="bold", color=color_rendimiento)
+                ])
+            ], spacing=4),
+            padding=12,
+            bgcolor="white",
+            border_radius=8,
+            border=ft.border.all(1, "#e0e0e0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.03, "black")),
+            col={"sm": 12, "md": 6, "lg": 4}
+        )
+
+    def copiar_resumen_kpis(self, e):
+        """
+        Construye un texto formateado con todos los indicadores actuales
+        del resumen financiero y lo guarda en el portapapeles del sistema.
+        """
+        periodo = self.lbl_periodo_dash.value.replace("Periodo: ", "").strip()
+        fecha_hora = self.lbl_fecha_hora.value
+        
+        texto_copia = (
+            f"📊 RESUMEN FINANCIERO Y OPERATIVO ({periodo.upper()})\n"
+            f"📅 Generado el: {fecha_hora}\n"
+            f"-----------------------------------------\n"
+            f"💰 COSTOS E INVENTARIO:\n"
+            f"  • Costo Inv. Actual: {self.val_inventario.value}\n"
+            f"  • Total Compras (Mes): {self.val_compras.value}\n"
+            f"  • Compras (Hoy): {self.val_compras_hoy.value}\n\n"
+            f"📈 VENTAS E INGRESOS:\n"
+            f"  • Total Ventas (Mes): {self.val_ingresos.value}\n"
+            f"  • Ventas (Hoy): {self.val_ventas_hoy.value}\n"
+            f"  • Margen Rentabilidad: {self.val_rentabilidad.value}\n\n"
+            f"💳 CARTERA Y RECAUDOS:\n"
+            f"  • Total Recaudado: {self.val_total_recaudado.value}\n"
+            f"  • Saldo por Cobrar: {self.val_saldo_por_cobrar.value}\n\n"
+            f"🎯 OBJETIVOS Y PROYECCIONES:\n"
+            f"  • Proy. Ventas Stock: {self.val_proyeccion_ventas.value}\n"
+            f"  • Proy. Rentabilidad: {self.val_proyeccion_rentabilidad.value}\n"
+            f"  • Meta Venta Diaria: {self.val_meta_diaria.value}\n"
+            f"  • Rotación Global: {self.val_rotacion.value}\n"
+            f"-----------------------------------------"
+        )
+
+        if self.page:
+            self.page.set_clipboard(texto_copia)
+            self.page.snack_bar = ft.SnackBar(
+                content=ft.Row([
+                    ft.Icon(ft.icons.CHECK_CIRCLE, color="white", size=18),
+                    ft.Text("Resumen financiero copiado al portapapeles exitosamente", color="white")
+                ]),
+                bgcolor="green700"
+            )
+            self.page.snack_bar.open = True
+            self.safe_update()
 ````
 
 ## File: ui/app.py
@@ -335116,6 +339068,7 @@ from ui.views.dashboard import DashboardView
 from ui.views.inventario import InventarioView
 from ui.views.compras import ComprasView
 from ui.views.ventas import VentasView
+from ui.views.cartera import CarteraView
 from ui.views.cierre_inventario import CierreInventarioView
 from ui.views.conteo_inicial import ConteoInicialView
 from ui.views.ajustes_inventario import AjustesInventarioView
@@ -335197,6 +339150,7 @@ class AppLayout(ft.Row):
                 elif route_name == "inventario": self.views[route_name] = InventarioView()
                 elif route_name == "compras": self.views[route_name] = ComprasView()
                 elif route_name == "ventas": self.views[route_name] = VentasView()
+                elif route_name == "cartera": self.views[route_name] = CarteraView()
                 elif route_name == "conteo": self.views[route_name] = ConteoInicialView()
                 elif route_name == "ajustes_inventario": self.views[route_name] = AjustesInventarioView()
                 elif route_name == "cierre_mes": self.views[route_name] = CierreInventarioView()
@@ -335237,6 +339191,11 @@ class AppLayout(ft.Row):
                         log_error(f"reload load_summary en {route_name}", e)
             
             threading.Thread(target=load_data_bg, daemon=True).start()
+````
+
+## File: cargas_locales.json
+````json
+{}
 ````
 
 ## File: ui/views/cierre_inventario.py
@@ -336855,1025 +340814,6 @@ class CierreInventarioView(ft.Container):
         self.page.overlay.append(dlg_hist)
         dlg_hist.open = True
         self.safe_update()
-````
-
-## File: ui/views/dashboard.py
-````python
-import flet as ft
-import threading
-import datetime
-import calendar
-from concurrent.futures import ThreadPoolExecutor
-from config import Config
-from core.supabase_client import SupabaseClient
-from core.fecha_utils import get_ahora_local, get_hoy_local_str, get_mes_actual_str
-
-class DashboardView(ft.Container):
-    def __init__(self, page: ft.Page = None):
-        super().__init__()
-        self.page = page
-        self.expand = True
-        self.padding = 20
-        self.db = SupabaseClient()
-        
-        self.lbl_periodo_dash = ft.Text("Periodo: ...", size=13, weight="bold", color=Config.COLOR_PRIMARY)
-        self.lbl_estado_dash = ft.Text("Estado: ...", size=13, weight="bold")
-        self.lbl_fecha_hora = ft.Text("...", size=12, color="grey")
-
-        self.fecha_filtro_dash = None
-        self.date_picker_dash = ft.DatePicker(
-            on_change=self.on_fecha_dash_change,
-            first_date=datetime.datetime(2020, 1, 1),
-            last_date=datetime.datetime(2035, 12, 31)
-        )
-
-        self.btn_fecha_dash = ft.OutlinedButton(
-            text=f"Fecha: {get_ahora_local().strftime('%d/%m/%Y')}",
-            icon=ft.icons.CALENDAR_MONTH,
-            on_click=lambda e: self.date_picker_dash.pick_date(),
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-            height=38
-        )
-        self.btn_clear_fecha_dash = ft.IconButton(
-            icon=ft.icons.CLEAR, icon_color="red", tooltip="Restablecer a Hoy",
-            visible=False, on_click=self.limpiar_filtro_fecha_dash
-        )
-
-        badge_info = ft.Container(
-            content=ft.Row([
-                ft.Column([
-                    ft.Row([self.lbl_periodo_dash, ft.Text("|", color="grey", size=13), self.lbl_estado_dash], spacing=5),
-                    ft.Row([ft.Icon(ft.icons.ACCESS_TIME, size=14, color="grey"), self.lbl_fecha_hora], spacing=5)
-                ], horizontal_alignment=ft.CrossAxisAlignment.END, spacing=2),
-                ft.Container(width=10),
-                self.btn_fecha_dash,
-                self.btn_clear_fecha_dash
-            ], alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=ft.padding.symmetric(horizontal=15, vertical=10),
-            bgcolor="white",
-            border_radius=8,
-            border=ft.border.all(1, Config.COLOR_BORDER),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.04, "black"), offset=ft.Offset(0, 1))
-        )
-
-        header_row = ft.Row([
-            ft.Column([
-                ft.Text("Dashboard General", size=26, weight="bold", color=Config.COLOR_PRIMARY),
-                ft.Text("Resumen ejecutivo del sistema", size=13, color=Config.COLOR_TEXT_MUTED),
-            ], spacing=2),
-            badge_info
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-        
-        # Tarjetas de KPIs (Valores Iniciales) - SECCIÓN COSTOS
-        self.val_inventario = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
-        self.sub_inventario = ft.Text("Valoración real stock > 0", size=10, color="grey600")
-        
-        self.val_compras = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
-        self.sub_compras = ft.Text("Entradas acumuladas del mes", size=10, color="grey600")
-        
-        self.val_compras_hoy = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
-        self.sub_compras_hoy = ft.Text("Registradas hoy", size=10, color="grey600")
-        
-        self.val_rotacion = ft.Text("N/D", size=13, weight="bold", color="teal800")
-        
-        # SECCIÓN VENTAS
-        self.val_ingresos = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
-        self.sub_ingresos = ft.Text("Salidas acumuladas del mes", size=10, color="grey600")
-        
-        self.val_cumplimiento_mes = ft.Text("0.0%", size=22, weight="bold", color="teal800")
-        self.sub_cumplimiento_mes = ft.Text("Capacidad: $ 0", size=10, color="grey600")
-
-        self.val_ventas_hoy = ft.Text("$ 0", size=22, weight="bold", color=Config.COLOR_PRIMARY)
-        self.sub_ventas_hoy = ft.Text("Registradas hoy", size=10, color="grey600")
-        
-        self.val_cumplimiento_hoy = ft.Text("0.0%", size=22, weight="bold", color="teal800")
-        self.sub_cumplimiento_hoy = ft.Text("Meta diaria: $ 0", size=10, color="grey600")
-
-        self.val_rentabilidad = ft.Text("0.0%", size=13, weight="bold", color="teal800")
-        self.val_proyeccion_ventas = ft.Text("$ 0", size=13, weight="bold", color=Config.COLOR_PRIMARY)
-        self.val_proyeccion_rentabilidad = ft.Text("0.0%", size=13, weight="bold", color="teal800")
-        
-        self.kpi_costos_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("Costo Inv. Actual", self.val_inventario, ft.icons.INVENTORY_2_ROUNDED, subtext_control=self.sub_inventario, card_color="#3b82f6"), col={"xs": 12, "sm": 6, "md": 4}),
-            ft.Container(content=self._build_kpi_card("Total Compras (Mes)", self.val_compras, ft.icons.SHOPPING_BAG_ROUNDED, subtext_control=self.sub_compras, card_color="#8b5cf6"), col={"xs": 12, "sm": 6, "md": 4}),
-            ft.Container(content=self._build_kpi_card("Compras (Hoy)", self.val_compras_hoy, ft.icons.PAYMENTS_ROUNDED, subtext_control=self.sub_compras_hoy, card_color="#f59e0b"), col={"xs": 12, "sm": 6, "md": 4}),
-        ], spacing=12, run_spacing=12)
-
-        self.kpi_ventas_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("Total Ventas (Mes)", self.val_ingresos, ft.icons.TRENDING_UP_ROUNDED, subtext_control=self.sub_ingresos, card_color="#10b981"), col={"xs": 12, "sm": 6, "md": 3}),
-            ft.Container(content=self._build_kpi_card("Cumplimiento Mes", self.val_cumplimiento_mes, ft.icons.SPEED_ROUNDED, subtext_control=self.sub_cumplimiento_mes, card_color="#0284c7"), col={"xs": 12, "sm": 6, "md": 3}),
-            ft.Container(content=self._build_kpi_card("Ventas (Hoy)", self.val_ventas_hoy, ft.icons.MONETIZATION_ON_ROUNDED, subtext_control=self.sub_ventas_hoy, card_color="#059669"), col={"xs": 12, "sm": 6, "md": 3}),
-            ft.Container(content=self._build_kpi_card("Cumplimiento Hoy", self.val_cumplimiento_hoy, ft.icons.CHECK_CIRCLE_OUTLINE_ROUNDED, subtext_control=self.sub_cumplimiento_hoy, card_color="#0d9488"), col={"xs": 12, "sm": 6, "md": 3}),
-        ], spacing=12, run_spacing=12)
-        
-        # Paso 3: Barra de Métricas Secundarias
-        self.val_meta_diaria = ft.Text("$ 0 / día", size=13, weight="bold", color="teal700")
-
-        self.kpi_secundarios = ft.Container(
-            content=ft.Row([
-                ft.Icon(ft.icons.INSIGHTS, size=16, color=Config.COLOR_PRIMARY),
-                ft.Text("Objetivo Comercial:", weight="bold", color=Config.COLOR_PRIMARY, size=12),
-                ft.Text("Proy. Ventas Stock:", size=12, color="grey700"), self.val_proyeccion_ventas,
-                ft.Text(" | Margen Proy.:", size=12, color="grey700"), self.val_proyeccion_rentabilidad,
-                ft.Container(width=1, height=18, bgcolor="#e2e8f0", margin=ft.padding.symmetric(horizontal=6)),
-                ft.Icon(ft.icons.FLAG, size=16, color="teal700"),
-                ft.Text("Meta Venta Diaria:", weight="bold", size=12, color="grey700"), self.val_meta_diaria,
-                ft.Container(expand=True),
-                ft.Text("Rotación Global:", size=12, color="grey700"), self.val_rotacion,
-            ], spacing=5, alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=ft.padding.symmetric(horizontal=16, vertical=10),
-            bgcolor="white", border_radius=10, border=ft.border.all(1, "#e2e8f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=6, color=ft.colors.with_opacity(0.04, "black"), offset=ft.Offset(0, 2))
-        )
-
-        # SECCIÓN AJUSTES
-        self.col_ajustes_salida = ft.Column(spacing=5)
-        self.col_ajustes_entrada = ft.Column(spacing=5)
-        
-        self.lbl_neto_ajustes_header = ft.Text("NETO: $0", weight="bold", size=16)
-        header_ajustes = ft.Row([
-            ft.Text("Impacto de Ajustes de Inventario (Mes Actual)", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-            self.lbl_neto_ajustes_header
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-
-        self.panel_ajustes = ft.Row([
-            # Panel Salida
-            ft.Container(
-                content=ft.Column([
-                    ft.Text("Ajustes de Salida (-)", size=15, weight="bold", color="red700"),
-                    ft.Divider(height=1, color="#fee2e2"),
-                    self.col_ajustes_salida
-                ]),
-                bgcolor="white",
-                padding=15,
-                border_radius=10,
-                expand=True,
-                border=ft.border.all(1, "#fecaca"),
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.04, "black"))
-            ),
-            # Panel Entrada
-            ft.Container(
-                content=ft.Column([
-                    ft.Text("Ajustes de Entrada (+)", size=15, weight="bold", color="teal700"),
-                    ft.Divider(height=1, color="#d1fae5"),
-                    self.col_ajustes_entrada
-                ]),
-                bgcolor="white",
-                padding=15,
-                border_radius=10,
-                expand=True,
-                border=ft.border.all(1, "#a7f3d0"),
-                shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.04, "black"))
-            )
-        ], spacing=15)
-
-        # Botón para copiar resumen al portapapeles
-        self.btn_copiar_resumen = ft.IconButton(
-            icon=ft.icons.COPY_ROUNDED,
-            icon_size=18,
-            icon_color=Config.COLOR_PRIMARY,
-            tooltip="Copiar Resumen Financiero al Portapapeles",
-            on_click=self.copiar_resumen_kpis
-        )
-        
-        header_kpis_row = ft.Row([
-            ft.Text("Resumen Financiero y Operativo", size=18, weight="bold", color=Config.COLOR_PRIMARY),
-            self.btn_copiar_resumen
-        ], tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-
-        # Ensamblaje del Layout
-        self.seccion_kpis = ft.Column([
-            header_kpis_row,
-            self.kpi_costos_row,
-            self.kpi_ventas_row,
-            self.kpi_secundarios
-        ], spacing=10)
-
-        # SECCIÓN RESUMEN DE IMPUESTOS
-        self.val_iva_generado_mes = ft.Text("$ 0", size=20, weight="bold", color="blue800")
-        self.sub_iva_gen_mes = ft.Text("IVA facturado en ventas", size=10, color="grey600")
-        
-        self.val_iva_generado_hoy = ft.Text("$ 0", size=20, weight="bold", color="blue800")
-        self.sub_iva_gen_hoy = ft.Text("IVA cobrado hoy", size=10, color="grey600")
-        
-        self.val_iva_pagado_mes = ft.Text("$ 0", size=20, weight="bold", color="purple800")
-        self.sub_iva_pag_mes = ft.Text("Crédito fiscal en compras", size=10, color="grey600")
-        
-        self.val_iva_pagado_hoy = ft.Text("$ 0", size=20, weight="bold", color="purple800")
-        self.sub_iva_pag_hoy = ft.Text("IVA compras de hoy", size=10, color="grey600")
-
-        header_impuestos_row = ft.Row([
-            ft.Text("Resumen de Impuestos (IVA)", size=18, weight="bold", color=Config.COLOR_PRIMARY),
-        ], tight=True)
-
-        self.kpi_iva_generado_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("IVA Generado (Mes)", self.val_iva_generado_mes, ft.icons.RECEIPT_LONG_ROUNDED, subtext_control=self.sub_iva_gen_mes, card_color="#2563eb"), col={"xs": 12, "sm": 6}),
-            ft.Container(content=self._build_kpi_card("IVA Generado (Hoy)", self.val_iva_generado_hoy, ft.icons.POINT_OF_SALE_ROUNDED, subtext_control=self.sub_iva_gen_hoy, card_color="#3b82f6"), col={"xs": 12, "sm": 6}),
-        ], spacing=12, run_spacing=12)
-
-        self.kpi_iva_pagado_row = ft.ResponsiveRow([
-            ft.Container(content=self._build_kpi_card("IVA Pagado (Mes)", self.val_iva_pagado_mes, ft.icons.SHOPPING_CART_CHECKOUT_ROUNDED, subtext_control=self.sub_iva_pag_mes, card_color="#7c3aed"), col={"xs": 12, "sm": 6}),
-            ft.Container(content=self._build_kpi_card("IVA Pagado (Hoy)", self.val_iva_pagado_hoy, ft.icons.SHOPPING_BAG_ROUNDED, subtext_control=self.sub_iva_pag_hoy, card_color="#9333ea"), col={"xs": 12, "sm": 6}),
-        ], spacing=12, run_spacing=12)
-
-        self.seccion_impuestos = ft.Column([
-            header_impuestos_row,
-            self.kpi_iva_generado_row,
-            self.kpi_iva_pagado_row
-        ], spacing=10)
-
-        self.seccion_ajustes = ft.Column([
-            header_ajustes,
-            self.panel_ajustes
-        ], spacing=10)
-
-        # Gráficos y Tablas
-        # Contenedor de Categorías (Grilla Responsiva)
-        self.categorias_row = ft.ResponsiveRow(columns=12, spacing=15, run_spacing=15)
-        self.categorias_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Rendimiento Detallado por Categoría", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                self.categorias_row
-            ]),
-            margin=ft.padding.only(top=10, bottom=10)
-        )
-
-        # Gráfico de Barras Moderno
-        self.bar_chart = ft.BarChart(
-            bar_groups=[],
-            border=ft.border.all(1, "#f0f0f0"),
-            min_y=0,
-            expand=True,
-            tooltip_bgcolor="white",
-            interactive=True,
-            left_axis=ft.ChartAxis(labels_size=50), 
-            bottom_axis=ft.ChartAxis(labels_size=40), 
-        )
-
-        # Indicadores de Resumen del Gráfico
-        self.badge_dias_cumplidos = ft.Text("...", size=13, weight="bold", color="teal800")
-        self.badge_mejor_dia = ft.Text("...", size=13, weight="bold", color="blue800")
-        self.badge_promedio_diario = ft.Text("...", size=13, weight="bold", color="grey800")
-        self.badge_meta_promedio = ft.Text("...", size=13, weight="bold", color="purple800")
-
-        kpi_strip_chart = ft.ResponsiveRow([
-            ft.Container(
-                content=ft.Column([
-                    ft.Text("DÍAS META CUMPLIDA", size=10, color="grey600", weight="w600"),
-                    self.badge_dias_cumplidos
-                ], spacing=2),
-                padding=10, bgcolor="#ecfdf5", border_radius=8, border=ft.border.all(1, "#a7f3d0"),
-                col={"xs": 6, "sm": 3}
-            ),
-            ft.Container(
-                content=ft.Column([
-                    ft.Text("MEJOR DÍA DE VENTAS", size=10, color="grey600", weight="w600"),
-                    self.badge_mejor_dia
-                ], spacing=2),
-                padding=10, bgcolor="#eff6ff", border_radius=8, border=ft.border.all(1, "#bfdbfe"),
-                col={"xs": 6, "sm": 3}
-            ),
-            ft.Container(
-                content=ft.Column([
-                    ft.Text("PROMEDIO VENTA DÍA", size=10, color="grey600", weight="w600"),
-                    self.badge_promedio_diario
-                ], spacing=2),
-                padding=10, bgcolor="#f8fafc", border_radius=8, border=ft.border.all(1, "#e2e8f0"),
-                col={"xs": 6, "sm": 3}
-            ),
-            ft.Container(
-                content=ft.Column([
-                    ft.Text("META DIARIA BASE", size=10, color="grey600", weight="w600"),
-                    self.badge_meta_promedio
-                ], spacing=2),
-                padding=10, bgcolor="#faf5ff", border_radius=8, border=ft.border.all(1, "#e9d5ff"),
-                col={"xs": 6, "sm": 3}
-            ),
-        ], spacing=10, run_spacing=10)
-
-        # Leyenda moderna
-        leyenda = ft.Row([
-            ft.Row([ft.Container(width=12, height=12, bgcolor="#10b981", border_radius=3), ft.Text("Ventas (Meta Superada)", size=11, weight="bold", color="black87")]),
-            ft.Row([ft.Container(width=12, height=12, bgcolor="#3b82f6", border_radius=3), ft.Text("Ventas (En progreso)", size=11, weight="bold", color="black87")]),
-            ft.Row([ft.Container(width=12, height=12, bgcolor="#a78bfa", border_radius=3), ft.Text("Meta Diaria", size=11, weight="bold", color="black87")]),
-            ft.Row([ft.Container(width=12, height=12, bgcolor="#06b6d4", border_radius=3), ft.Text("Compras", size=11, weight="bold", color="black87")]),
-        ], spacing=20, alignment=ft.MainAxisAlignment.CENTER, wrap=True)
-
-        # Tira de tarjetas diarias
-        self.cards_diarias_row = ft.Row(scroll=ft.ScrollMode.ALWAYS, spacing=10)
-
-        self.chart_container = ft.Container(
-            content=ft.Column([
-                ft.Row([
-                    ft.Column([
-                        ft.Text("Desempeño Diario: Ventas vs Meta de Venta vs Compras", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                        ft.Text("Monitoreo día a día con cumplimiento porcentual de la meta de ventas", size=12, color="grey"),
-                    ], expand=True, spacing=2),
-                ]),
-                ft.Divider(height=5, color="transparent"),
-                kpi_strip_chart,
-                ft.Divider(height=10, color="transparent"),
-                leyenda,
-                ft.Container(content=self.bar_chart, height=320, margin=ft.padding.only(top=10, bottom=15)),
-                ft.Divider(height=1, color="#f0f0f0"),
-                ft.Row([
-                    ft.Icon(ft.icons.CALENDAR_VIEW_DAY, size=16, color=Config.COLOR_PRIMARY),
-                    ft.Text("Seguimiento Día a Día (Desliza horizontalmente para ver el mes completo)", size=13, weight="bold", color="grey800"),
-                ], spacing=6),
-                ft.Container(
-                    content=self.cards_diarias_row,
-                    padding=ft.padding.symmetric(vertical=8),
-                )
-            ]),
-            bgcolor="white",
-            padding=20,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black"))
-        )
-        
-        # Tables
-        self.dt_ventas = ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Código", size=12)),
-                ft.DataColumn(ft.Text("Producto", size=12)),
-                ft.DataColumn(ft.Text("Unidades", size=12), numeric=True),
-                ft.DataColumn(ft.Text("Ingreso Total", size=12), numeric=True)
-            ],
-            rows=[],
-            data_row_min_height=30,
-            data_row_max_height=30,
-            heading_row_height=40,
-            column_spacing=15,
-        )
-        
-        self.dt_costos = ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("Código", size=12)),
-                ft.DataColumn(ft.Text("Producto", size=12)),
-                ft.DataColumn(ft.Text("Valor Inv.", size=12), numeric=True),
-                ft.DataColumn(ft.Text("Rotación", size=12))
-            ],
-            rows=[],
-            data_row_min_height=30,
-            data_row_max_height=30,
-            heading_row_height=40,
-            column_spacing=15,
-        )
-        
-        table_ventas_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Top 10 Productos con Mayor Ingreso", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                self.dt_ventas
-            ], scroll=ft.ScrollMode.AUTO),
-            bgcolor="white",
-            padding=15,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
-            col={"xs": 12, "md": 6}
-        )
-        
-        table_costos_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Top 10 Productos con Mayor Costo", size=16, weight="bold", color=Config.COLOR_PRIMARY),
-                self.dt_costos
-            ], scroll=ft.ScrollMode.AUTO),
-            bgcolor="white",
-            padding=15,
-            border_radius=10,
-            border=ft.border.all(1, "#f0f0f0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.05, "black")),
-            col={"xs": 12, "md": 6}
-        )
-        
-        self.tables_row = ft.ResponsiveRow([
-            table_ventas_container,
-            table_costos_container
-        ], spacing=15, run_spacing=15)
-        
-        # Indicador de carga superior
-        self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
-
-        # 2. Main content Column
-        self.content = ft.Column([
-            self.progress_bar, 
-            header_row,
-            ft.Divider(height=10, color="transparent"),
-            self.seccion_kpis,
-            ft.Divider(height=10, color="transparent"),
-            self.seccion_impuestos, # <-- Ubicación antes del impacto de ajustes
-            ft.Divider(height=10, color="transparent"),
-            self.seccion_ajustes,
-            ft.Divider(height=10, color="transparent"),
-            self.categorias_container,
-            ft.Divider(height=10, color="transparent"),
-            self.chart_container,
-            ft.Divider(height=10, color="transparent"),
-            self.tables_row,
-            ft.Container(height=30) # Bottom padding
-        ], scroll=ft.ScrollMode.AUTO, expand=True)
-
-    def did_mount(self):
-        if not hasattr(self, "overlay_added"):
-            self.page.overlay.append(self.date_picker_dash)
-            self.overlay_added = True
-        self.load_data()
-
-    def safe_update(self):
-        """Actualiza la UI solo si el control sigue montado en la página."""
-        try:
-            if self.page and self.uid:
-                self.page.update()
-        except Exception:
-            pass
-
-    def load_data(self):
-        """Enciende la interfaz de carga y lanza el hilo en segundo plano."""
-        self.progress_bar.visible = True
-        self.safe_update()
-            
-        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
-
-    def on_fecha_dash_change(self, e):
-        if self.date_picker_dash.value:
-            self.fecha_filtro_dash = self.date_picker_dash.value.strftime("%Y-%m-%d")
-            self.btn_fecha_dash.text = f"Fecha: {self.date_picker_dash.value.strftime('%d/%m/%Y')}"
-            self.btn_clear_fecha_dash.visible = True
-            self.load_data()
-
-    def limpiar_filtro_fecha_dash(self, e):
-        self.fecha_filtro_dash = None
-        self.date_picker_dash.value = None
-        self.btn_fecha_dash.text = f"Fecha: {datetime.date.today().strftime('%d/%m/%Y')}"
-        self.btn_clear_fecha_dash.visible = False
-        self.load_data()
-
-    def _clasificar_ajustes(self, ajustes_bd: list) -> tuple[dict, dict, float, float, float, float, float]:
-        """Clasifica los ajustes de inventario en entradas y salidas calculando totales y neto."""
-        tipos_salida = {
-            "Daño / Merma": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Vencimiento": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Pérdida": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Consumo Familiar": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Consumo Cliente (Cortesía)": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Donación Saliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Otro (Salida)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
-        }
-
-        tipos_entrada = {
-            "Sobrante de Inventario": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Donación Entrante": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Devolución Cliente": {"conteo": 0, "cantidad": 0, "costo": 0.0},
-            "Otro (Entrada)": {"conteo": 0, "cantidad": 0, "costo": 0.0}
-        }
-
-        for fila in (ajustes_bd or []):
-            tipo_bd = fila.get("tipo_ajuste", "")
-            motivo_bd = fila.get("motivo_observacion", "")
-            cant = float(fila.get("cantidad_total") or 0)
-            costo = float(fila.get("costo_total") or 0)
-            conteo = int(fila.get("conteo") or 0)
-
-            asignado = False
-            if tipo_bd in ("AJUSTE_ENTRADA", "ENTRADA_POR_SOBRANTE"):
-                for key in tipos_entrada.keys():
-                    if key.lower() in motivo_bd.lower():
-                        tipos_entrada[key]["conteo"] += conteo
-                        tipos_entrada[key]["cantidad"] += cant
-                        tipos_entrada[key]["costo"] += costo
-                        asignado = True
-                        break
-                if not asignado:
-                    tipos_entrada["Otro (Entrada)"]["conteo"] += conteo
-                    tipos_entrada["Otro (Entrada)"]["cantidad"] += cant
-                    tipos_entrada["Otro (Entrada)"]["costo"] += costo
-            else:
-                for key in tipos_salida.keys():
-                    if key.lower() in motivo_bd.lower():
-                        tipos_salida[key]["conteo"] += conteo
-                        tipos_salida[key]["cantidad"] += cant
-                        tipos_salida[key]["costo"] += costo
-                        asignado = True
-                        break
-                if not asignado:
-                    if tipo_bd == "BAJA_VENCIMIENTO": k = "Vencimiento"
-                    elif tipo_bd == "SALIDA_POR_FALTANTE": k = "Pérdida"
-                    else: k = "Otro (Salida)"
-                    tipos_salida[k]["conteo"] += conteo
-                    tipos_salida[k]["cantidad"] += cant
-                    tipos_salida[k]["costo"] += costo
-
-        tot_cost_ent = sum([d["costo"] for d in tipos_entrada.values()])
-        tot_cost_sal = sum([d["costo"] for d in tipos_salida.values()])
-        tot_cant_ent = sum([d["cantidad"] for d in tipos_entrada.values()])
-        tot_cant_sal = sum([d["cantidad"] for d in tipos_salida.values()])
-        neto = tot_cost_ent - tot_cost_sal
-
-        return tipos_entrada, tipos_salida, tot_cost_ent, tot_cost_sal, tot_cant_ent, tot_cant_sal, neto
-
-    def _fetch_data_worker(self):
-        """Ejecuta todas las llamadas concurrentes con ThreadPoolExecutor y actualiza la UI."""
-        try:
-            hoy_obj = (
-                datetime.datetime.strptime(self.fecha_filtro_dash, "%Y-%m-%d").date()
-                if self.fecha_filtro_dash
-                else datetime.date.today()
-            )
-            mes_actual = hoy_obj.strftime("%Y-%m")
-
-            # 1. Cargar todas las consultas independientes en paralelo
-            with ThreadPoolExecutor(max_workers=8) as executor:
-                f_cierre = executor.submit(self.db.obtener_estado_cierre, mes_actual)
-                f_cat_kpis = executor.submit(self.db.get_rendimiento_categorias_periodo, None, self.fecha_filtro_dash)
-                f_ven = executor.submit(self.db.get_ventas_summary, fecha_corte=self.fecha_filtro_dash)
-                f_com = executor.submit(self.db.get_compras_summary, fecha_corte=self.fecha_filtro_dash)
-                f_proy = executor.submit(self.db.get_proyeccion_ventas, fecha_corte=self.fecha_filtro_dash)
-                f_ajustes = executor.submit(self.db.get_ajustes_mes, mes_actual, fecha_corte=self.fecha_filtro_dash)
-                f_tendencia = executor.submit(self.db.get_tendencia_diaria, fecha_corte=self.fecha_filtro_dash)
-                f_top_ventas = executor.submit(self.db.get_top_ventas_mes, limit=10, fecha_corte=self.fecha_filtro_dash)
-                f_top_costos = executor.submit(self.db.get_top_costo_inventario, limit=10, fecha_corte=self.fecha_filtro_dash)
-
-                datos_cierre = f_cierre.result() or {}
-                kpis_cat = f_cat_kpis.result() or []
-                res_ven = f_ven.result() or {}
-                res_com = f_com.result() or {}
-                proyeccion_ventas = float(f_proy.result() or 0.0)
-                ajustes_bd = f_ajustes.result() or []
-                tendencia = f_tendencia.result() or {}
-                top_ventas = f_top_ventas.result() or []
-                top_costos = f_top_costos.result() or []
-
-            # 2. Contexto Temporal y Estado de Periodo
-            estado_periodo = datos_cierre.get('periodo', {}).get('estado', 'ABIERTO') if datos_cierre and datos_cierre.get('periodo') else 'ABIERTO'
-            meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-            partes = mes_actual.split('-')
-            nombre_mes = f"{meses[int(partes[1]) - 1]} {partes[0]}"
-
-            self.lbl_periodo_dash.value = f"Periodo: {nombre_mes}"
-            self.lbl_estado_dash.value = f"Estado: {estado_periodo}"
-
-            colores_estado = {'ABIERTO': 'green', 'PRELIMINAR': 'orange', 'EN_AUDITORIA': 'blue', 'CERRADO': 'red'}
-            self.lbl_estado_dash.color = colores_estado.get(estado_periodo, 'black')
-
-            ahora = get_ahora_local()
-            self.lbl_fecha_hora.value = ahora.strftime("%d/%m/%Y - %I:%M %p")
-
-            # 3. KPIs de Inventario, Ventas, Compras e IVA
-            val_inv = sum([float(c.get("inventario_costo") or 0.0) for c in kpis_cat])
-            self.val_inventario.value = f"$ {val_inv:,.0f}"
-
-            ingresos = float(res_ven.get('total_mes') or 0.0)
-            compras = float(res_com.get('total_mes') or 0.0)
-            ventas_hoy = float(res_ven.get('total_hoy') or 0.0)
-            compras_hoy = float(res_com.get('total_hoy') or 0.0)
-
-            self.val_ingresos.value = f"$ {ingresos:,.0f}"
-            self.val_ventas_hoy.value = f"$ {ventas_hoy:,.0f}"
-            self.val_compras.value = f"$ {compras:,.0f}"
-            self.val_compras_hoy.value = f"$ {compras_hoy:,.0f}"
-
-            iva_gen_mes = float(res_ven.get('iva_mes') or 0.0)
-            iva_gen_hoy = float(res_ven.get('iva_hoy') or 0.0)
-            iva_pag_mes = float(res_com.get('iva_mes') or 0.0)
-            iva_pag_hoy = float(res_com.get('iva_hoy') or 0.0)
-
-            self.val_iva_generado_mes.value = f"$ {iva_gen_mes:,.0f}"
-            self.val_iva_generado_hoy.value = f"$ {iva_gen_hoy:,.0f}"
-            self.val_iva_pagado_mes.value = f"$ {iva_pag_mes:,.0f}"
-            self.val_iva_pagado_hoy.value = f"$ {iva_pag_hoy:,.0f}"
-
-            rentabilidad = ((ingresos - compras) / ingresos * 100) if ingresos > 0 else 0.0
-            self.val_rentabilidad.value = f"{rentabilidad:.1f}%"
-            self.val_rentabilidad.color = "teal800" if rentabilidad >= 0 else "red700"
-
-            rotacion_global = (ingresos / val_inv) if val_inv > 0 else 0.0
-            self.val_rotacion.value = f"{rotacion_global:.2f}x" if val_inv > 0 else "N/D"
-
-            self.val_proyeccion_ventas.value = f"$ {proyeccion_ventas:,.0f}"
-            proy_rent = ((proyeccion_ventas - val_inv) / proyeccion_ventas * 100) if (proyeccion_ventas > 0 and val_inv > 0) else 0.0
-            self.val_proyeccion_rentabilidad.value = f"{proy_rent:.1f}%"
-            self.val_proyeccion_rentabilidad.color = "teal800" if proy_rent >= 0 else "red700"
-
-            # Cumplimiento Mes: Ventas acumuladas / (Ventas acumuladas + Proyección Stock)
-            meta_total_mes = ingresos + proyeccion_ventas
-            pct_cumplimiento_mes = (ingresos / meta_total_mes * 100) if meta_total_mes > 0 else 0.0
-            self.val_cumplimiento_mes.value = f"{pct_cumplimiento_mes:.1f}%"
-            self.val_cumplimiento_mes.color = "teal800" if pct_cumplimiento_mes >= 100 else ("blue800" if pct_cumplimiento_mes >= 50 else "amber800")
-            self.sub_cumplimiento_mes.value = f"Capacidad total: $ {meta_total_mes:,.0f}"
-
-            # Cumplimiento Hoy y Meta Diaria (Uso nativo de calendar)
-            dias_en_mes = calendar.monthrange(hoy_obj.year, hoy_obj.month)[1]
-            dias_restantes = max(1, dias_en_mes - hoy_obj.day + 1)
-            meta_diaria = (proyeccion_ventas / dias_restantes) if dias_restantes > 0 and proyeccion_ventas > 0 else 0.0
-            self.val_meta_diaria.value = f"$ {meta_diaria:,.0f} / día"
-            self.val_meta_diaria.tooltip = f"Meta calculada para alcanzar la proyección de stock ($ {proyeccion_ventas:,.0f}) en los {dias_restantes} días restantes del mes"
-
-            pct_cumplimiento_hoy = (ventas_hoy / meta_diaria * 100) if meta_diaria > 0 else 0.0
-            self.val_cumplimiento_hoy.value = f"{pct_cumplimiento_hoy:.1f}%"
-            self.val_cumplimiento_hoy.color = "teal800" if pct_cumplimiento_hoy >= 100 else ("blue800" if pct_cumplimiento_hoy > 0 else "grey700")
-            self.sub_cumplimiento_hoy.value = f"Meta diaria: $ {meta_diaria:,.0f}"
-
-            # 4. Clasificación y Renderizado de Ajustes
-            tipos_ent, tipos_sal, tot_cost_ent, tot_cost_sal, tot_cant_ent, tot_cant_sal, neto = self._clasificar_ajustes(ajustes_bd)
-
-            if neto > 0:
-                self.lbl_neto_ajustes_header.value = f"NETO (POSITIVO): +${neto:,.0f}"
-                self.lbl_neto_ajustes_header.color = "#2ecca0"
-            elif neto < 0:
-                self.lbl_neto_ajustes_header.value = f"NETO (NEGATIVO): -${abs(neto):,.0f}"
-                self.lbl_neto_ajustes_header.color = "#f26c61"
-            else:
-                self.lbl_neto_ajustes_header.value = "NETO: $0"
-                self.lbl_neto_ajustes_header.color = "grey"
-
-            self.col_ajustes_entrada.controls.clear()
-            self.col_ajustes_salida.controls.clear()
-
-            for key, datos in tipos_ent.items():
-                self.col_ajustes_entrada.controls.append(
-                    ft.Row([
-                        ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
-                        ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
-                        ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#2ecca0")
-                    ])
-                )
-            filas_faltantes = len(tipos_sal) - len(tipos_ent)
-            for _ in range(max(0, filas_faltantes)):
-                self.col_ajustes_entrada.controls.append(
-                    ft.Container(height=18, content=ft.Text(""))
-                )
-            self.col_ajustes_entrada.controls.append(ft.Divider(color="black12", height=10))
-            self.col_ajustes_entrada.controls.append(
-                ft.Row([
-                    ft.Text("TOTAL ENTRADAS", size=12, weight="bold"),
-                    ft.Text(f"{tot_cant_ent:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
-                    ft.Text(f"${tot_cost_ent:,.0f}", size=12, weight="bold", color="#2ecca0")
-                ])
-            )
-
-            for key, datos in tipos_sal.items():
-                self.col_ajustes_salida.controls.append(
-                    ft.Row([
-                        ft.Text(f"{key} ({datos['conteo']})", size=12, color="black87", expand=True),
-                        ft.Text(f"{datos['cantidad']:.0f} unds", size=12, color="grey"),
-                        ft.Text(f"${datos['costo']:,.0f}", size=12, weight="bold", color="#f26c61")
-                    ])
-                )
-            self.col_ajustes_salida.controls.append(ft.Divider(color="black12", height=10))
-            self.col_ajustes_salida.controls.append(
-                ft.Row([
-                    ft.Text("TOTAL SALIDAS", size=12, weight="bold"),
-                    ft.Text(f"{tot_cant_sal:.0f} unds", size=12, weight="bold", color="grey", expand=True, text_align=ft.TextAlign.CENTER),
-                    ft.Text(f"${tot_cost_sal:,.0f}", size=12, weight="bold", color="#f26c61")
-                ])
-            )
-
-            # 5. Gráfico de Barras Comparativo y Tarjetas de Detalle Diario
-            meta_diaria_base = (meta_total_mes / dias_en_mes) if (dias_en_mes > 0 and meta_total_mes > 0) else 0.0
-            dias_ordenados = sorted(tendencia.keys())
-            
-            dias_cumplidos = 0
-            dias_activos = 0
-            suma_ventas_activos = 0.0
-            mejor_dia_fecha = ""
-            mejor_dia_venta = 0.0
-
-            max_val_y = meta_diaria_base
-            bar_groups = []
-            etiquetas_x = []
-
-            for i, dia in enumerate(dias_ordenados):
-                v = float(tendencia[dia]["ventas"])
-                c = float(tendencia[dia]["compras"])
-                m = meta_diaria_base
-                
-                if v > 0:
-                    dias_activos += 1
-                    suma_ventas_activos += v
-                if v >= m and m > 0:
-                    dias_cumplidos += 1
-                if v > mejor_dia_venta:
-                    mejor_dia_venta = v
-                    mejor_dia_fecha = dia
-
-                if v > max_val_y: max_val_y = v
-                if c > max_val_y: max_val_y = c
-
-                pct_dia = (v / m * 100) if m > 0 else 0.0
-                col_v = "#10b981" if pct_dia >= 100 else ("#3b82f6" if v > 0 else "#cbd5e1")
-
-                dt = datetime.datetime.strptime(dia, "%Y-%m-%d").date()
-                dias_semana = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-                dia_tag = f"{dias_semana[dt.weekday()]} {dt.day:02d}"
-
-                tt_v = f"{dia} ({dias_semana[dt.weekday()]})\n💰 Ventas: ${v:,.0f} ({pct_dia:.1f}% Meta)"
-                tt_m = f"{dia}\n🎯 Meta: ${m:,.0f}"
-                tt_c = f"{dia}\n🛒 Compras: ${c:,.0f}"
-
-                rod_v = ft.BarChartRod(
-                    from_y=0, to_y=v, color=col_v, width=8,
-                    border_radius=ft.border_radius.vertical(top=4),
-                    tooltip=tt_v
-                )
-                rod_m = ft.BarChartRod(
-                    from_y=0, to_y=m, color="#a78bfa", width=8,
-                    border_radius=ft.border_radius.vertical(top=4),
-                    tooltip=tt_m
-                )
-                rod_c = ft.BarChartRod(
-                    from_y=0, to_y=c, color="#06b6d4", width=8,
-                    border_radius=ft.border_radius.vertical(top=4),
-                    tooltip=tt_c
-                )
-
-                bar_groups.append(ft.BarChartGroup(x=i, bar_rods=[rod_v, rod_m, rod_c]))
-                etiquetas_x.append(
-                    ft.ChartAxisLabel(
-                        value=i,
-                        label=ft.Container(
-                            content=ft.Text(f"{dt.day:02d}", size=9, color="grey700"),
-                            padding=ft.padding.only(top=5)
-                        )
-                    )
-                )
-
-            # Actualizar Badges de Resumen del Gráfico
-            pct_dias_cumplidos = (dias_cumplidos / dias_activos * 100) if dias_activos > 0 else 0.0
-            self.badge_dias_cumplidos.value = f"{dias_cumplidos} / {dias_activos} días ({pct_dias_cumplidos:.0f}%)"
-            
-            dt_mejor = datetime.datetime.strptime(mejor_dia_fecha, "%Y-%m-%d") if mejor_dia_fecha else None
-            str_mejor = f"{dt_mejor.strftime('%d/%m')} (${mejor_dia_venta/1000000:.1f}M)" if dt_mejor else "N/D"
-            self.badge_mejor_dia.value = str_mejor
-
-            prom_v = (suma_ventas_activos / dias_activos) if dias_activos > 0 else 0.0
-            self.badge_promedio_diario.value = f"${prom_v:,.0f} / día"
-            self.badge_meta_promedio.value = f"${meta_diaria_base:,.0f} / día"
-
-            # Configurar Ejes y Cuadrícula del BarChart
-            self.bar_chart.bar_groups = bar_groups
-            self.bar_chart.max_y = max_val_y * 1.15 if max_val_y > 0 else 1000.0
-
-            def formato_moneda_corta(valor):
-                if valor >= 1000000: return f"${valor/1000000:.1f}M"
-                if valor >= 1000: return f"${valor/1000:.0f}k"
-                return f"${valor:.0f}"
-
-            intervalo_y = self.bar_chart.max_y / 6 if self.bar_chart.max_y > 0 else 100
-            etiquetas_y = [
-                ft.ChartAxisLabel(value=step * intervalo_y, label=ft.Text(formato_moneda_corta(step * intervalo_y), size=10, color="grey"))
-                for step in range(7)
-            ]
-            self.bar_chart.left_axis.labels = etiquetas_y
-            self.bar_chart.left_axis.labels_interval = intervalo_y
-            self.bar_chart.bottom_axis.labels = etiquetas_x
-            self.bar_chart.bottom_axis.labels_interval = 1
-
-            self.bar_chart.horizontal_grid_lines = ft.ChartGridLines(
-                interval=intervalo_y,
-                color=ft.colors.with_opacity(0.05, "black"),
-                width=1,
-                dash_pattern=[4, 4]
-            )
-
-            # Llenar la Tira de Tarjetas Diarias (Daily Tracker)
-            self.cards_diarias_row.controls.clear()
-            for dia in dias_ordenados:
-                v_dia = float(tendencia[dia]["ventas"])
-                c_dia = float(tendencia[dia]["compras"])
-                card = self._crear_card_dia(dia, v_dia, c_dia, meta_diaria_base)
-                self.cards_diarias_row.controls.append(card)
-
-            # 6. Tablas y Tarjetas de Rendimiento
-            self.dt_ventas.rows.clear()
-            for item in top_ventas:
-                self.dt_ventas.rows.append(
-                    ft.DataRow(cells=[
-                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
-                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
-                        ft.DataCell(ft.Text(str(item.get('unidades_vendidas') or 0), size=11)),
-                        ft.DataCell(ft.Text(f"${float(item.get('ingreso_total') or 0):,.2f}", size=11))
-                    ])
-                )
-
-            self.dt_costos.rows.clear()
-            for item in top_costos:
-                self.dt_costos.rows.append(
-                    ft.DataRow(cells=[
-                        ft.DataCell(ft.Text(str(item.get('codigo') or ''), size=11)),
-                        ft.DataCell(ft.Container(content=ft.Text(str(item.get('producto') or ''), size=11, no_wrap=True), width=120)),
-                        ft.DataCell(ft.Text(f"${float(item.get('valor_inventario') or 0):,.2f}", size=11)),
-                        ft.DataCell(ft.Text(str(item.get('rotacion') or ''), size=11))
-                    ])
-                )
-
-            self.categorias_row.controls.clear()
-            for cat in kpis_cat:
-                self.categorias_row.controls.append(self._crear_card_categoria(cat))
-
-        except Exception as ex:
-            import traceback
-            traceback.print_exc()
-        finally:
-            self.progress_bar.visible = False
-            self.safe_update()
-
-    def _build_kpi_card(self, title, value_control, icon, subtext_control=None, card_color=None):
-        accent = card_color or Config.COLOR_ACCENT
-        column_controls = [
-            ft.Row([
-                ft.Text(title.upper(), size=11, color=Config.COLOR_TEXT_MUTED, weight="w600", expand=True),
-            ], spacing=5),
-            value_control,
-        ]
-        if subtext_control:
-            column_controls.append(subtext_control)
-            
-        value_control.size = 20
-        value_control.weight = "bold"
-        value_control.color = Config.COLOR_PRIMARY
-            
-        return ft.Container(
-            content=ft.Row([
-                ft.Container(
-                    content=ft.Icon(icon, color=accent, size=22),
-                    bgcolor=ft.colors.with_opacity(0.12, accent),
-                    padding=10,
-                    border_radius=10
-                ),
-                ft.Column(column_controls, spacing=2, expand=True)
-            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor=Config.COLOR_SURFACE,
-            padding=ft.padding.symmetric(horizontal=16, vertical=14),
-            border_radius=12,
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=6, color=ft.colors.with_opacity(0.04, "black"), offset=ft.Offset(0, 2))
-        )
-
-    def _crear_card_dia(self, fecha_str: str, venta: float, compras: float, meta_diaria: float) -> ft.Container:
-        """Crea una tarjeta estética para el seguimiento individual de ventas, meta y compras de cada día."""
-        dt = datetime.datetime.strptime(fecha_str, "%Y-%m-%d").date()
-        dias_semana = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-        nombre_dia = f"{dias_semana[dt.weekday()]} {dt.day:02d}"
-        
-        pct_meta = (venta / meta_diaria * 100) if meta_diaria > 0 else 0.0
-        
-        if pct_meta >= 100:
-            badge_bg, badge_col = "#ecfdf5", "#059669"
-            badge_txt = f"{pct_meta:.0f}% 🎯"
-            border_col = "#a7f3d0"
-        elif pct_meta >= 50:
-            badge_bg, badge_col = "#eff6ff", "#2563eb"
-            badge_txt = f"{pct_meta:.0f}%"
-            border_col = "#bfdbfe"
-        elif venta > 0:
-            badge_bg, badge_col = "#fffbeb", "#d97706"
-            badge_txt = f"{pct_meta:.0f}%"
-            border_col = "#fde68a"
-        else:
-            badge_bg, badge_col = "#f1f5f9", "#64748b"
-            badge_txt = "0%"
-            border_col = "#e2e8f0"
-
-        progreso_val = min(1.0, pct_meta / 100.0) if pct_meta > 0 else 0.0
-        progreso_col = "#10b981" if pct_meta >= 100 else ("#3b82f6" if pct_meta >= 50 else ("#f59e0b" if venta > 0 else "#cbd5e1"))
-
-        return ft.Container(
-            width=175,
-            padding=12,
-            bgcolor="white",
-            border_radius=10,
-            border=ft.border.all(1, border_col),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.04, "black")),
-            content=ft.Column([
-                ft.Row([
-                    ft.Text(nombre_dia, size=11, weight="bold", color="grey800"),
-                    ft.Container(
-                        content=ft.Text(badge_txt, size=10, weight="bold", color=badge_col),
-                        padding=ft.padding.symmetric(horizontal=6, vertical=2),
-                        bgcolor=badge_bg,
-                        border_radius=6
-                    )
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Divider(height=6, color="transparent"),
-                ft.Text(f"${venta:,.0f}", size=13, weight="bold", color="#1e293b" if venta > 0 else "grey500"),
-                ft.ProgressBar(value=progreso_val, color=progreso_col, bgcolor="#f1f5f9", height=4),
-                ft.Divider(height=4, color="transparent"),
-                ft.Row([
-                    ft.Text("Meta:", size=9, color="grey600"),
-                    ft.Text(f"${meta_diaria:,.0f}", size=9, weight="bold", color="#7c3aed")
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Row([
-                    ft.Text("Compras:", size=9, color="grey600"),
-                    ft.Text(f"${compras:,.0f}", size=9, weight="w600", color="#0891b2" if compras > 0 else "grey500")
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ], spacing=3)
-        )
-
-    def _crear_card_categoria(self, cat_data):
-        nombre = cat_data["categoria"]
-        inv_costo = cat_data["inventario_costo"]
-        ventas = cat_data["ventas_realizadas"]
-        proy_venta = cat_data["proyeccion_venta"]
-        cumplimiento = cat_data["cumplimiento_pct"]
-        rotacion = cat_data["rotacion"]
-        rendimiento = cat_data["rendimiento_pct"]
-    
-        # Color condicional para cumplimiento
-        color_cumplimiento = "green700" if cumplimiento >= 50 else ("orange700" if cumplimiento > 0 else "grey")
-        color_rendimiento = "green700" if rendimiento >= 0 else "red700"
-    
-        return ft.Container(
-            content=ft.Column([
-                # Cabecera Categoría
-                ft.Row([
-                    ft.Icon(ft.icons.CATEGORY_OUTLINED, size=16, color=Config.COLOR_PRIMARY),
-                    ft.Text(nombre.upper(), weight="bold", size=12, color=Config.COLOR_PRIMARY, expand=True)
-                ]),
-                ft.Divider(height=1, color="#eeeeee"),
-                
-                # Fila 1: Inventario Costo vs Ventas
-                ft.Row([
-                    ft.Text("Inventario (Costo):", size=11, color="grey", expand=True),
-                    ft.Text(f"${inv_costo:,.0f}", size=11, weight="bold")
-                ]),
-                ft.Row([
-                    ft.Text("Ventas Realizadas:", size=11, color="grey", expand=True),
-                    ft.Text(f"${ventas:,.0f}", size=11, weight="bold", color="green700")
-                ]),
-                
-                # Fila 2: Proyección Venta vs % Cumplimiento
-                ft.Row([
-                    ft.Text("Proyección Venta:", size=11, color="grey", expand=True),
-                    ft.Text(f"${proy_venta:,.0f}", size=11, weight="bold", color="blue700")
-                ]),
-                ft.Row([
-                    ft.Text("% Cumplimiento:", size=11, color="grey", expand=True),
-                    ft.Text(f"{cumplimiento:.1f}%", size=11, weight="bold", color=color_cumplimiento)
-                ]),
-                
-                ft.Divider(height=1, color="#f0f0f0"),
-                
-                # Fila 3: Rotación y Rendimiento Real
-                ft.Row([
-                    ft.Text("Rotación:", size=11, color="grey"),
-                    ft.Text(f"{rotacion:.2f}x", size=11, weight="bold"),
-                    ft.Container(expand=True),
-                    ft.Text("Rendimiento Real:", size=11, color="grey"),
-                    ft.Text(f"{rendimiento:.1f}%", size=11, weight="bold", color=color_rendimiento)
-                ])
-            ], spacing=4),
-            padding=12,
-            bgcolor="white",
-            border_radius=8,
-            border=ft.border.all(1, "#e0e0e0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.03, "black")),
-            col={"sm": 12, "md": 6, "lg": 4}
-        )
-
-    def copiar_resumen_kpis(self, e):
-        """
-        Construye un texto formateado con todos los indicadores actuales
-        del resumen financiero y lo guarda en el portapapeles del sistema.
-        """
-        periodo = self.lbl_periodo_dash.value.replace("Periodo: ", "").strip()
-        fecha_hora = self.lbl_fecha_hora.value
-        
-        texto_copia = (
-            f"📊 RESUMEN FINANCIERO Y OPERATIVO ({periodo.upper()})\n"
-            f"📅 Generado el: {fecha_hora}\n"
-            f"-----------------------------------------\n"
-            f"💰 COSTOS E INVENTARIO:\n"
-            f"  • Costo Inv. Actual: {self.val_inventario.value}\n"
-            f"  • Total Compras (Mes): {self.val_compras.value}\n"
-            f"  • Compras (Hoy): {self.val_compras_hoy.value}\n\n"
-            f"📈 VENTAS E INGRESOS:\n"
-            f"  • Total Ventas (Mes): {self.val_ingresos.value}\n"
-            f"  • Ventas (Hoy): {self.val_ventas_hoy.value}\n"
-            f"  • Margen Rentabilidad: {self.val_rentabilidad.value}\n\n"
-            f"🎯 OBJETIVOS Y PROYECCIONES:\n"
-            f"  • Proy. Ventas Stock: {self.val_proyeccion_ventas.value}\n"
-            f"  • Proy. Rentabilidad: {self.val_proyeccion_rentabilidad.value}\n"
-            f"  • Meta Venta Diaria: {self.val_meta_diaria.value}\n"
-            f"  • Rotación Global: {self.val_rotacion.value}\n"
-            f"-----------------------------------------"
-        )
-
-        if self.page:
-            self.page.set_clipboard(texto_copia)
-            self.page.snack_bar = ft.SnackBar(
-                content=ft.Row([
-                    ft.Icon(ft.icons.CHECK_CIRCLE, color="white", size=18),
-                    ft.Text("Resumen financiero copiado al portapapeles exitosamente", color="white")
-                ]),
-                bgcolor="green700"
-            )
-            self.page.snack_bar.open = True
-            self.safe_update()
-````
-
-## File: cargas_locales.json
-````json
-{}
 ````
 
 ## File: ui/views/inventario.py
@@ -339680,286 +342620,6 @@ class InventarioView(ft.Container):
         threading.Thread(target=self._fetch_data_worker, daemon=True).start()
 ````
 
-## File: core/supabase_client.py
-````python
-"""
-Fachada centralizada de base de datos (Supabase) para Sistema Doña Mary.
-Delega las operaciones en repositorios especializados manteniendo total compatibilidad hacia atrás.
-"""
-from core.database import BaseDatabase
-from core.logger import get_logger, log_error
-from core.repositories.insumos_repo import InsumosRepository
-from core.repositories.compras_repo import ComprasRepository
-from core.repositories.ventas_repo import VentasRepository
-from core.repositories.cierres_repo import CierresRepository
-from core.repositories.usuarios_repo import UsuariosRepository
-
-logger = get_logger("SupabaseClient")
-
-_client_instance = None
-
-def get_client():
-    """Retorna la instancia singleton del cliente Supabase."""
-    global _client_instance
-    if _client_instance is None:
-        _client_instance = SupabaseClient()
-    return _client_instance
-
-class SupabaseClient:
-    """
-    Fachada unificada que agrupa los repositorios por dominio.
-    Mantiene compatibilidad total con todas las llamadas existentes.
-    """
-    def __init__(self):
-        self._db = BaseDatabase()
-        self.url = self._db.url
-        self.key = self._db.key
-        self.headers = self._db.headers
-        self.session = self._db.session
-
-        # Instancias de repositorios
-        self.insumos_repo = InsumosRepository(self._db)
-        self.compras_repo = ComprasRepository(self._db)
-        self.ventas_repo = VentasRepository(self._db)
-        self.cierres_repo = CierresRepository(self._db)
-        self.usuarios_repo = UsuariosRepository(self._db)
-
-    def check_connection(self):
-        return self._db.check_connection()
-
-    # --- USUARIOS & AUTENTICACIÓN ---
-    def autenticar_usuario(self, usuario: str, clave: str) -> dict | None:
-        return self.usuarios_repo.autenticar(usuario, clave)
-
-    # --- CATÁLOGO DE INSUMOS & STOCK ---
-    def get_categorias(self):
-        return self.insumos_repo.get_categorias()
-
-    def get_insumos(self, page=1, page_size=20, search="", categoria="", fecha_corte=None, sort_col="Insumo", sort_asc=True, codigos_filtro=None):
-        return self.insumos_repo.get_insumos(page, page_size, search, categoria, fecha_corte, sort_col, sort_asc, codigos_filtro)
-
-    def insert_insumo(self, data: dict):
-        return self.insumos_repo.insert_insumo(data)
-
-    def update_insumo(self, codigo_insumo: str, datos_actualizados: dict) -> bool:
-        return self.insumos_repo.update_insumo(codigo_insumo, datos_actualizados)
-
-    def get_nombres_insumos(self, lista_codigos: list) -> dict:
-        return self.insumos_repo.get_nombres_insumos(lista_codigos)
-
-    def get_catalogo_costos(self) -> dict:
-        return self.insumos_repo.get_catalogo_costos()
-
-    def get_insumo_detalle(self, codigo: str) -> dict:
-        return self.insumos_repo.get_insumo_detalle(codigo)
-
-    def get_catalogo_summary(self, fecha_corte=None) -> dict:
-        return self.insumos_repo.get_catalogo_summary(fecha_corte)
-
-    def get_top_costo_inventario(self, limit=10, fecha_corte=None) -> list:
-        return self.insumos_repo.get_top_costo_inventario(limit, fecha_corte)
-
-    def get_inventario_kpis(self, fecha_corte=None) -> dict:
-        return self.insumos_repo.get_inventario_kpis(fecha_corte)
-
-    def get_kpis_por_categoria(self, fecha_corte=None) -> list:
-        return self.insumos_repo.get_kpis_por_categoria(fecha_corte)
-
-    def get_ajustes_inventario(self) -> list:
-        return self.insumos_repo.get_ajustes_inventario()
-
-    def get_ajustes_mes(self, mes_actual: str, fecha_corte=None) -> list:
-        return self.insumos_repo.get_ajustes_mes(mes_actual, fecha_corte)
-
-    def insert_ajuste_individual(self, datos: dict) -> bool:
-        return self.insumos_repo.insert_ajuste_individual(datos)
-
-    def anular_ajuste(self, id_ajuste: str) -> bool:
-        return self.insumos_repo.anular_ajuste(id_ajuste)
-
-    # --- COMPRAS ---
-    def get_compras(self, page=1, page_size=15, search="", fecha_corte=None, factura_filtro=None, proveedor_filtro=None):
-        return self.compras_repo.get_compras(page, page_size, search, fecha_corte, factura_filtro, proveedor_filtro)
-
-    def get_historial_compras_dia(self, fecha_dia: str, agrupar_por: str = "FACTURA") -> list:
-        return self.compras_repo.get_historial_compras_dia(fecha_dia, agrupar_por)
-
-    def insert_compras(self, compras_list: list):
-        return self.compras_repo.insert_compras(compras_list)
-
-    def get_entradas_existentes(self, lista_eas: list, lista_facturas: list = None) -> set:
-        return self.compras_repo.get_entradas_existentes(lista_eas, lista_facturas)
-
-    def eliminar_compras_por_entradas(self, lista_entradas: list):
-        return self.compras_repo.eliminar_compras_por_entradas(lista_entradas)
-
-    def get_compras_summary(self, fecha_corte=None):
-        return self.compras_repo.get_compras_summary(fecha_corte)
-
-    def get_proveedores_unicos(self):
-        return self.compras_repo.get_proveedores_unicos()
-
-    def get_historial_compras_dia(self, fecha_dia=None, agrupar_por="FACTURA", proveedor_filtro=None) -> list:
-        return self.compras_repo.get_historial_compras_dia(fecha_dia, agrupar_por, proveedor_filtro)
-
-    def update_compra_individual(self, id_compra: str, datos: dict):
-        return self.compras_repo.update_compra_individual(id_compra, datos)
-
-    def eliminar_compra_individual(self, id_compra: str):
-        return self.compras_repo.eliminar_compra_individual(id_compra)
-
-    # --- VENTAS ---
-    def get_ventas(self, page=1, page_size=20, search="", fecha_corte=None, categoria_filtro=None, factura_filtro=None, tipo_documento_filtro=None):
-        return self.ventas_repo.get_ventas(page, page_size, search, fecha_corte, categoria_filtro, factura_filtro, tipo_documento_filtro)
-
-    def get_historial_ventas_dia(self, fecha_dia=None, agrupar_por="CATEGORIA", tipo_documento=None) -> list:
-        return self.ventas_repo.get_historial_ventas_dia(fecha_dia, agrupar_por, tipo_documento)
-
-    def get_ventas_existentes(self, lista_facturas: list) -> set:
-        return self.ventas_repo.get_ventas_existentes(lista_facturas)
-
-    def eliminar_ventas_origen(self, fecha: str, tipo_documento: str, pagina_origen: int) -> bool:
-        return self.ventas_repo.eliminar_ventas_origen(fecha, tipo_documento, pagina_origen)
-
-    def eliminar_ventas_por_facturas(self, lista_facturas: list):
-        return self.ventas_repo.eliminar_ventas_por_facturas(lista_facturas)
-
-    def insert_ventas(self, ventas_list: list):
-        return self.ventas_repo.insert_ventas(ventas_list)
-
-    def get_ventas_summary(self, fecha_corte=None):
-        return self.ventas_repo.get_ventas_summary(fecha_corte)
-
-    def get_top_ventas_mes(self, limit=10, fecha_corte=None) -> list:
-        return self.ventas_repo.get_top_ventas_mes(limit, fecha_corte)
-
-    def get_tendencia_diaria(self, fecha_corte=None) -> dict:
-        return self.ventas_repo.get_tendencia_diaria(fecha_corte)
-
-    def get_proyeccion_ventas(self, fecha_corte=None) -> float:
-        return self.ventas_repo.get_proyeccion_ventas(fecha_corte)
-
-    def insert_venta_individual(self, datos: dict):
-        return self.ventas_repo.insert_venta_individual(datos)
-
-    def update_venta_individual(self, id_venta: str, datos: dict):
-        return self.ventas_repo.update_venta_individual(id_venta, datos)
-
-    def eliminar_venta_individual(self, id_venta: str):
-        return self.ventas_repo.eliminar_venta_individual(id_venta)
-
-    def get_historial_facturas_dia(self, fecha_dia: str) -> list:
-        return self.ventas_repo.get_historial_facturas_dia(fecha_dia)
-
-    def get_codigos_factura_especifica(self, tipo: str, ref: str) -> list:
-        return self.ventas_repo.get_codigos_factura_especifica(tipo, ref)
-
-    def get_rendimiento_categorias_periodo(self, fecha_inicio=None, fecha_fin=None) -> list:
-        """Calcula el rendimiento y costo acumulado real por categoría hasta 'fecha_fin' considerando insumos con stock > 0 y costos reales de compra."""
-        categorias_map = {}
-        try:
-            # 1. Obtener mapa de últimos costos unitarios reales de compras
-            res_c = self._db.get("registro_compras?select=codigo_insumo,costo_unitario,fecha&estado_registro=eq.VÁLIDO&order=fecha.desc&limit=5000", timeout=10)
-            costos_compras = {}
-            if res_c and res_c.status_code == 200:
-                for r in res_c.json():
-                    cod = str(r.get("codigo_insumo") or "").strip()
-                    cu = float(r.get("costo_unitario") or 0)
-                    if cod and cod not in costos_compras and cu > 0:
-                        costos_compras[cod] = cu
-
-            # 2. Consultar catálogo de insumos / vista de inventario
-            insumos, _ = self.insumos_repo.get_insumos(page=1, page_size=99999, fecha_corte=fecha_fin)
-            for item in insumos:
-                cat_nombre = (item.get("categoria") or "SIN CATEGORÍA").strip().upper()
-                stock = float(item.get("stock_actual") or item.get("stock_real") or 0)
-                cod_insumo = str(item.get("codigo_insumo") or "").strip()
-
-                costo_u_real = costos_compras.get(cod_insumo, float(item.get("costo_unitario") or 0))
-                precio_v = float(item.get("precio_venta") or 0)
-
-                # Solo stock positivo suma al costo de inventario actual y proyecciones
-                stock_pos = max(0.0, stock)
-                inv_costo_item = stock_pos * costo_u_real
-                proy_venta_item = stock_pos * precio_v
-
-                ventas_item = float(item.get("valor_ventas") or 0)
-                cant_ventas = float(item.get("ventas") or 0)
-                costo_vendido_item = cant_ventas * costo_u_real
-
-                if cat_nombre not in categorias_map:
-                    categorias_map[cat_nombre] = {
-                        "categoria": cat_nombre,
-                        "inventario_costo": 0.0,
-                        "proyeccion_venta": 0.0,
-                        "ventas_realizadas": 0.0,
-                        "costo_vendido": 0.0
-                    }
-
-                categorias_map[cat_nombre]["inventario_costo"] += inv_costo_item
-                categorias_map[cat_nombre]["proyeccion_venta"] += proy_venta_item
-                categorias_map[cat_nombre]["ventas_realizadas"] += ventas_item
-                categorias_map[cat_nombre]["costo_vendido"] += costo_vendido_item
-        except Exception as ex:
-            log_error("get_rendimiento_categorias_periodo", ex)
-
-        resultado = []
-        for cat_nombre, d in categorias_map.items():
-            inv_c = d["inventario_costo"]
-            v_real = d["ventas_realizadas"]
-            proy_v = d["proyeccion_venta"]
-            c_vend = d["costo_vendido"]
-
-            meta_cat = v_real + proy_v
-            cumplimiento = (v_real / meta_cat * 100) if meta_cat > 0 else 0.0
-            rotacion = (v_real / inv_c) if inv_c > 0 else 0.0
-            rendimiento = ((v_real - c_vend) / v_real * 100) if v_real > 0 else 0.0
-
-            resultado.append({
-                "categoria": cat_nombre,
-                "inventario_costo": inv_c,
-                "ventas_realizadas": v_real,
-                "proyeccion_venta": proy_v,
-                "cumplimiento_pct": cumplimiento,
-                "rotacion": rotacion,
-                "rendimiento_pct": rendimiento
-            })
-
-        resultado.sort(key=lambda x: (x["inventario_costo"], x["ventas_realizadas"]), reverse=True)
-        return resultado
-
-    # --- CIERRES & AUDITORÍAS ---
-    def get_periodos_inventario(self) -> list:
-        return self.cierres_repo.get_periodos_inventario()
-
-    def get_datos_conteo_inicial(self, mes_seleccionado: str) -> list:
-        return self.cierres_repo.get_datos_conteo_inicial(mes_seleccionado)
-
-    def upsert_conteos_iniciales(self, registros: list) -> bool:
-        return self.cierres_repo.upsert_conteos_iniciales(registros)
-
-    def iniciar_snapshot_cierre(self, mes_periodo: str) -> dict:
-        return self.cierres_repo.iniciar_snapshot_cierre(mes_periodo)
-
-    def obtener_estado_cierre(self, mes_periodo: str) -> dict:
-        return self.cierres_repo.obtener_estado_cierre(mes_periodo)
-
-    def registrar_conteo_fisico(self, id_auditoria: str, cantidad: float, costo: float = None, observacion: str = None) -> dict:
-        return self.cierres_repo.registrar_conteo_fisico(id_auditoria, cantidad, costo, observacion)
-
-    def aceptar_stock_sistema(self, id_auditoria: str) -> dict:
-        return self.cierres_repo.aceptar_stock_sistema(id_auditoria)
-
-    def aceptar_stock_sistema_masivo(self, ids_auditoria: list) -> dict:
-        return self.cierres_repo.aceptar_stock_sistema_masivo(ids_auditoria)
-
-    def eliminar_ajuste_cierre(self, id_auditoria: str) -> dict:
-        return self.cierres_repo.eliminar_ajuste_cierre(id_auditoria)
-
-    def aprobar_cierre_mes(self, id_periodo: str, aprobado_por: str) -> dict:
-        return self.cierres_repo.aprobar_cierre_mes(id_periodo, aprobado_por)
-````
-
 ## File: ui/views/ajustes_inventario.py
 ````python
 import flet as ft
@@ -341499,6 +344159,456 @@ class AjustesInventarioView(ft.Container):
             self.mostrar_alerta("Error al guardar el lote de ajustes en la base de datos.", "red")
 ````
 
+## File: core/supabase_client.py
+````python
+"""
+Fachada centralizada de base de datos (Supabase) para Sistema Doña Mary.
+Delega las operaciones en repositorios especializados manteniendo total compatibilidad hacia atrás.
+"""
+from core.database import BaseDatabase
+from core.logger import get_logger, log_error
+from core.repositories.insumos_repo import InsumosRepository
+from core.repositories.compras_repo import ComprasRepository
+from core.repositories.ventas_repo import VentasRepository
+from core.repositories.cierres_repo import CierresRepository
+from core.repositories.usuarios_repo import UsuariosRepository
+from core.repositories.clientes_repo import ClientesRepository
+from core.repositories.cartera_repo import CarteraRepository
+
+logger = get_logger("SupabaseClient")
+
+_client_instance = None
+
+def get_client():
+    """Retorna la instancia singleton del cliente Supabase."""
+    global _client_instance
+    if _client_instance is None:
+        _client_instance = SupabaseClient()
+    return _client_instance
+
+class SupabaseClient:
+    """
+    Fachada unificada que agrupa los repositorios por dominio.
+    Mantiene compatibilidad total con todas las llamadas existentes.
+    """
+    def __init__(self):
+        self._db = BaseDatabase()
+        self.url = self._db.url
+        self.key = self._db.key
+        self.headers = self._db.headers
+        self.session = self._db.session
+
+        # Instancias de repositorios
+        self.insumos_repo = InsumosRepository(self._db)
+        self.compras_repo = ComprasRepository(self._db)
+        self.ventas_repo = VentasRepository(self._db)
+        self.cierres_repo = CierresRepository(self._db)
+        self.usuarios_repo = UsuariosRepository(self._db)
+        self.clientes_repo = ClientesRepository(self._db)
+        self.cartera_repo = CarteraRepository(self._db)
+
+    def check_connection(self):
+        return self._db.check_connection()
+
+    # --- USUARIOS & AUTENTICACIÓN ---
+    def autenticar_usuario(self, usuario: str, clave: str) -> dict | None:
+        return self.usuarios_repo.autenticar(usuario, clave)
+
+    # --- CATÁLOGO DE INSUMOS & STOCK ---
+    def get_categorias(self):
+        return self.insumos_repo.get_categorias()
+
+    def get_insumos(self, page=1, page_size=20, search="", categoria="", fecha_corte=None, sort_col="Insumo", sort_asc=True, codigos_filtro=None):
+        return self.insumos_repo.get_insumos(page, page_size, search, categoria, fecha_corte, sort_col, sort_asc, codigos_filtro)
+
+    def insert_insumo(self, data: dict):
+        return self.insumos_repo.insert_insumo(data)
+
+    def update_insumo(self, codigo_insumo: str, datos_actualizados: dict) -> bool:
+        return self.insumos_repo.update_insumo(codigo_insumo, datos_actualizados)
+
+    def get_nombres_insumos(self, lista_codigos: list) -> dict:
+        return self.insumos_repo.get_nombres_insumos(lista_codigos)
+
+    def get_catalogo_costos(self) -> dict:
+        return self.insumos_repo.get_catalogo_costos()
+
+    def get_insumo_detalle(self, codigo: str) -> dict:
+        return self.insumos_repo.get_insumo_detalle(codigo)
+
+    def get_catalogo_summary(self, fecha_corte=None) -> dict:
+        return self.insumos_repo.get_catalogo_summary(fecha_corte)
+
+    def get_top_costo_inventario(self, limit=10, fecha_corte=None) -> list:
+        return self.insumos_repo.get_top_costo_inventario(limit, fecha_corte)
+
+    def get_inventario_kpis(self, fecha_corte=None) -> dict:
+        return self.insumos_repo.get_inventario_kpis(fecha_corte)
+
+    def get_kpis_por_categoria(self, fecha_corte=None) -> list:
+        return self.insumos_repo.get_kpis_por_categoria(fecha_corte)
+
+    def get_ajustes_inventario(self) -> list:
+        return self.insumos_repo.get_ajustes_inventario()
+
+    def get_ajustes_mes(self, mes_actual: str, fecha_corte=None) -> list:
+        return self.insumos_repo.get_ajustes_mes(mes_actual, fecha_corte)
+
+    def insert_ajuste_individual(self, datos: dict) -> bool:
+        return self.insumos_repo.insert_ajuste_individual(datos)
+
+    def anular_ajuste(self, id_ajuste: str) -> bool:
+        return self.insumos_repo.anular_ajuste(id_ajuste)
+
+    # --- COMPRAS ---
+    def get_compras(self, page=1, page_size=15, search="", fecha_corte=None, factura_filtro=None, proveedor_filtro=None):
+        return self.compras_repo.get_compras(page, page_size, search, fecha_corte, factura_filtro, proveedor_filtro)
+
+    def get_historial_compras_dia(self, fecha_dia: str, agrupar_por: str = "FACTURA") -> list:
+        return self.compras_repo.get_historial_compras_dia(fecha_dia, agrupar_por)
+
+    def insert_compras(self, compras_list: list):
+        return self.compras_repo.insert_compras(compras_list)
+
+    def get_entradas_existentes(self, lista_eas: list, lista_facturas: list = None) -> set:
+        return self.compras_repo.get_entradas_existentes(lista_eas, lista_facturas)
+
+    def eliminar_compras_por_entradas(self, lista_entradas: list):
+        return self.compras_repo.eliminar_compras_por_entradas(lista_entradas)
+
+    def get_compras_summary(self, fecha_corte=None):
+        return self.compras_repo.get_compras_summary(fecha_corte)
+
+    def get_proveedores_unicos(self):
+        return self.compras_repo.get_proveedores_unicos()
+
+    def get_historial_compras_dia(self, fecha_dia=None, agrupar_por="FACTURA", proveedor_filtro=None) -> list:
+        return self.compras_repo.get_historial_compras_dia(fecha_dia, agrupar_por, proveedor_filtro)
+
+    def update_compra_individual(self, id_compra: str, datos: dict):
+        return self.compras_repo.update_compra_individual(id_compra, datos)
+
+    def eliminar_compra_individual(self, id_compra: str):
+        return self.compras_repo.eliminar_compra_individual(id_compra)
+
+    # --- VENTAS ---
+    def get_ventas(self, page=1, page_size=20, search="", fecha_corte=None, categoria_filtro=None, factura_filtro=None, tipo_documento_filtro=None):
+        return self.ventas_repo.get_ventas(page, page_size, search, fecha_corte, categoria_filtro, factura_filtro, tipo_documento_filtro)
+
+    def get_historial_ventas_dia(self, fecha_dia=None, agrupar_por="CATEGORIA", tipo_documento=None) -> list:
+        return self.ventas_repo.get_historial_ventas_dia(fecha_dia, agrupar_por, tipo_documento)
+
+    def get_ventas_existentes(self, lista_facturas: list) -> set:
+        return self.ventas_repo.get_ventas_existentes(lista_facturas)
+
+    def eliminar_ventas_origen(self, fecha: str, tipo_documento: str, pagina_origen: int) -> bool:
+        return self.ventas_repo.eliminar_ventas_origen(fecha, tipo_documento, pagina_origen)
+
+    def eliminar_ventas_por_facturas(self, lista_facturas: list):
+        return self.ventas_repo.eliminar_ventas_por_facturas(lista_facturas)
+
+    def insert_ventas(self, ventas_list: list):
+        return self.ventas_repo.insert_ventas(ventas_list)
+
+    def get_ventas_summary(self, fecha_corte=None):
+        return self.ventas_repo.get_ventas_summary(fecha_corte)
+
+    def get_top_ventas_mes(self, limit=10, fecha_corte=None) -> list:
+        return self.ventas_repo.get_top_ventas_mes(limit, fecha_corte)
+
+    def get_tendencia_diaria(self, fecha_corte=None) -> dict:
+        return self.ventas_repo.get_tendencia_diaria(fecha_corte)
+
+    def get_proyeccion_ventas(self, fecha_corte=None) -> float:
+        return self.ventas_repo.get_proyeccion_ventas(fecha_corte)
+
+    def insert_venta_individual(self, datos: dict):
+        return self.ventas_repo.insert_venta_individual(datos)
+
+    def update_venta_individual(self, id_venta: str, datos: dict):
+        return self.ventas_repo.update_venta_individual(id_venta, datos)
+
+    def eliminar_venta_individual(self, id_venta: str):
+        return self.ventas_repo.eliminar_venta_individual(id_venta)
+
+    def get_historial_facturas_dia(self, fecha_dia: str) -> list:
+        return self.ventas_repo.get_historial_facturas_dia(fecha_dia)
+
+    def get_codigos_factura_especifica(self, tipo: str, ref: str) -> list:
+        return self.ventas_repo.get_codigos_factura_especifica(tipo, ref)
+
+    def get_rendimiento_categorias_periodo(self, fecha_inicio=None, fecha_fin=None) -> list:
+        """Calcula el rendimiento y costo acumulado real por categoría hasta 'fecha_fin' considerando insumos con stock > 0 y costos reales de compra."""
+        categorias_map = {}
+        try:
+            # 1. Obtener mapa de últimos costos unitarios reales de compras
+            res_c = self._db.get("registro_compras?select=codigo_insumo,costo_unitario,fecha&estado_registro=eq.VÁLIDO&order=fecha.desc&limit=5000", timeout=10)
+            costos_compras = {}
+            if res_c and res_c.status_code == 200:
+                for r in res_c.json():
+                    cod = str(r.get("codigo_insumo") or "").strip()
+                    cu = float(r.get("costo_unitario") or 0)
+                    if cod and cod not in costos_compras and cu > 0:
+                        costos_compras[cod] = cu
+
+            # 2. Consultar catálogo de insumos / vista de inventario
+            insumos, _ = self.insumos_repo.get_insumos(page=1, page_size=99999, fecha_corte=fecha_fin)
+            for item in insumos:
+                cat_nombre = (item.get("categoria") or "SIN CATEGORÍA").strip().upper()
+                stock = float(item.get("stock_actual") or item.get("stock_real") or 0)
+                cod_insumo = str(item.get("codigo_insumo") or "").strip()
+
+                costo_u_real = costos_compras.get(cod_insumo, float(item.get("costo_unitario") or 0))
+                precio_v = float(item.get("precio_venta") or 0)
+
+                # Solo stock positivo suma al costo de inventario actual y proyecciones
+                stock_pos = max(0.0, stock)
+                inv_costo_item = stock_pos * costo_u_real
+                proy_venta_item = stock_pos * precio_v
+
+                ventas_item = float(item.get("valor_ventas") or 0)
+                cant_ventas = float(item.get("ventas") or 0)
+                costo_vendido_item = cant_ventas * costo_u_real
+
+                if cat_nombre not in categorias_map:
+                    categorias_map[cat_nombre] = {
+                        "categoria": cat_nombre,
+                        "inventario_costo": 0.0,
+                        "proyeccion_venta": 0.0,
+                        "ventas_realizadas": 0.0,
+                        "costo_vendido": 0.0
+                    }
+
+                categorias_map[cat_nombre]["inventario_costo"] += inv_costo_item
+                categorias_map[cat_nombre]["proyeccion_venta"] += proy_venta_item
+                categorias_map[cat_nombre]["ventas_realizadas"] += ventas_item
+                categorias_map[cat_nombre]["costo_vendido"] += costo_vendido_item
+        except Exception as ex:
+            log_error("get_rendimiento_categorias_periodo", ex)
+
+        resultado = []
+        for cat_nombre, d in categorias_map.items():
+            inv_c = d["inventario_costo"]
+            v_real = d["ventas_realizadas"]
+            proy_v = d["proyeccion_venta"]
+            c_vend = d["costo_vendido"]
+
+            meta_cat = v_real + proy_v
+            cumplimiento = (v_real / meta_cat * 100) if meta_cat > 0 else 0.0
+            rotacion = (v_real / inv_c) if inv_c > 0 else 0.0
+            rendimiento = ((v_real - c_vend) / v_real * 100) if v_real > 0 else 0.0
+
+            resultado.append({
+                "categoria": cat_nombre,
+                "inventario_costo": inv_c,
+                "ventas_realizadas": v_real,
+                "proyeccion_venta": proy_v,
+                "cumplimiento_pct": cumplimiento,
+                "rotacion": rotacion,
+                "rendimiento_pct": rendimiento
+            })
+
+        resultado.sort(key=lambda x: (x["inventario_costo"], x["ventas_realizadas"]), reverse=True)
+        return resultado
+
+    # --- CIERRES & AUDITORÍAS ---
+    def get_periodos_inventario(self) -> list:
+        return self.cierres_repo.get_periodos_inventario()
+
+    def get_datos_conteo_inicial(self, mes_seleccionado: str) -> list:
+        return self.cierres_repo.get_datos_conteo_inicial(mes_seleccionado)
+
+    def upsert_conteos_iniciales(self, registros: list) -> bool:
+        return self.cierres_repo.upsert_conteos_iniciales(registros)
+
+    def iniciar_snapshot_cierre(self, mes_periodo: str) -> dict:
+        return self.cierres_repo.iniciar_snapshot_cierre(mes_periodo)
+
+    def obtener_estado_cierre(self, mes_periodo: str) -> dict:
+        return self.cierres_repo.obtener_estado_cierre(mes_periodo)
+
+    def registrar_conteo_fisico(self, id_auditoria: str, cantidad: float, costo: float = None, observacion: str = None) -> dict:
+        return self.cierres_repo.registrar_conteo_fisico(id_auditoria, cantidad, costo, observacion)
+
+    def aceptar_stock_sistema(self, id_auditoria: str) -> dict:
+        return self.cierres_repo.aceptar_stock_sistema(id_auditoria)
+
+    def aceptar_stock_sistema_masivo(self, ids_auditoria: list) -> dict:
+        return self.cierres_repo.aceptar_stock_sistema_masivo(ids_auditoria)
+
+    def eliminar_ajuste_cierre(self, id_auditoria: str) -> dict:
+        return self.cierres_repo.eliminar_ajuste_cierre(id_auditoria)
+
+    def aprobar_cierre_mes(self, id_periodo: str, aprobado_por: str) -> dict:
+        return self.cierres_repo.aprobar_cierre_mes(id_periodo, aprobado_por)
+
+    def get_detalle_diario_mes(self, mes: str) -> dict:
+        """
+        Descarga en paralelo los registros del mes para construir la vista
+        de Resumen Financiero por Día del Dashboard.
+
+        Retorna un dict con claves por día 'YYYY-MM-DD', cada una con:
+        {
+            'ventas_total': float,
+            'ventas_pos': float,
+            'ventas_remision': float,
+            'iva_ventas': float,
+            'compras': float,
+            'iva_compras': float,
+            'recaudado': float,
+            'recaudado_efectivo': float,
+            'recaudado_banco': float,
+            'ajustes_entrada_costo': float,
+            'ajustes_salida_costo': float,
+            'ajustes_entrada_count': int,
+            'ajustes_salida_count': int,
+        }
+
+        Args:
+            mes: Periodo en formato 'YYYY-MM'.
+
+        Returns:
+            Diccionario de días con KPIs financieros diarios.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        resultado: dict = {}
+
+        def _fetch_ventas():
+            try:
+                res = self._db.get_all(
+                    f"registro_ventas?select=fecha,total,iva,tipo_documento,estado_registro"
+                    f"&fecha=gte.{mes}-01&fecha=lt.{_mes_siguiente(mes)}-01"
+                    f"&estado_registro=neq.ANULADO"
+                )
+                return res or []
+            except Exception as ex:
+                log_error("get_detalle_diario_mes._fetch_ventas", ex)
+                return []
+
+        def _fetch_compras():
+            try:
+                res = self._db.get_all(
+                    f"registro_compras?select=fecha,costo_total,iva,valor_iva,estado_registro"
+                    f"&fecha=gte.{mes}-01&fecha=lt.{_mes_siguiente(mes)}-01"
+                    f"&estado_registro=neq.ANULADO"
+                )
+                return res or []
+            except Exception as ex:
+                log_error("get_detalle_diario_mes._fetch_compras", ex)
+                return []
+
+        def _fetch_pagos():
+            try:
+                res = self._db.get_all(
+                    f"pagos_cartera?select=fecha_pago,monto_total,metodo_pago,estado_registro"
+                    f"&fecha_pago=gte.{mes}-01&fecha_pago=lt.{_mes_siguiente(mes)}-01"
+                    f"&estado_registro=neq.ANULADO"
+                )
+                return res or []
+            except Exception as ex:
+                log_error("get_detalle_diario_mes._fetch_pagos", ex)
+                return []
+
+        def _fetch_ajustes():
+            try:
+                res = self._db.get_all(
+                    f"registro_ajustes_inventario"
+                    f"?select=fecha_ajuste,tipo_ajuste,costo_total_ajuste,estado_registro"
+                    f"&fecha_ajuste=gte.{mes}-01&fecha_ajuste=lt.{_mes_siguiente(mes)}-01"
+                    f"&estado_registro=neq.ANULADO"
+                )
+                return res or []
+            except Exception as ex:
+                log_error("get_detalle_diario_mes._fetch_ajustes", ex)
+                return []
+
+        def _mes_siguiente(m: str) -> str:
+            anio, mon = int(m[:4]), int(m[5:7])
+            if mon == 12:
+                return f"{anio + 1}-01"
+            return f"{anio}-{mon + 1:02d}"
+
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            f_v = ex.submit(_fetch_ventas)
+            f_c = ex.submit(_fetch_compras)
+            f_p = ex.submit(_fetch_pagos)
+            f_a = ex.submit(_fetch_ajustes)
+            ventas_raw = f_v.result()
+            compras_raw = f_c.result()
+            pagos_raw = f_p.result()
+            ajustes_raw = f_a.result()
+
+        _vacio = lambda: {
+            "ventas_total": 0.0, "ventas_pos": 0.0, "ventas_remision": 0.0,
+            "iva_ventas": 0.0, "compras": 0.0, "iva_compras": 0.0,
+            "recaudado": 0.0, "recaudado_efectivo": 0.0, "recaudado_banco": 0.0,
+            "ajustes_entrada_costo": 0.0, "ajustes_salida_costo": 0.0,
+            "ajustes_entrada_count": 0, "ajustes_salida_count": 0,
+        }
+
+        def _dia_key(fecha_str: str) -> str:
+            """Extrae la parte de fecha 'YYYY-MM-DD' de un timestamp."""
+            return str(fecha_str or "")[:10]
+
+        for v in ventas_raw:
+            dia = _dia_key(v.get("fecha", ""))
+            if not dia or not dia.startswith(mes):
+                continue
+            if dia not in resultado:
+                resultado[dia] = _vacio()
+            total = float(v.get("total") or 0.0)
+            iva = float(v.get("iva") or 0.0)
+            tipo = str(v.get("tipo_documento") or "").upper()
+            resultado[dia]["ventas_total"] += total
+            resultado[dia]["iva_ventas"] += iva
+            if "POS" in tipo:
+                resultado[dia]["ventas_pos"] += total
+            else:
+                resultado[dia]["ventas_remision"] += total
+
+        for c in compras_raw:
+            dia = _dia_key(c.get("fecha", ""))
+            if not dia or not dia.startswith(mes):
+                continue
+            if dia not in resultado:
+                resultado[dia] = _vacio()
+            costo = float(c.get("costo_total") or 0.0)
+            iva = float(c.get("valor_iva") or c.get("iva") or 0.0)
+            resultado[dia]["compras"] += costo
+            resultado[dia]["iva_compras"] += iva
+
+        for p in pagos_raw:
+            dia = _dia_key(p.get("fecha_pago", ""))
+            if not dia or not dia.startswith(mes):
+                continue
+            if dia not in resultado:
+                resultado[dia] = _vacio()
+            monto = float(p.get("monto_total") or 0.0)
+            metodo = str(p.get("metodo_pago") or "").upper()
+            resultado[dia]["recaudado"] += monto
+            if "EFECTIVO" in metodo or "CASH" in metodo:
+                resultado[dia]["recaudado_efectivo"] += monto
+            else:
+                resultado[dia]["recaudado_banco"] += monto
+
+        for a in ajustes_raw:
+            dia = _dia_key(a.get("fecha_ajuste", ""))
+            if not dia or not dia.startswith(mes):
+                continue
+            if dia not in resultado:
+                resultado[dia] = _vacio()
+            costo = float(a.get("costo_total_ajuste") or 0.0)
+            tipo = str(a.get("tipo_ajuste") or "").upper()
+            if "ENTRADA" in tipo or "SOBRANTE" in tipo:
+                resultado[dia]["ajustes_entrada_costo"] += costo
+                resultado[dia]["ajustes_entrada_count"] += 1
+            else:
+                resultado[dia]["ajustes_salida_costo"] += costo
+                resultado[dia]["ajustes_salida_count"] += 1
+
+        return resultado
+````
+
 ## File: ui/views/compras.py
 ````python
 import flet as ft
@@ -342723,11 +345833,22 @@ class ComprasView(ft.Container):
             self.dlg_loading.open = False
             
             if exito:
-                self.vista_cargas_consolidada.set_data(None)
-                self.tabs.selected_index = 0 # Volver a la tabla principal de compras
+                total_en_vista = len(self.vista_cargas_consolidada.carga_data.get("facturas", [])) if (self.vista_cargas_consolidada and self.vista_cargas_consolidada.carga_data) else 0
+                if len(facturas_seleccionadas) >= total_en_vista or total_en_vista == 0:
+                    self.vista_cargas_consolidada.set_data(None)
+                    self.tabs.selected_index = 0 # Volver a la tabla principal de compras
+                else:
+                    facs_guardadas = set(str(f.get('numero_factura') or f.get('numero_entrada')) for f in facturas_seleccionadas)
+                    if self.vista_cargas_consolidada.carga_data and "facturas" in self.vista_cargas_consolidada.carga_data:
+                        self.vista_cargas_consolidada.carga_data["facturas"] = [
+                            f for f in self.vista_cargas_consolidada.carga_data["facturas"]
+                            if str(f.get('numero_factura') or f.get('numero_entrada')) not in facs_guardadas
+                        ]
+                        self.vista_cargas_consolidada._actualizar_contenido()
+
                 self.load_data()
                 self.load_summary()
-                self.mostrar_alerta(f"✓ {len(facturas_seleccionadas)} documentos ({len(payload)} insumos) guardados exitosamente.", "green700")
+                self.mostrar_alerta(f"✓ {len(facturas_seleccionadas)} documento(s) ({len(payload)} insumos) guardados exitosamente.", "green700")
             else:
                 self.mostrar_alerta("Error al guardar compras en la base de datos.", "red")
         except Exception as ex:
@@ -345072,11 +348193,13 @@ class VentasView(ft.Container):
                 num_fac = f.get('factura_no')
                 tipo_doc = f.get('tipo_documento', 'Factura POS')
                 pag_orig = f.get('pagina_origen', 1)
+                cliente_doc = f.get('cliente') or 'CLIENTES VARIOS'
                 
                 for it in f.get('items', []):
                     payload.append({
                         "fecha": fecha_doc,
                         "factura_no": num_fac,
+                        "cliente": cliente_doc,
                         "tipo_documento": tipo_doc,
                         "pagina_origen": pag_orig,
                         "codigo_insumo": it.get('codigo_insumo'),
@@ -345092,11 +348215,23 @@ class VentasView(ft.Container):
             self.dlg_procesando_pdf.open = False
             
             if exito:
-                self.vista_cargas_consolidada.set_data(None)
-                self.tabs.selected_index = 0 # Volver a la tabla principal de ventas
+                total_en_vista = len(self.vista_cargas_consolidada.carga_data.get("facturas", [])) if (self.vista_cargas_consolidada and self.vista_cargas_consolidada.carga_data) else 0
+                if len(facturas_seleccionadas) >= total_en_vista or total_en_vista == 0:
+                    self.vista_cargas_consolidada.set_data(None)
+                    self.tabs.selected_index = 0 # Volver a la tabla principal de ventas
+                else:
+                    # Remover solo las facturas guardadas de la vista de cargas
+                    facs_guardadas = set(str(f.get('factura_no')) for f in facturas_seleccionadas)
+                    if self.vista_cargas_consolidada.carga_data and "facturas" in self.vista_cargas_consolidada.carga_data:
+                        self.vista_cargas_consolidada.carga_data["facturas"] = [
+                            f for f in self.vista_cargas_consolidada.carga_data["facturas"]
+                            if str(f.get('factura_no')) not in facs_guardadas
+                        ]
+                        self.vista_cargas_consolidada._actualizar_contenido()
+
                 self.load_data()
                 self.load_summary()
-                self.mostrar_alerta(f"✓ {len(facturas_seleccionadas)} documentos ({len(payload)} insumos) guardados exitosamente.", "green700")
+                self.mostrar_alerta(f"✓ {len(facturas_seleccionadas)} documento(s) ({len(payload)} insumos) guardados exitosamente.", "green700")
             else:
                 self.mostrar_alerta("Error al guardar ventas en la base de datos.", "red")
         except Exception as ex:
@@ -345278,6 +348413,7 @@ class VentasView(ft.Container):
         for idx, invoice in enumerate(invoices_limpias):
             fecha = invoice.get("fecha", "")
             factura = invoice.get("numero_factura", "")
+            cliente = invoice.get("cliente") or "CLIENTES VARIOS"
             
             total_factura_ctl = ft.Text("Total Factura: $0", weight="bold", size=11.5, color=Config.COLOR_PRIMARY)
             self.productos_rows.append({
@@ -345286,7 +348422,7 @@ class VentasView(ft.Container):
                 "total_factura_ctl": total_factura_ctl,
                 "row_ctl": ft.Container(
                     content=ft.Row([
-                        ft.Text(f"Factura No.: {factura} | Fecha: {fecha}", weight="bold", size=11.5, color=Config.COLOR_PRIMARY),
+                        ft.Text(f"Factura No.: {factura} | Cliente: {cliente} | Fecha: {fecha}", weight="bold", size=11.5, color=Config.COLOR_PRIMARY),
                         ft.Container(expand=True),
                         total_factura_ctl
                     ]),
@@ -345347,6 +348483,7 @@ class VentasView(ft.Container):
                     "factura_idx": idx,
                     "fecha": fecha,
                     "factura": factura,
+                    "cliente": cliente,
                     "codigo_ctl": codigo_ctl,
                     "nombre_ctl": nombre_ctl,
                     "cantidad_ctl": cantidad_ctl,
@@ -345616,6 +348753,7 @@ class VentasView(ft.Container):
                         ventas_list.append({
                             "fecha": fecha_doc, # Forzar la fecha seleccionada en el modal
                             "numero_factura": item["factura"],
+                            "cliente": item.get("cliente") or "CLIENTES VARIOS",
                             "codigo_item": item["codigo_ctl"].value,
                             "descripcion": item["nombre_ctl"].value,
                             "cantidad": cantidad,
