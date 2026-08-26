@@ -60,7 +60,7 @@ def detectar_tipo_documento(texto: str) -> str:
     t = texto.upper()
     if "ENTRADAS DE ALMACEN" in t or "EA -" in t or "EA-" in t or "BODEGA" in t and "COSTO" in t:
         return "COMPRA"
-    elif "RELACION DE VENTAS DIARIAS" in t or "TIPO PP" in t or "VENTAS DEL DIA" in t or "INVERIONES B&G" in t:
+    elif "RELACION DE VENTAS DIARIAS" in t or "TIPO PP" in t or "TIPO PE" in t or "PE " in t or "VENTAS DEL DIA" in t or "INVERIONES B&G" in t or "WXMANAGER" in t or "CONSUMIDOR FINAL" in t:
         return "VENTA_POS"
     elif "REPORTE DETALLADO DE FACTURAS" in t or "TIPO FV" in t or "DOÑA MARY" in t:
         return "VENTA_REMISION"
@@ -98,7 +98,7 @@ def obtener_documentos_registrados(db, tipo: str, fecha: str | None = None) -> s
 
 def parsear_venta_pos(lineas: list[str], docs_existentes: set) -> tuple[dict, int, int]:
     """
-    Parsea formato VENTA POS (TIPO PP).
+    Parsea formato VENTA POS (TIPO PP / PE / WXMANAGER).
     Retorna: (datos_extraidos, facturas_nuevas, facturas_omitidas)
     """
     invoices = []
@@ -125,8 +125,8 @@ def parsear_venta_pos(lineas: list[str], docs_existentes: set) -> tuple[dict, in
         if line.startswith("TOTAL DIA") or line.startswith("RELACION") or line.startswith("INVERIONES"):
             continue
 
-        # Detectar inicio de documento: PP 26396 Clientes Varios
-        m_pp = re.search(r'PP\s+(\d+)\s*(.*)', line)
+        # Detectar inicio de documento: PP 26396 Clientes Varios o PE 22549 CONSUMIDOR FINAL
+        m_pp = re.search(r'(?:PP|PE)\s+(\d+)\s*(.*)', line, re.IGNORECASE)
         if m_pp:
             if curr_invoice_data and curr_invoice_data["productos"]:
                 invoices.append(curr_invoice_data)
@@ -142,7 +142,7 @@ def parsear_venta_pos(lineas: list[str], docs_existentes: set) -> tuple[dict, in
                 continue
 
             curr_factura = fact_num
-            cli = m_pp.group(2).strip() or "Clientes Varios"
+            cli = m_pp.group(2).strip() or "CONSUMIDOR FINAL"
             curr_invoice_data = {
                 "factura": curr_factura,
                 "fecha": curr_fecha,
@@ -154,6 +154,31 @@ def parsear_venta_pos(lineas: list[str], docs_existentes: set) -> tuple[dict, in
 
         # Si estamos dentro de una factura nueva válida, extraer items
         if curr_invoice_data and curr_factura:
+            # Caso 1: Formato con COD: XXXX
+            m_cod = re.search(r'COD:\s*(\d{3,5}(?:-\d+)?)', line, re.IGNORECASE)
+            if m_cod:
+                cod_str = m_cod.group(1).zfill(4) if m_cod.group(1).isdigit() else m_cod.group(1)
+                resto = line.replace(f"COD: {m_cod.group(1)}", "").replace(f"COD:{m_cod.group(1)}", "")
+                nums = [p for p in resto.split() if any(c.isdigit() for c in p)]
+                cant = 1.0
+                tot = 0.0
+                if len(nums) >= 2:
+                    cant = parse_num(nums[0])
+                    tot = parse_num(nums[1])
+                elif len(nums) == 1:
+                    tot = parse_num(nums[0])
+
+                curr_invoice_data["productos"].append({
+                    "codigo_item": cod_str,
+                    "descripcion": f"INSUMO {cod_str}",
+                    "cantidad": cant,
+                    "subtotal": tot,
+                    "iva": 0.0,
+                    "total": tot
+                })
+                continue
+
+            # Caso 2: Formato estándar por columnas (ej. 2151 50.00 1900.00)
             parts = line.split()
             if len(parts) >= 2:
                 cod_token = parts[0]
@@ -172,6 +197,12 @@ def parsear_venta_pos(lineas: list[str], docs_existentes: set) -> tuple[dict, in
                             "iva": 0.0,
                             "total": tot
                         })
+                    continue
+
+            # Caso 3: Descripción de insumo en línea siguiente
+            if curr_invoice_data["productos"] and curr_invoice_data["productos"][-1]["descripcion"].startswith("INSUMO "):
+                if not any(k in line.upper() for k in ["TIPO", "NUMERO", "PP", "PE", "DES/NTO", "TOTAL:", "WXMANAGER", "COD:"]):
+                    curr_invoice_data["productos"][-1]["descripcion"] = line.strip()
 
     if curr_invoice_data and curr_invoice_data["productos"]:
         invoices.append(curr_invoice_data)

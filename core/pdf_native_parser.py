@@ -239,10 +239,14 @@ def parse_ventas_remisiones_diarias(pdf_source: Union[str, bytes, io.BytesIO]) -
                 if m_fec:
                     fecha_reporte = m_fec.group(1)
 
-            m_pp = re.search(r'^(?:TIPO\s+NUMERO\s+)?PP\s+(\d+)\s*(.*)$', line_str, re.IGNORECASE)
+            m_pp = re.search(r'^(?:TIPO\s+NUMERO\s+)?(?:PP|PE|FE|POS)\s+(\d+)\s*(.*)$', line_str, re.IGNORECASE)
+            if not m_pp:
+                m_pp = re.search(r'\b(?:PP|PE)\s+(\d+)\s*(.*)$', line_str, re.IGNORECASE)
+
             if m_pp:
                 num_rem = m_pp.group(1).strip()
-                cliente_rem = clean_text(m_pp.group(2)) or 'Clientes Varios'
+                cliente_cand = clean_text(m_pp.group(2))
+                cliente_rem = cliente_cand or 'CONSUMIDOR FINAL'
                 
                 parts_f = fecha_reporte.split('/') if fecha_reporte else []
                 fecha_iso = f"{parts_f[2]}-{parts_f[1]}-{parts_f[0]}" if len(parts_f) == 3 else fecha_reporte
@@ -271,10 +275,10 @@ def parse_ventas_remisiones_diarias(pdf_source: Union[str, bytes, io.BytesIO]) -
                 facturas_dict[current_rem_num]['total_factura'] = val_tot
                 continue
 
-            if current_rem_num and facturas_dict[current_rem_num]['cliente'] in ('', 'Clientes Varios'):
-                if not re.search(r'^(?:COD:|TOTAL:|SUBTOTAL|TIPO\s+NUMERO|PP\s+\d+)', line_str, re.IGNORECASE) and not re.match(r'^\d{3,5}', line_str):
+            if current_rem_num and facturas_dict[current_rem_num]['cliente'] in ('', 'Clientes Varios', 'CONSUMIDOR FINAL'):
+                if not re.search(r'^(?:COD:|TOTAL:|SUBTOTAL|TIPO\s+NUMERO|PP\s+\d+|PE\s+\d+|DES/NTO)', line_str, re.IGNORECASE) and not re.match(r'^\d{3,5}', line_str):
                     c_cand = clean_text(line_str)
-                    if c_cand and len(c_cand) > 2 and not any(kw in c_cand.upper() for kw in ('VALOR', 'PRECIO', 'CANTIDAD', 'PAGINA', 'FECHA')):
+                    if c_cand and len(c_cand) > 2 and not any(kw in c_cand.upper() for kw in ('VALOR', 'PRECIO', 'CANTIDAD', 'PAGINA', 'FECHA', 'DES/NTO')):
                         facturas_dict[current_rem_num]['cliente'] = c_cand
                 
             m_subt = re.search(r'SUBTOTAL\s+([\d.,]+)', line_str, re.IGNORECASE)
@@ -305,9 +309,26 @@ def parse_ventas_remisiones_diarias(pdf_source: Union[str, bytes, io.BytesIO]) -
                     'total': tot
                 })
                 continue
+
+            m_item_tab = re.match(r'^(\d{3,5}(?:-\d+)?)\s+(.+?)\s+([\d.,]+)\s+([\d.,]+)$', line_str)
+            if m_item_tab and current_rem_num and not re.search(r'^(?:PP|PE|TOTAL|SUBTOTAL|DES/NTO|TIPO)', line_str, re.IGNORECASE):
+                raw_cod = m_item_tab.group(1)
+                cod_final = format_codigo_insumo(raw_cod)
+                desc_item = clean_text(m_item_tab.group(2))
+                cant = parse_colombian_number(m_item_tab.group(3))
+                tot = parse_colombian_number(m_item_tab.group(4))
+                facturas_dict[current_rem_num]['items'].append({
+                    'codigo_insumo': cod_final,
+                    'descripcion': desc_item,
+                    'cantidad': cant,
+                    'subtotal': tot,
+                    'iva': 0.0,
+                    'total': tot
+                })
+                continue
                 
             if current_rem_num and facturas_dict[current_rem_num]['items'] and not facturas_dict[current_rem_num]['items'][-1]['descripcion']:
-                if not any(k in line_str for k in ['TIPO', 'NUMERO', 'PP', 'DES/NTO', 'TOTAL:', 'WXMANAGER']):
+                if not any(k in line_str.upper() for k in ['TIPO', 'NUMERO', 'PP', 'PE', 'DES/NTO', 'TOTAL:', 'WXMANAGER', 'COD:']):
                     facturas_dict[current_rem_num]['items'][-1]['descripcion'] = clean_text(line_str)
                     
     facturas = [facturas_dict[k] for k in facturas_order]
@@ -471,14 +492,20 @@ def detectar_y_parsear_pdf(pdf_source: Union[str, bytes, io.BytesIO]) -> Dict[st
     
     if 'ENTRADAS DE ALMACEN' in sample_upper or 'EA -' in sample_upper or 'ES -' in sample_upper:
         return parse_compras_entradas(pdf_source)
-    elif 'WXMANAGER' in sample_upper or 'RELACION DE VENTAS DIARIAS' in sample_upper or 'TIPO NUMERO' in sample_upper:
+    elif 'WXMANAGER' in sample_upper or 'RELACION DE VENTAS DIARIAS' in sample_upper or 'TIPO NUMERO' in sample_upper or 'TIPO PE' in sample_upper or 'TIPO PP' in sample_upper or 'CONSUMIDOR FINAL' in sample_upper or re.search(r'\b(?:PE|PP)\s+\d+', sample_upper):
         return parse_ventas_remisiones_diarias(pdf_source)
     elif 'REPORTE DETALLADO DE FACTURAS' in sample_upper or 'TIPO FV' in sample_upper:
         return parse_ventas_pos_detallado(pdf_source)
     else:
         try:
+            res = parse_ventas_remisiones_diarias(pdf_source)
+            if res.get('total_facturas', 0) > 0:
+                return res
+        except Exception:
+            pass
+        try:
             res = parse_ventas_pos_detallado(pdf_source)
-            if res['total_facturas'] > 0:
+            if res.get('total_facturas', 0) > 0:
                 return res
         except Exception:
             pass

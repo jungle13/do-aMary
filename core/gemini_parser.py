@@ -429,19 +429,18 @@ class GeminiParser:
             
             if tipo_documento == "Factura POS":
                 prompt = """
-                Extrae los datos de ventas formato POS (Facturas Diarias / WXManager) de este documento y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
+                Extrae los datos de ventas formato POS (Facturas Diarias / WXManager / Tipo PP o PE) de este documento y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
                 
-                REGLAS DE EXTRACCIÓN (Ubicaciones espaciales obligatorias):
-                1. BLOQUES DE FACTURA: Cada factura inicia debajo de la palabra "TIPO NUMERO" con el prefijo "PP" seguido del número (ej. "PP 26396"). Extrae SOLO el número en "numero_factura".
-                2. CLIENTE: Extrae el nombre del cliente que aparece en la misma línea de 'PP XXXXX' o en la línea inmediatamente inferior (donde habitualmente dice 'Clientes Varios' o el nombre particular del cliente/empresa si fue registrado). Si no aparece o dice 'Clientes Varios', asigna 'CLIENTES VARIOS'.
-                3. PRODUCTOS: Debajo del cliente, cada línea de producto tiene 3 valores separados por espacios:
-                   - "codigo_item": El primer número de la línea (ej. 2151).
-                   - "cantidad": El segundo número (ej. 50.00).
-                   - "precio_unitario": El tercer número (ej. 1900.00).
-                4. CÁLCULOS OBLIGATORIOS PARA EL JSON:
-                   - "subtotal": DEBES multiplicar la "cantidad" por el "precio_unitario".
-                   - "iva": Siempre será 0.0 para este formato.
-                   - "costo_total": Será exactamente igual al "subtotal".
+                REGLAS DE EXTRACCIÓN:
+                1. BLOQUES DE FACTURA: Cada factura inicia debajo del encabezado con el prefijo "PP" o "PE" (o "POS") seguido del número (ej. "PP 26396", "PE 22549", "PE 22550"). Extrae SOLO el número de la factura en "numero_factura".
+                2. CLIENTE: Extrae el nombre del cliente que aparece en la misma línea de 'PP/PE XXXXX' o en la línea inmediatamente inferior (ej. 'CONSUMIDOR FINAL', 'CLIENTES VARIOS', o el nombre particular del cliente/empresa si fue registrado). Si no aparece o dice 'Clientes Varios' o 'CONSUMIDOR FINAL', asigna 'CONSUMIDOR FINAL' o 'CLIENTES VARIOS'.
+                3. FECHA: La fecha general de las ventas está en el encabezado superior (ej. '24/08/2026'). Conviértela siempre al formato estándar 'YYYY-MM-DD' (ej. '2026-08-24').
+                4. PRODUCTOS: Cada producto en la factura contiene:
+                   - "codigo_item": El código numérico tras 'COD:' o al inicio de la línea (ej. 1754, 0170, 5483, 2151).
+                   - "cantidad": El dato de cantidad vendida (ej. 1.00, 2.00, 200.00).
+                   - "subtotal": El valor o importe total del item. Si solo viene precio unitario y cantidad, calcula cantidad * precio_unitario.
+                   - "iva": Siempre 0.0 para este formato.
+                   - "costo_total": Exactamente igual al "subtotal".
                 5. FORMATO NUMÉRICO: Todo valor monetario o cantidad debe ser número (float). Usa puntos (.) solo para decimales. NO uses comas.
                 """
             else:
