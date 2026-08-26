@@ -371,9 +371,9 @@ class CarteraRepository:
             # Remanente para distribuir vía FIFO automático
             remanente_fifo = max(0.0, total_pagos_cliente - total_asignado_directo)
 
-            # 5. Ordenar facturas cronológicamente para aplicar FIFO
+            # 5. Ordenar facturas cronológicamente para aplicar FIFO (más antiguas primero; a igual fecha, más cuantiosa primero)
             lista_facturas = list(facturas_dict.values())
-            lista_facturas.sort(key=lambda x: (x["fecha"] or "9999-99-99", x["factura_no"]))
+            lista_facturas.sort(key=lambda x: (x["fecha"] or "9999-99-99", -float(x.get("total_factura", 0.0)), x["factura_no"]))
 
             for f_obj in lista_facturas:
                 f_no = f_obj["factura_no"]
@@ -477,15 +477,7 @@ class CarteraRepository:
                 "fecha_pago": ahora_iso
             }
 
-            pago_en_db = False
-            res_pago = self.db.post("pagos_cartera", json_data=pago_payload, timeout=8)
-            if res_pago and res_pago.status_code in (200, 201):
-                pago_en_db = True
-
-            local_cache = self._read_local_cache()
-            local_cache.setdefault("pagos", []).append(pago_payload)
-
-            # Calcular distribución de facturas
+            # 1. Calcular distribución de facturas ANTES de registrar el pago
             detalles_payload = []
             if facturas_seleccionadas:
                 for fac_no, monto_aplicar in facturas_seleccionadas.items():
@@ -498,9 +490,11 @@ class CarteraRepository:
                             "monto_aplicado": m_ap
                         })
             else:
+                # Obtener estado de facturas antes de este abono
                 facturas_cliente = self.get_facturas_cliente(nom_clean)
                 pendientes = [f for f in facturas_cliente if f["saldo_pendiente"] > 0]
-                pendientes.sort(key=lambda x: (x["fecha"] or "9999-99-99", x["factura_no"]))
+                # Ordenar: más antiguas primero; a igual fecha, la más cuantiosa primero
+                pendientes.sort(key=lambda x: (x["fecha"] or "9999-99-99", -float(x.get("total_factura", 0.0)), x["factura_no"]))
 
                 monto_restante = monto_float
                 for f_item in pendientes:
@@ -518,6 +512,16 @@ class CarteraRepository:
                     })
                     monto_restante -= aplicar
 
+            # 2. Registrar el pago en DB y caché local
+            pago_en_db = False
+            res_pago = self.db.post("pagos_cartera", json_data=pago_payload, timeout=8)
+            if res_pago and res_pago.status_code in (200, 201):
+                pago_en_db = True
+
+            local_cache = self._read_local_cache()
+            local_cache.setdefault("pagos", []).append(pago_payload)
+
+            # 3. Registrar detalles en DB y caché local
             if detalles_payload:
                 if pago_en_db:
                     self.db.post("detalle_pagos_cartera", json_data=detalles_payload, timeout=8)
