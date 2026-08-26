@@ -84,42 +84,50 @@ class CarteraRepository:
     def _get_detalles_deduplicados(self, facturas_list: list[str] | None = None) -> list[dict]:
         """Obtiene y deduplica los detalles de pagos aplicados a facturas."""
         detalles_map = {}
-        if facturas_list:
-            try:
+        try:
+            if facturas_list:
                 facs_str = ",".join([urllib.parse.quote(str(f).strip()) for f in facturas_list if str(f).strip()])
-                res_d = self.db.get(f"detalle_pagos_cartera?factura_no=in.({facs_str})&select=id_detalle,id_pago,factura_no,monto_aplicado,pagos_cartera(estado_registro)", timeout=10)
-                if res_d and res_d.status_code == 200:
-                    for d in res_d.json():
-                        p_hdr = d.get("pagos_cartera") or {}
-                        if p_hdr.get("estado_registro") != "ANULADO":
-                            d_id = d.get("id_detalle") or str(uuid.uuid4())
-                            detalles_map[d_id] = d
-            except Exception:
-                pass
+                endpoint = f"detalle_pagos_cartera?factura_no=in.({facs_str})&select=id_detalle,id_pago,factura_no,monto_aplicado,pagos_cartera(estado_registro)"
+            else:
+                endpoint = "detalle_pagos_cartera?select=id_detalle,id_pago,factura_no,monto_aplicado,pagos_cartera(estado_registro)"
 
-            # Complementar con local
-            local_data = self._read_local_cache()
-            pagos_validos_local_ids = set(p["id_pago"] for p in local_data.get("pagos", []) if p.get("estado_registro") == "VÁLIDO")
-            for d in local_data.get("detalles", []):
-                if d.get("id_pago") in pagos_validos_local_ids and str(d.get("factura_no")) in facturas_list:
-                    d_id = d.get("id_detalle")
-                    if d_id and d_id not in detalles_map:
+            res_d = self.db.get(endpoint, timeout=10)
+            if res_d and res_d.status_code == 200:
+                for d in res_d.json():
+                    p_hdr = d.get("pagos_cartera") or {}
+                    if p_hdr.get("estado_registro") != "ANULADO":
+                        d_id = d.get("id_detalle") or str(uuid.uuid4())
                         detalles_map[d_id] = d
+        except Exception:
+            pass
+
+        # Complementar con local
+        local_data = self._read_local_cache()
+        pagos_validos_local_ids = set(p["id_pago"] for p in local_data.get("pagos", []) if p.get("estado_registro") == "VÁLIDO")
+        for d in local_data.get("detalles", []):
+            if d.get("id_pago") in pagos_validos_local_ids:
+                if facturas_list and str(d.get("factura_no")) not in facturas_list:
+                    continue
+                d_id = d.get("id_detalle")
+                if d_id and d_id not in detalles_map:
+                    detalles_map[d_id] = d
 
         return list(detalles_map.values())
+
 
     def get_resumen_cartera(
         self,
         search: str = "",
         filtro_saldo: str = "TODOS",
         fecha_filtro: str = ""
-    ) -> tuple[dict, list[dict]]:
+    ) -> tuple[dict, list[dict], list[dict]]:
         """
         Descarga registro_ventas UNA SOLA VEZ y calcula en una pasada:
         - KPIs globales de cartera (total_ventas, total_recaudado, saldo, etc.)
         - Lista de clientes con saldos individuales para el panel izquierdo.
+        - Lista de documentos (Remisiones & POS) con saldos individuales calculados FIFO.
 
-        Retorna: (kpis_dict, clientes_list)
+        Retorna: (kpis_dict, clientes_list, documentos_list)
         """
         kpis_fallback = {
             "total_ventas": 0.0,
@@ -132,13 +140,20 @@ class CarteraRepository:
         try:
             # ─── 1. Una sola descarga de ventas ─────────────────────────────
             res_v = self.db.get(
-                "registro_ventas?select=cliente,factura_no,fecha,total",
+                "registro_ventas?select=cliente,factura_no,fecha,total,tipo_documento",
                 timeout=15
             )
             ventas_data = res_v.json() if (res_v and res_v.status_code == 200) else []
 
-            # ─── 2. Pagos deduplicados (1 llamada HTTP) ──────────────────────
+            # ─── 2. Pagos y detalles deduplicados (llamadas HTTP) ────────────
             pagos_data = self._get_todos_pagos_deduplicados()
+            detalles_data = self._get_detalles_deduplicados()
+
+            # Mapear abonos directos por factura
+            abonos_directos_doc: dict[str, float] = {}
+            for d in detalles_data:
+                f_no = str(d.get("factura_no"))
+                abonos_directos_doc[f_no] = abonos_directos_doc.get(f_no, 0.0) + float(d.get("monto_aplicado") or 0.0)
 
             # ─── 3. Catálogo de clientes (1 llamada HTTP) ────────────────────
             res_c = self.db.get(
@@ -150,8 +165,9 @@ class CarteraRepository:
                 for c in (res_c.json() if res_c and res_c.status_code == 200 else [])
             }
 
-            # ─── 4. Consolidar ventas por cliente ───────────────────────────
+            # ─── 4. Consolidar ventas por cliente y por documento ────────────
             clientes_map: dict[str, dict] = {}
+            documentos_map: dict[str, dict] = {}
 
             # Inicializar con catálogo
             for nom, c_data in clientes_catalogo.items():
@@ -172,14 +188,14 @@ class CarteraRepository:
 
             for v in ventas_data:
                 fec = (v.get("fecha") or "")[:10]
-                if fecha_filtro and fec != fecha_filtro:
-                    continue
-
                 nom = self.clientes_repo.normalizar_nombre_cliente(v.get("cliente"))
                 monto = float(v.get("total") or 0.0)
-                fac = str(v.get("factura_no") or "").strip()
+                fac = str(v.get("factura_no") or "S/N").strip()
+                t_doc = v.get("tipo_documento") or "Factura POS"
+
                 total_ventas += monto
 
+                # Consolidar Cliente
                 if nom not in clientes_map:
                     clientes_map[nom] = {
                         "id_cliente": None,
@@ -201,7 +217,27 @@ class CarteraRepository:
                 if fec and (not c_obj["ultima_fecha_venta"] or fec > c_obj["ultima_fecha_venta"]):
                     c_obj["ultima_fecha_venta"] = fec
 
-            # ─── 5. Agregar pagos ────────────────────────────────────────────
+                # Consolidar Documento
+                if fac not in documentos_map:
+                    documentos_map[fac] = {
+                        "factura_no": fac,
+                        "tipo_documento": t_doc,
+                        "fecha": fec,
+                        "cliente": nom,
+                        "total_factura": 0.0,
+                        "total_abonado": 0.0,
+                        "saldo_pendiente": 0.0,
+                        "cantidad_items": 0,
+                        "estado": "PENDIENTE"
+                    }
+
+                d_obj = documentos_map[fac]
+                d_obj["total_factura"] += monto
+                d_obj["cantidad_items"] += 1
+                if fec and (not d_obj["fecha"] or fec < d_obj["fecha"]):
+                    d_obj["fecha"] = fec
+
+            # ─── 5. Agregar pagos a clientes ────────────────────────────────
             total_recaudado = 0.0
             total_efectivo = 0.0
             total_transferencias = 0.0
@@ -235,7 +271,41 @@ class CarteraRepository:
                     }
                 clientes_map[nom]["total_abonado"] += monto
 
-            # ─── 6. KPIs globales ────────────────────────────────────────────
+            # ─── 6. Distribuir abonos FIFO por cliente a los documentos ──────
+            docs_por_cliente: dict[str, list[dict]] = {}
+            for d in documentos_map.values():
+                docs_por_cliente.setdefault(d["cliente"], []).append(d)
+
+            for cli, c_docs in docs_por_cliente.items():
+                tot_pagos_cli = pagos_por_cliente.get(cli, 0.0)
+                tot_dir_cli = sum(abonos_directos_doc.get(d["factura_no"], 0.0) for d in c_docs)
+                remanente_fifo = max(0.0, tot_pagos_cli - tot_dir_cli)
+
+                # Orden: más antiguas primero; a igual fecha, más cuantiosa primero
+                c_docs.sort(key=lambda x: (x["fecha"] or "9999-99-99", -float(x["total_factura"]), x["factura_no"]))
+
+                for d in c_docs:
+                    f_no = d["factura_no"]
+                    tot_f = round(d["total_factura"], 2)
+                    d["total_factura"] = tot_f
+                    ab_dir = abonos_directos_doc.get(f_no, 0.0)
+                    saldo_prev = max(0.0, tot_f - ab_dir)
+                    ab_fifo = 0.0
+                    if remanente_fifo > 0 and saldo_prev > 0:
+                        ab_fifo = min(remanente_fifo, saldo_prev)
+                        remanente_fifo -= ab_fifo
+
+                    tot_ab = round(min(tot_f, ab_dir + ab_fifo), 2)
+                    d["total_abonado"] = tot_ab
+                    d["saldo_pendiente"] = round(max(0.0, tot_f - tot_ab), 2)
+                    if d["saldo_pendiente"] <= 0.01:
+                        d["estado"] = "PAGADA"
+                    elif d["total_abonado"] > 0:
+                        d["estado"] = "PARCIAL"
+                    else:
+                        d["estado"] = "PENDIENTE"
+
+            # ─── 7. KPIs globales ────────────────────────────────────────────
             clientes_con_deuda = sum(
                 1 for nom, c in clientes_map.items()
                 if (c["total_facturado"] - pagos_por_cliente.get(nom, 0.0)) > 1.0
@@ -249,9 +319,9 @@ class CarteraRepository:
                 "clientes_con_deuda": clientes_con_deuda
             }
 
-            # ─── 7. Construir lista de clientes con filtros ─────────────────
+            # ─── 8. Filtrar y ordenar lista de Clientes ──────────────────────
             s_upper = search.strip().upper()
-            resultado = []
+            resultado_clientes = []
 
             for nom, c_obj in clientes_map.items():
                 facturas_list = list(c_obj.pop("facturas_set", set()))
@@ -264,9 +334,11 @@ class CarteraRepository:
                 )
                 c_obj["estado"] = "CON_DEUDA" if c_obj["saldo_pendiente"] > 0.01 else "AL_DIA"
 
-                # Con filtro de fecha: omitir clientes sin movimientos
-                if fecha_filtro and c_obj["total_facturado"] == 0 and c_obj["total_abonado"] == 0:
-                    continue
+                # Con filtro de fecha: omitir clientes sin movimientos en esa fecha
+                if fecha_filtro:
+                    docs_del_cliente = docs_por_cliente.get(nom, [])
+                    if not any(d["fecha"] == fecha_filtro for d in docs_del_cliente):
+                        continue
 
                 # Búsqueda: nombre, teléfono o número de factura
                 if s_upper:
@@ -282,21 +354,48 @@ class CarteraRepository:
                 if filtro_saldo == "AL_DIA" and c_obj["estado"] != "AL_DIA":
                     continue
 
-                resultado.append(c_obj)
+                resultado_clientes.append(c_obj)
 
-            resultado.sort(
+            resultado_clientes.sort(
                 key=lambda x: (x["saldo_pendiente"], x["total_facturado"]),
                 reverse=True
             )
-            return kpis, resultado
+
+            # ─── 9. Filtrar y ordenar lista de Documentos ────────────────────
+            resultado_documentos = []
+            for d in documentos_map.values():
+                if fecha_filtro and d["fecha"] != fecha_filtro:
+                    continue
+
+                if s_upper:
+                    coincide_fac = s_upper in d["factura_no"].upper()
+                    coincide_cli = s_upper in d["cliente"].upper()
+                    coincide_tipo = s_upper in d["tipo_documento"].upper()
+                    if not (coincide_fac or coincide_cli or coincide_tipo):
+                        continue
+
+                if filtro_saldo == "CON_DEUDA" and d["saldo_pendiente"] <= 0.01:
+                    continue
+                if filtro_saldo == "AL_DIA" and d["saldo_pendiente"] > 0.01:
+                    continue
+
+                resultado_documentos.append(d)
+
+            # Ordenar: primero documentos con saldo pendiente, luego fecha descendente
+            resultado_documentos.sort(
+                key=lambda x: (x["saldo_pendiente"] > 0.01, x["fecha"] or ""),
+                reverse=True
+            )
+
+            return kpis, resultado_clientes, resultado_documentos
 
         except Exception as ex:
             log_error("get_resumen_cartera", ex)
-            return kpis_fallback, []
+            return kpis_fallback, [], []
 
     def get_cartera_kpis(self) -> dict:
         """Retorna solo los KPIs globales. Usa get_resumen_cartera internamente."""
-        kpis, _ = self.get_resumen_cartera()
+        kpis, _, _ = self.get_resumen_cartera()
         return kpis
 
     def get_estado_cuenta_clientes(
@@ -308,12 +407,13 @@ class CarteraRepository:
         fecha_hasta: str = ""
     ) -> list[dict]:
         """Compatibilidad hacia atrás — usa get_resumen_cartera internamente."""
-        _, clientes = self.get_resumen_cartera(
+        _, clientes, _ = self.get_resumen_cartera(
             search=search,
             filtro_saldo=filtro_saldo,
             fecha_filtro=fecha_filtro
         )
         return clientes
+
 
     def get_facturas_cliente(self, nombre_cliente: str) -> list[dict]:
         """
