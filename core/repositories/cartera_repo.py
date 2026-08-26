@@ -19,41 +19,9 @@ class CarteraRepository:
     def __init__(self, db: BaseDatabase | None = None):
         self.db = db or BaseDatabase()
         self.clientes_repo = ClientesRepository(self.db)
-        
-        # Archivo de persistencia local para asegurar funcionamiento ininterrumpido
-        base_dir = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA') or os.path.expanduser('~')
-        app_dir = os.path.join(base_dir, "DonaMaryApp")
-        os.makedirs(app_dir, exist_ok=True)
-        self.local_cache_file = os.path.join(app_dir, "cartera_local.json")
-        self._init_local_cache()
-
-    def _init_local_cache(self):
-        if not os.path.exists(self.local_cache_file):
-            try:
-                with open(self.local_cache_file, "w", encoding="utf-8") as f:
-                    json.dump({"pagos": [], "detalles": [], "cuotas": []}, f, indent=2)
-            except Exception:
-                pass
-
-    def _read_local_cache(self) -> dict:
-        try:
-            if os.path.exists(self.local_cache_file):
-                with open(self.local_cache_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
-        except Exception:
-            pass
-        return {"pagos": [], "detalles": [], "cuotas": []}
-
-    def _write_local_cache(self, data: dict):
-        try:
-            with open(self.local_cache_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-        except Exception:
-            pass
 
     def _get_todos_pagos_deduplicados(self, nombre_cliente: str | None = None) -> list[dict]:
-        """Obtiene y deduplica todos los pagos de Supabase y caché local usando su id_pago."""
-        pagos_map = {}
+        """Obtiene los pagos válidos registrados en Supabase."""
         try:
             endpoint = "pagos_cartera?estado_registro=eq.VÁLIDO"
             if nombre_cliente:
@@ -61,29 +29,14 @@ class CarteraRepository:
                 endpoint += f"&nombre_cliente=eq.{nom_enc}"
             
             res_p = self.db.get(endpoint, timeout=10)
-            if res_p and res_p.status_code == 200:
-                for p in res_p.json():
-                    p_id = p.get("id_pago") or str(uuid.uuid4())
-                    pagos_map[p_id] = p
-        except Exception:
-            pass
-
-        # Complementar con local solo si no existe en Supabase
-        local_data = self._read_local_cache()
-        for p in local_data.get("pagos", []):
-            if p.get("estado_registro") == "VÁLIDO":
-                if nombre_cliente:
-                    if self.clientes_repo.normalizar_nombre_cliente(p.get("nombre_cliente")) != self.clientes_repo.normalizar_nombre_cliente(nombre_cliente):
-                        continue
-                p_id = p.get("id_pago")
-                if p_id and p_id not in pagos_map:
-                    pagos_map[p_id] = p
-
-        return list(pagos_map.values())
+            if res_p and res_p.status_code == 200 and res_p.json():
+                return res_p.json()
+        except Exception as ex:
+            log_error("CarteraRepository._get_todos_pagos_deduplicados", ex)
+        return []
 
     def _get_detalles_deduplicados(self, facturas_list: list[str] | None = None) -> list[dict]:
-        """Obtiene y deduplica los detalles de pagos aplicados a facturas."""
-        detalles_map = {}
+        """Obtiene los detalles de pagos aplicados a facturas desde Supabase."""
         try:
             if facturas_list:
                 facs_str = ",".join([urllib.parse.quote(str(f).strip()) for f in facturas_list if str(f).strip()])
@@ -92,27 +45,16 @@ class CarteraRepository:
                 endpoint = "detalle_pagos_cartera?select=id_detalle,id_pago,factura_no,monto_aplicado,pagos_cartera(estado_registro)"
 
             res_d = self.db.get(endpoint, timeout=10)
-            if res_d and res_d.status_code == 200:
+            if res_d and res_d.status_code == 200 and res_d.json():
+                detalles = []
                 for d in res_d.json():
                     p_hdr = d.get("pagos_cartera") or {}
                     if p_hdr.get("estado_registro") != "ANULADO":
-                        d_id = d.get("id_detalle") or str(uuid.uuid4())
-                        detalles_map[d_id] = d
-        except Exception:
-            pass
-
-        # Complementar con local
-        local_data = self._read_local_cache()
-        pagos_validos_local_ids = set(p["id_pago"] for p in local_data.get("pagos", []) if p.get("estado_registro") == "VÁLIDO")
-        for d in local_data.get("detalles", []):
-            if d.get("id_pago") in pagos_validos_local_ids:
-                if facturas_list and str(d.get("factura_no")) not in facturas_list:
-                    continue
-                d_id = d.get("id_detalle")
-                if d_id and d_id not in detalles_map:
-                    detalles_map[d_id] = d
-
-        return list(detalles_map.values())
+                        detalles.append(d)
+                return detalles
+        except Exception as ex:
+            log_error("CarteraRepository._get_detalles_deduplicados", ex)
+        return []
 
 
     def get_resumen_cartera(
@@ -507,27 +449,33 @@ class CarteraRepository:
             return []
 
     def get_historial_pagos_cliente(self, nombre_cliente: str) -> list[dict]:
-        """Retorna el historial de pagos registrados para un cliente con sus facturas afectadas."""
+        """Retorna el historial de pagos registrados para un cliente con sus facturas afectadas desde Supabase."""
         nom_clean = self.clientes_repo.normalizar_nombre_cliente(nombre_cliente)
         try:
             pagos = self._get_todos_pagos_deduplicados(nombre_cliente=nom_clean)
+            if not pagos:
+                return []
+
             pagos.sort(key=lambda x: x.get("fecha_pago", "") or x.get("created_at", ""), reverse=True)
 
-            local_detalles = self._read_local_cache().get("detalles", [])
+            pago_ids = [p.get("id_pago") for p in pagos if p.get("id_pago")]
+            detalles_map = {}
+            if pago_ids:
+                p_ids_str = ",".join([urllib.parse.quote(str(pid).strip()) for pid in pago_ids])
+                try:
+                    res_d = self.db.get(f"detalle_pagos_cartera?id_pago=in.({p_ids_str})&select=id_pago,factura_no,monto_aplicado", timeout=8)
+                    if res_d and res_d.status_code == 200 and res_d.json():
+                        for d in res_d.json():
+                            pid = d.get("id_pago")
+                            detalles_map.setdefault(pid, []).append(d)
+                except Exception:
+                    pass
 
             for p in pagos:
                 p_id = p.get("id_pago")
                 p["monto_total"] = float(p.get("monto_total") or 0.0)
                 p["fecha_formateada"] = (p.get("fecha_pago") or "")[:10]
-                p["facturas_afectadas"] = []
-                try:
-                    res_d = self.db.get(f"detalle_pagos_cartera?id_pago=eq.{p_id}&select=factura_no,monto_aplicado", timeout=5)
-                    if res_d and res_d.status_code == 200 and res_d.json():
-                        p["facturas_afectadas"] = res_d.json()
-                    else:
-                        p["facturas_afectadas"] = [d for d in local_detalles if d.get("id_pago") == p_id]
-                except Exception:
-                    p["facturas_afectadas"] = [d for d in local_detalles if d.get("id_pago") == p_id]
+                p["facturas_afectadas"] = detalles_map.get(p_id, [])
 
             return pagos
         except Exception as ex:
@@ -547,7 +495,7 @@ class CarteraRepository:
         usuario: str = "admin"
     ) -> bool:
         """
-        Registra un pago de cartera y lo distribuye a las facturas correspondientes.
+        Registra un pago de cartera directamente en Supabase y lo distribuye a las facturas correspondientes.
         Si facturas_seleccionadas es None: Aplica algoritmo FIFO (de más antigua a más nueva).
         """
         nom_clean = self.clientes_repo.normalizar_nombre_cliente(nombre_cliente)
@@ -577,7 +525,7 @@ class CarteraRepository:
                 "fecha_pago": ahora_iso
             }
 
-            # 1. Calcular distribución de facturas ANTES de registrar el pago
+            # 1. Calcular distribución de facturas
             detalles_payload = []
             if facturas_seleccionadas:
                 for fac_no, monto_aplicar in facturas_seleccionadas.items():
@@ -590,10 +538,8 @@ class CarteraRepository:
                             "monto_aplicado": m_ap
                         })
             else:
-                # Obtener estado de facturas antes de este abono
                 facturas_cliente = self.get_facturas_cliente(nom_clean)
                 pendientes = [f for f in facturas_cliente if f["saldo_pendiente"] > 0]
-                # Ordenar: más antiguas primero; a igual fecha, la más cuantiosa primero
                 pendientes.sort(key=lambda x: (x["fecha"] or "9999-99-99", -float(x.get("total_factura", 0.0)), x["factura_no"]))
 
                 monto_restante = monto_float
@@ -612,22 +558,15 @@ class CarteraRepository:
                     })
                     monto_restante -= aplicar
 
-            # 2. Registrar el pago en DB y caché local
-            pago_en_db = False
+            # 2. Guardar pago en Supabase
             res_pago = self.db.post("pagos_cartera", json_data=pago_payload, timeout=8)
-            if res_pago and res_pago.status_code in (200, 201):
-                pago_en_db = True
+            if not res_pago or res_pago.status_code not in (200, 201):
+                logger.error(f"Error al registrar pago en Supabase: {res_pago.status_code if res_pago else 'No response'}")
+                return False
 
-            local_cache = self._read_local_cache()
-            local_cache.setdefault("pagos", []).append(pago_payload)
-
-            # 3. Registrar detalles en DB y caché local
+            # 3. Guardar detalles en Supabase
             if detalles_payload:
-                if pago_en_db:
-                    self.db.post("detalle_pagos_cartera", json_data=detalles_payload, timeout=8)
-                local_cache.setdefault("detalles", []).extend(detalles_payload)
-
-            self._write_local_cache(local_cache)
+                self.db.post("detalle_pagos_cartera", json_data=detalles_payload, timeout=8)
 
             registrar_accion(
                 accion=f"Recaudo Cartera: ${monto_float:,.0f} ({metodo_pago}) a cliente {nom_clean}",
@@ -647,16 +586,10 @@ class CarteraRepository:
             return False
 
     def anular_pago_cartera(self, id_pago: str) -> bool:
-        """Marca un pago como ANULADO revirtiendo su impacto en la cartera."""
+        """Marca un pago como ANULADO en Supabase revirtiendo su impacto en la cartera."""
         try:
             id_enc = urllib.parse.quote(str(id_pago))
             self.db.patch(f"pagos_cartera?id_pago=eq.{id_enc}", json_data={"estado_registro": "ANULADO"}, timeout=8)
-            
-            local_cache = self._read_local_cache()
-            for p in local_cache.get("pagos", []):
-                if p.get("id_pago") == id_pago:
-                    p["estado_registro"] = "ANULADO"
-            self._write_local_cache(local_cache)
 
             registrar_accion(
                 accion=f"Anulación de pago de cartera {id_pago}",
@@ -679,7 +612,7 @@ class CarteraRepository:
         observacion: str = ""
     ) -> bool:
         """
-        Genera y almacena un cronograma de cuotas con fechas automáticas de cobro.
+        Genera y almacena un cronograma de cuotas directamente en Supabase con fechas automáticas de cobro.
         """
         nom_clean = self.clientes_repo.normalizar_nombre_cliente(nombre_cliente)
         try:
@@ -718,7 +651,7 @@ class CarteraRepository:
                     "observacion": observacion or f"Cuota {i} de {num_cuotas} ({periodicidad})"
                 })
 
-            # Reemplazar cuotas activas previas para este cliente
+            # Reemplazar cuotas activas previas para este cliente en Supabase
             try:
                 nom_enc = urllib.parse.quote(nom_clean)
                 self.db.delete(f"cuotas_cartera?nombre_cliente=eq.{nom_enc}", timeout=5)
@@ -726,11 +659,6 @@ class CarteraRepository:
                 pass
 
             self.db.post("cuotas_cartera", json_data=cuotas_payload, timeout=8)
-            
-            local_cache = self._read_local_cache()
-            local_cache["cuotas"] = [c for c in local_cache.get("cuotas", []) if self.clientes_repo.normalizar_nombre_cliente(c.get("nombre_cliente")) != nom_clean]
-            local_cache["cuotas"].extend(cuotas_payload)
-            self._write_local_cache(local_cache)
 
             registrar_accion(
                 accion=f"Plan de Cuotas Cartera: {num_cuotas} cuotas de ${monto_cuota:,.0f} a {nom_clean}",
@@ -745,39 +673,26 @@ class CarteraRepository:
 
     def get_cuotas_cliente(self, nombre_cliente: str, saldo_actual_cliente: float | None = None) -> list[dict]:
         """
-        Obtiene el cronograma de cuotas programadas para un cliente,
+        Obtiene el cronograma de cuotas programadas para un cliente desde Supabase,
         amortizando dinámicamente los pagos realizados contra las cuotas más cercanas.
         """
         nom_clean = self.clientes_repo.normalizar_nombre_cliente(nombre_cliente)
         try:
             nom_enc = urllib.parse.quote(nom_clean)
-            cuotas_map = {}
             res = self.db.get(f"cuotas_cartera?nombre_cliente=eq.{nom_enc}&order=fecha_cobro_sugerida.asc", timeout=8)
-            if res and res.status_code == 200 and res.json():
-                for c in res.json():
-                    c_id = c.get("id_cuota") or str(uuid.uuid4())
-                    cuotas_map[c_id] = c
-            else:
-                local_cuotas = [c for c in self._read_local_cache().get("cuotas", []) if self.clientes_repo.normalizar_nombre_cliente(c.get("nombre_cliente")) == nom_clean]
-                for c in local_cuotas:
-                    c_id = c.get("id_cuota") or str(uuid.uuid4())
-                    cuotas_map[c_id] = c
-
-            cuotas = list(cuotas_map.values())
-            if not cuotas:
+            if not res or res.status_code != 200 or not res.json():
                 return []
 
+            cuotas = res.json()
             cuotas.sort(key=lambda x: (x.get("fecha_cobro_sugerida") or "9999-99-99", x.get("numero_cuota", 1)))
 
             # Calcular amortización de cuotas:
-            # Si no viene saldo_actual_cliente, calcularlo
             if saldo_actual_cliente is None:
                 estados = self.get_estado_cuenta_clientes(search=nom_clean)
                 cli_info = next((c for c in estados if c["nombre"] == nom_clean), None)
                 saldo_actual_cliente = cli_info.get("saldo_pendiente", 0.0) if cli_info else 0.0
 
             total_plan_cuotas = sum(float(c.get("monto_cuota") or 0.0) for c in cuotas)
-            # El valor amortizado sobre el plan es la diferencia entre el total del plan y el saldo restante
             total_amortizado_plan = max(0.0, total_plan_cuotas - saldo_actual_cliente)
 
             remanente_amortizar = total_amortizado_plan
@@ -806,3 +721,4 @@ class CarteraRepository:
         except Exception as ex:
             log_error(f"get_cuotas_cliente({nom_clean})", ex)
             return []
+

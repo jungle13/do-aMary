@@ -33,6 +33,7 @@ class Config:
     COLOR_MUTED = "#F1F5F9"         # Slate 100 para fondos atenuados y encabezados
     COLOR_BORDER = "#E2E8F0"        # Slate 200 para bordes sutiles y divisores
     COLOR_TEXT = "#0F172A"          # Slate 900 para texto principal de alto contraste
+    COLOR_TEXT_DARK = "#0F172A"     # Alias Slate 900
     COLOR_TEXT_MUTED = "#64748B"    # Slate 500 para subtítulos y etiquetas
     COLOR_TEXT_LIGHT = "#94A3B8"    # Slate 400 para placeholders y metadatos
     

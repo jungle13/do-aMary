@@ -68,32 +68,34 @@ class CarteraView(ft.Container):
             self.card_clientes_deuda
         ], spacing=10, alignment=ft.MainAxisAlignment.START)
 
-        # 2. Panel Izquierdo: Selector de Vista (Clientes vs Documentos)
+        # 2. Panel Izquierdo: Rediseño Compacto (2 Niveles: Vista + Buscador/Fecha + Chips)
         self.seg_modo_vista = ft.SegmentedButton(
             selected={"CLIENTES"},
             allow_multiple_selection=False,
             segments=[
                 ft.Segment(
                     value="CLIENTES",
-                    label=ft.Text("Clientes", size=11, weight="w600"),
+                    label=ft.Text("Clientes", size=10.5, weight="w600"),
                     icon=ft.Icon(ft.icons.PEOPLE_ROUNDED, size=15)
                 ),
                 ft.Segment(
                     value="DOCUMENTOS",
-                    label=ft.Text("Documentos", size=11, weight="w600"),
+                    label=ft.Text("Documentos", size=10.5, weight="w600"),
                     icon=ft.Icon(ft.icons.RECEIPT_LONG_ROUNDED, size=15)
                 ),
             ],
+            height=32,
             on_change=self._on_modo_vista_change
         )
 
-        # Buscador, Filtros y Lista
+        # Buscador + Botón de Calendario Integrado
         self.txt_buscador = ft.TextField(
-            hint_text="Buscar cliente, teléfono o No. documento...",
+            hint_text="Buscar cliente o No. doc...",
             prefix_icon=ft.icons.SEARCH_ROUNDED,
             dense=True,
             text_size=11,
-            height=34,
+            height=36,
+            content_padding=ft.padding.symmetric(horizontal=8, vertical=4),
             border_radius=8,
             bgcolor=Config.COLOR_SURFACE,
             border_color=Config.COLOR_BORDER,
@@ -101,52 +103,72 @@ class CarteraView(ft.Container):
             expand=True
         )
 
-        self.seg_filtros = ft.SegmentedButton(
-            selected={"TODOS"},
-            allow_multiple_selection=False,
-            segments=[
-                ft.Segment(value="TODOS", label=ft.Text("Todos", size=10)),
-                ft.Segment(value="CON_DEUDA", label=ft.Text("Con Deuda", size=10)),
-                ft.Segment(value="AL_DIA", label=ft.Text("Al Día", size=10)),
-            ],
-            on_change=self._on_filtro_segment_change
-        )
-
-        # Filtro por fecha única con DatePicker
-        self.lbl_fecha_filtro = ft.Text("Filtrar por fecha", size=10.5, color="grey700", weight="w500")
-
         self.date_picker = ft.DatePicker(
             on_change=self._on_date_picked,
             help_text="Seleccionar fecha de factura"
         )
 
-        self.btn_date_selector = ft.Container(
-            content=ft.Row([
-                ft.Icon(ft.icons.CALENDAR_MONTH_ROUNDED, size=15, color=Config.COLOR_PRIMARY),
-                self.lbl_fecha_filtro
-            ], spacing=6, alignment=ft.MainAxisAlignment.CENTER),
-            padding=ft.padding.symmetric(horizontal=8, vertical=5),
-            bgcolor=Config.COLOR_SURFACE,
-            border_radius=6,
-            border=ft.border.all(1, Config.COLOR_BORDER),
-            on_click=self._abrir_date_picker,
-            ink=True,
-            expand=True
+        self.btn_date_icon = ft.IconButton(
+            icon=ft.icons.CALENDAR_MONTH_ROUNDED,
+            icon_size=18,
+            icon_color=Config.COLOR_PRIMARY,
+            tooltip="Filtrar por fecha",
+            bgcolor=ft.colors.with_opacity(0.08, Config.COLOR_PRIMARY),
+            width=36,
+            height=36,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), padding=0),
+            on_click=self._abrir_date_picker
         )
 
+        # Chips de Estado Rápidos
+        self.chip_todos = ft.Chip(
+            label=ft.Text("Todos", size=10),
+            selected=True,
+            on_select=lambda e: self._on_chip_filtro_select("TODOS")
+        )
+        self.chip_con_deuda = ft.Chip(
+            label=ft.Text("Con Deuda", size=10),
+            selected=False,
+            on_select=lambda e: self._on_chip_filtro_select("CON_DEUDA")
+        )
+        self.chip_al_dia = ft.Chip(
+            label=ft.Text("Al Día", size=10),
+            selected=False,
+            on_select=lambda e: self._on_chip_filtro_select("AL_DIA")
+        )
+
+        # Indicador de Fecha Activa Compacto
+        self.lbl_fecha_filtro = ft.Text("", size=10, weight="bold", color=Config.COLOR_PRIMARY)
         self.btn_limpiar_fecha = ft.IconButton(
             icon=ft.icons.CLOSE_ROUNDED,
-            icon_size=15,
-            icon_color="grey600",
+            icon_size=13,
+            icon_color="red600",
             tooltip="Quitar filtro de fecha",
-            visible=False,
+            width=20,
+            height=20,
+            style=ft.ButtonStyle(padding=0),
             on_click=self._limpiar_fecha
         )
 
-        self.fila_fechas = ft.Row([
-            self.btn_date_selector,
-            self.btn_limpiar_fecha
-        ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        self.chip_fecha_activa = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.EVENT_ROUNDED, size=12, color=Config.COLOR_PRIMARY),
+                self.lbl_fecha_filtro,
+                self.btn_limpiar_fecha
+            ], spacing=2, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor=ft.colors.with_opacity(0.12, Config.COLOR_PRIMARY),
+            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+            border_radius=12,
+            visible=False
+        )
+
+        self.fila_chips = ft.Row([
+            ft.Text("Estado:", size=10, color="grey600", weight="bold"),
+            self.chip_todos,
+            self.chip_con_deuda,
+            self.chip_al_dia,
+            self.chip_fecha_activa
+        ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO)
 
         self.lista_clientes_view = ft.ListView(
             expand=True,
@@ -157,9 +179,8 @@ class CarteraView(ft.Container):
         self.col_izquierda = ft.Container(
             content=ft.Column([
                 ft.Row([self.seg_modo_vista], alignment=ft.MainAxisAlignment.CENTER),
-                ft.Row([self.txt_buscador], spacing=6),
-                ft.Row([self.seg_filtros], alignment=ft.MainAxisAlignment.CENTER),
-                self.fila_fechas,
+                ft.Row([self.txt_buscador, self.btn_date_icon], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                self.fila_chips,
                 ft.Divider(height=1, color=Config.COLOR_BORDER),
                 self.lista_clientes_view
             ], expand=True, spacing=6),
@@ -169,6 +190,7 @@ class CarteraView(ft.Container):
             border_radius=12,
             border=ft.border.all(1, Config.COLOR_BORDER)
         )
+
 
 
         # 3. Panel Derecho (Detalle del Cliente)
@@ -310,6 +332,11 @@ class CarteraView(ft.Container):
                     if c_upd:
                         self.cliente_seleccionado = c_upd
                         self._cargar_detalle_cliente(c_upd, recargar_datos=True)
+                    else:
+                        self.cliente_seleccionado = None
+                        self.btn_pagar_global.visible = False
+                        self.btn_cuotas_global.visible = False
+                        self.panel_derecho_contenido.content = self._crear_placeholder_vacio()
 
                 self.safe_update()
             except Exception as ex:
@@ -477,10 +504,12 @@ class CarteraView(ft.Container):
         self.busqueda_actual = e.control.value
         self.load_data()
 
-    def _on_filtro_segment_change(self, e):
-        if e.control.selected:
-            self.filtro_saldo_actual = list(e.control.selected)[0]
-            self.load_data()
+    def _on_chip_filtro_select(self, valor: str):
+        self.chip_todos.selected = (valor == "TODOS")
+        self.chip_con_deuda.selected = (valor == "CON_DEUDA")
+        self.chip_al_dia.selected = (valor == "AL_DIA")
+        self.filtro_saldo_actual = valor
+        self.load_data()
 
     def _abrir_date_picker(self, e):
         if self.page:
@@ -491,17 +520,18 @@ class CarteraView(ft.Container):
         if e.control.value:
             dt_val = e.control.value
             self.fecha_filtro = dt_val.strftime("%Y-%m-%d")
-            self.lbl_fecha_filtro.value = f"📅 {self.fecha_filtro}"
-            self.lbl_fecha_filtro.color = Config.COLOR_PRIMARY
-            self.btn_limpiar_fecha.visible = True
+            self.lbl_fecha_filtro.value = f"{self.fecha_filtro}"
+            self.chip_fecha_activa.visible = True
+            self.btn_date_icon.icon_color = "amber800"
             self.load_data()
 
     def _limpiar_fecha(self, e):
         self.fecha_filtro = ""
-        self.lbl_fecha_filtro.value = "Filtrar por fecha"
-        self.lbl_fecha_filtro.color = "grey700"
-        self.btn_limpiar_fecha.visible = False
+        self.lbl_fecha_filtro.value = ""
+        self.chip_fecha_activa.visible = False
+        self.btn_date_icon.icon_color = Config.COLOR_PRIMARY
         self.load_data()
+
 
     def _on_documento_click(self, doc: dict):
         self.documento_preseleccionado = str(doc.get("factura_no"))
@@ -535,36 +565,53 @@ class CarteraView(ft.Container):
         self.btn_pagar_global.visible = True
         self.btn_cuotas_global.visible = True
 
-        # Header informativo del cliente (solo datos, sin botones)
+        # Header informativo del cliente con métricas compactas
         header_cliente = ft.Container(
             content=ft.Row([
                 ft.Container(
-                    content=ft.Icon(ft.icons.PERSON_ROUNDED, color=Config.COLOR_PRIMARY, size=22),
-                    bgcolor="#e0e7ff",
-                    padding=7,
-                    border_radius=8
+                    content=ft.Icon(ft.icons.ACCOUNT_CIRCLE_ROUNDED, color=Config.COLOR_PRIMARY, size=28),
+                    bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_PRIMARY),
+                    padding=6,
+                    border_radius=10
                 ),
                 ft.Column([
                     ft.Row([
                         ft.Text(nom, size=14, weight="bold", color=Config.COLOR_PRIMARY, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
                         ft.Container(
-                            content=ft.Text(f"Saldo: ${saldo:,.0f}", size=10, weight="bold", color="white"),
+                            content=ft.Text(f"Saldo Total: ${saldo:,.0f}", size=10.5, weight="bold", color="white"),
                             bgcolor="#DC2626" if saldo > 0.01 else "#16A34A",
-                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            padding=ft.padding.symmetric(horizontal=8, vertical=3),
                             border_radius=6
                         )
                     ], spacing=8),
                     ft.Row([
-                        ft.Text(f"Facturado: ${tot_fac:,.0f}", size=10, color=Config.COLOR_TEXT_MUTED),
-                        ft.Text(f"• Abonado: ${tot_ab:,.0f}", size=10, color=Config.COLOR_SUCCESS, weight="w500"),
-                        ft.Text(f"• Pendiente: ${saldo:,.0f}", size=10, color="#DC2626" if saldo > 0.01 else "grey600", weight="bold")
+                        ft.Container(
+                            content=ft.Text(f"Facturado: ${tot_fac:,.0f}", size=9.5, color=Config.COLOR_TEXT, weight="w500"),
+                            bgcolor="#F1F5F9",
+                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=4
+                        ),
+                        ft.Container(
+                            content=ft.Text(f"Abonado: ${tot_ab:,.0f}", size=9.5, color="#15803D", weight="bold"),
+                            bgcolor="#DCFCE7",
+                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=4
+                        ),
+                        ft.Container(
+                            content=ft.Text(f"Pendiente: ${saldo:,.0f}", size=9.5, color="#B91C1C" if saldo > 0.01 else "#15803D", weight="bold"),
+                            bgcolor="#FEE2E2" if saldo > 0.01 else "#DCFCE7",
+                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=4
+                        )
                     ], spacing=6)
-                ], spacing=2, expand=True)
+                ], spacing=3, expand=True)
             ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             padding=ft.padding.symmetric(horizontal=12, vertical=8),
-            bgcolor=Config.COLOR_MUTED,
-            border_radius=8
+            bgcolor=Config.COLOR_SURFACE,
+            border=ft.border.all(1, Config.COLOR_BORDER),
+            border_radius=10
         )
+
 
         # Tab Bar Compacto
         self.tabs_detalle = ft.Tabs(
