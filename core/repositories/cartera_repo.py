@@ -108,111 +108,57 @@ class CarteraRepository:
 
         return list(detalles_map.values())
 
-    def get_cartera_kpis(self) -> dict:
-        """Calcula los indicadores globales de cartera y cuentas por cobrar."""
-        try:
-            # 1. Total ventas históricas
-            res_v = self.db.get("registro_ventas?select=total", timeout=15)
-            total_ventas = 0.0
-            if res_v and res_v.status_code == 200:
-                for v in res_v.json():
-                    total_ventas += float(v.get("total") or 0.0)
-
-            # 2. Total recaudado deduplicado
-            pagos_data = self._get_todos_pagos_deduplicados()
-            total_recaudado = 0.0
-            total_efectivo = 0.0
-            total_transferencias = 0.0
-            pagos_por_cliente = {}
-
-            for p in pagos_data:
-                monto = float(p.get("monto_total") or 0.0)
-                metodo = str(p.get("metodo_pago") or "EFECTIVO").upper()
-                nom = self.clientes_repo.normalizar_nombre_cliente(p.get("nombre_cliente"))
-                
-                total_recaudado += monto
-                if "TRANSFERENCIA" in metodo:
-                    total_transferencias += monto
-                else:
-                    total_efectivo += monto
-                
-                pagos_por_cliente[nom] = pagos_por_cliente.get(nom, 0.0) + monto
-
-            # 3. Calcular clientes con deuda
-            res_clientes_v = self.db.get("registro_ventas?select=cliente,total", timeout=15)
-            if not (res_clientes_v and res_clientes_v.status_code == 200):
-                res_clientes_v = self.db.get("registro_ventas?select=total", timeout=15)
-
-            ventas_por_cliente = {}
-            if res_clientes_v and res_clientes_v.status_code == 200:
-                for v in res_clientes_v.json():
-                    nom = self.clientes_repo.normalizar_nombre_cliente(v.get("cliente"))
-                    ventas_por_cliente[nom] = ventas_por_cliente.get(nom, 0.0) + float(v.get("total") or 0.0)
-
-            clientes_con_deuda = 0
-            for nom, total_cli in ventas_por_cliente.items():
-                abonos_cli = pagos_por_cliente.get(nom, 0.0)
-                if (total_cli - abonos_cli) > 1.0:
-                    clientes_con_deuda += 1
-
-            total_saldo_pendiente = max(0.0, total_ventas - total_recaudado)
-
-            return {
-                "total_ventas": round(total_ventas, 2),
-                "total_recaudado": round(total_recaudado, 2),
-                "total_efectivo": round(total_efectivo, 2),
-                "total_transferencias": round(total_transferencias, 2),
-                "total_saldo_pendiente": round(total_saldo_pendiente, 2),
-                "clientes_con_deuda": clientes_con_deuda
-            }
-        except Exception as ex:
-            log_error("get_cartera_kpis", ex)
-            return {
-                "total_ventas": 0.0,
-                "total_recaudado": 0.0,
-                "total_efectivo": 0.0,
-                "total_transferencias": 0.0,
-                "total_saldo_pendiente": 0.0,
-                "clientes_con_deuda": 0
-            }
-
-    def get_estado_cuenta_clientes(
+    def get_resumen_cartera(
         self,
         search: str = "",
         filtro_saldo: str = "TODOS",
-        fecha_filtro: str = "",
-        fecha_desde: str = "",
-        fecha_hasta: str = ""
-    ) -> list[dict]:
+        fecha_filtro: str = ""
+    ) -> tuple[dict, list[dict]]:
         """
-        Retorna la lista de clientes con su resumen financiero.
-        Soporta búsqueda inteligente por Nombre de Cliente, Teléfono o Número de Factura/Documento,
-        así como filtros por Fecha de Facturación.
+        Descarga registro_ventas UNA SOLA VEZ y calcula en una pasada:
+        - KPIs globales de cartera (total_ventas, total_recaudado, saldo, etc.)
+        - Lista de clientes con saldos individuales para el panel izquierdo.
+
+        Retorna: (kpis_dict, clientes_list)
         """
+        kpis_fallback = {
+            "total_ventas": 0.0,
+            "total_recaudado": 0.0,
+            "total_efectivo": 0.0,
+            "total_transferencias": 0.0,
+            "total_saldo_pendiente": 0.0,
+            "clientes_con_deuda": 0
+        }
         try:
-            # 1. Traer ventas (con fallback si no existe columna cliente)
-            res_v = self.db.get("registro_ventas?select=cliente,factura_no,fecha,total", timeout=15)
-            if not (res_v and res_v.status_code == 200):
-                res_v = self.db.get("registro_ventas?select=factura_no,fecha,total", timeout=15)
+            # ─── 1. Una sola descarga de ventas ─────────────────────────────
+            res_v = self.db.get(
+                "registro_ventas?select=cliente,factura_no,fecha,total",
+                timeout=15
+            )
             ventas_data = res_v.json() if (res_v and res_v.status_code == 200) else []
 
-            # 2. Traer pagos deduplicados
+            # ─── 2. Pagos deduplicados (1 llamada HTTP) ──────────────────────
             pagos_data = self._get_todos_pagos_deduplicados()
 
-            # 3. Traer clientes registrados en catálogo
-            res_c = self.db.get("clientes?select=id_cliente,nombre,telefono,direccion,limite_credito", timeout=10)
-            clientes_catalogo = {c.get("nombre"): c for c in (res_c.json() if res_c and res_c.status_code == 200 else [])}
+            # ─── 3. Catálogo de clientes (1 llamada HTTP) ────────────────────
+            res_c = self.db.get(
+                "clientes?select=id_cliente,nombre,telefono,direccion",
+                timeout=8
+            )
+            clientes_catalogo = {
+                c.get("nombre"): c
+                for c in (res_c.json() if res_c and res_c.status_code == 200 else [])
+            }
 
-            # 4. Consolidar por cliente
-            clientes_map = {}
+            # ─── 4. Consolidar ventas por cliente ───────────────────────────
+            clientes_map: dict[str, dict] = {}
 
-            # Inicializar catálogo
+            # Inicializar con catálogo
             for nom, c_data in clientes_catalogo.items():
                 clientes_map[nom] = {
                     "id_cliente": c_data.get("id_cliente"),
                     "nombre": nom,
                     "telefono": c_data.get("telefono") or "",
-                    "direccion": c_data.get("direccion") or "",
                     "total_facturado": 0.0,
                     "total_abonado": 0.0,
                     "saldo_pendiente": 0.0,
@@ -222,23 +168,23 @@ class CarteraRepository:
                     "estado": "AL_DIA"
                 }
 
-            # Procesar ventas con filtro de fechas si aplica
+            total_ventas = 0.0
+
             for v in ventas_data:
                 fec = (v.get("fecha") or "")[:10]
                 if fecha_filtro and fec != fecha_filtro:
                     continue
-                if fecha_desde and fec and fec < fecha_desde:
-                    continue
-                if fecha_hasta and fec and fec > fecha_hasta:
-                    continue
 
                 nom = self.clientes_repo.normalizar_nombre_cliente(v.get("cliente"))
+                monto = float(v.get("total") or 0.0)
+                fac = str(v.get("factura_no") or "").strip()
+                total_ventas += monto
+
                 if nom not in clientes_map:
                     clientes_map[nom] = {
                         "id_cliente": None,
                         "nombre": nom,
                         "telefono": "",
-                        "direccion": "",
                         "total_facturado": 0.0,
                         "total_abonado": 0.0,
                         "saldo_pendiente": 0.0,
@@ -247,26 +193,38 @@ class CarteraRepository:
                         "ultima_fecha_venta": "",
                         "estado": "AL_DIA"
                     }
-                
-                c_obj = clientes_map[nom]
-                monto = float(v.get("total") or 0.0)
-                fac = str(v.get("factura_no") or "").strip()
 
+                c_obj = clientes_map[nom]
                 c_obj["total_facturado"] += monto
                 if fac:
                     c_obj["facturas_set"].add(fac)
                 if fec and (not c_obj["ultima_fecha_venta"] or fec > c_obj["ultima_fecha_venta"]):
                     c_obj["ultima_fecha_venta"] = fec
 
-            # Procesar pagos
+            # ─── 5. Agregar pagos ────────────────────────────────────────────
+            total_recaudado = 0.0
+            total_efectivo = 0.0
+            total_transferencias = 0.0
+            pagos_por_cliente: dict[str, float] = {}
+
             for p in pagos_data:
+                monto = float(p.get("monto_total") or 0.0)
+                metodo = str(p.get("metodo_pago") or "EFECTIVO").upper()
                 nom = self.clientes_repo.normalizar_nombre_cliente(p.get("nombre_cliente"))
+
+                total_recaudado += monto
+                if "TRANSFERENCIA" in metodo:
+                    total_transferencias += monto
+                else:
+                    total_efectivo += monto
+
+                pagos_por_cliente[nom] = pagos_por_cliente.get(nom, 0.0) + monto
+
                 if nom not in clientes_map:
                     clientes_map[nom] = {
                         "id_cliente": p.get("id_cliente"),
                         "nombre": nom,
                         "telefono": "",
-                        "direccion": "",
                         "total_facturado": 0.0,
                         "total_abonado": 0.0,
                         "saldo_pendiente": 0.0,
@@ -275,11 +233,25 @@ class CarteraRepository:
                         "ultima_fecha_venta": "",
                         "estado": "AL_DIA"
                     }
-                clientes_map[nom]["total_abonado"] += float(p.get("monto_total") or 0.0)
+                clientes_map[nom]["total_abonado"] += monto
 
-            # Calcular saldos y filtros
-            resultado = []
+            # ─── 6. KPIs globales ────────────────────────────────────────────
+            clientes_con_deuda = sum(
+                1 for nom, c in clientes_map.items()
+                if (c["total_facturado"] - pagos_por_cliente.get(nom, 0.0)) > 1.0
+            )
+            kpis = {
+                "total_ventas": round(total_ventas, 2),
+                "total_recaudado": round(total_recaudado, 2),
+                "total_efectivo": round(total_efectivo, 2),
+                "total_transferencias": round(total_transferencias, 2),
+                "total_saldo_pendiente": round(max(0.0, total_ventas - total_recaudado), 2),
+                "clientes_con_deuda": clientes_con_deuda
+            }
+
+            # ─── 7. Construir lista de clientes con filtros ─────────────────
             s_upper = search.strip().upper()
+            resultado = []
 
             for nom, c_obj in clientes_map.items():
                 facturas_list = list(c_obj.pop("facturas_set", set()))
@@ -287,22 +259,24 @@ class CarteraRepository:
                 c_obj["cantidad_facturas"] = len(facturas_list)
                 c_obj["total_facturado"] = round(c_obj["total_facturado"], 2)
                 c_obj["total_abonado"] = round(c_obj["total_abonado"], 2)
-                c_obj["saldo_pendiente"] = round(max(0.0, c_obj["total_facturado"] - c_obj["total_abonado"]), 2)
+                c_obj["saldo_pendiente"] = round(
+                    max(0.0, c_obj["total_facturado"] - c_obj["total_abonado"]), 2
+                )
                 c_obj["estado"] = "CON_DEUDA" if c_obj["saldo_pendiente"] > 0.01 else "AL_DIA"
 
-                # Si filtramos por fecha y no tuvo movimientos en el rango, omitir
-                if (fecha_desde or fecha_hasta) and c_obj["total_facturado"] == 0 and c_obj["total_abonado"] == 0:
+                # Con filtro de fecha: omitir clientes sin movimientos
+                if fecha_filtro and c_obj["total_facturado"] == 0 and c_obj["total_abonado"] == 0:
                     continue
 
-                # Búsqueda inteligente: Nombre de Cliente, Teléfono o Número de Factura
+                # Búsqueda: nombre, teléfono o número de factura
                 if s_upper:
                     coincide_nombre = s_upper in nom
-                    coincide_tel = s_upper in c_obj["telefono"].upper()
+                    coincide_tel = s_upper in c_obj.get("telefono", "").upper()
                     coincide_fac = any(s_upper in str(f).upper() for f in facturas_list)
                     if not (coincide_nombre or coincide_tel or coincide_fac):
                         continue
 
-                # Filtrar estado
+                # Filtrar por estado
                 if filtro_saldo == "CON_DEUDA" and c_obj["estado"] != "CON_DEUDA":
                     continue
                 if filtro_saldo == "AL_DIA" and c_obj["estado"] != "AL_DIA":
@@ -310,13 +284,36 @@ class CarteraRepository:
 
                 resultado.append(c_obj)
 
-            # Ordenar: primero los que tienen mayor saldo pendiente
-            resultado.sort(key=lambda x: (x["saldo_pendiente"], x["total_facturado"]), reverse=True)
-            return resultado
+            resultado.sort(
+                key=lambda x: (x["saldo_pendiente"], x["total_facturado"]),
+                reverse=True
+            )
+            return kpis, resultado
 
         except Exception as ex:
-            log_error("get_estado_cuenta_clientes", ex)
-            return []
+            log_error("get_resumen_cartera", ex)
+            return kpis_fallback, []
+
+    def get_cartera_kpis(self) -> dict:
+        """Retorna solo los KPIs globales. Usa get_resumen_cartera internamente."""
+        kpis, _ = self.get_resumen_cartera()
+        return kpis
+
+    def get_estado_cuenta_clientes(
+        self,
+        search: str = "",
+        filtro_saldo: str = "TODOS",
+        fecha_filtro: str = "",
+        fecha_desde: str = "",
+        fecha_hasta: str = ""
+    ) -> list[dict]:
+        """Compatibilidad hacia atrás — usa get_resumen_cartera internamente."""
+        _, clientes = self.get_resumen_cartera(
+            search=search,
+            filtro_saldo=filtro_saldo,
+            fecha_filtro=fecha_filtro
+        )
+        return clientes
 
     def get_facturas_cliente(self, nombre_cliente: str) -> list[dict]:
         """

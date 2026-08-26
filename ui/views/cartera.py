@@ -32,9 +32,10 @@ class CarteraView(ft.Container):
         self.cuotas_cliente = []
         self.filtro_saldo_actual = "TODOS"
         self.busqueda_actual = ""
-        self.fecha_desde = ""
-        self.fecha_hasta = ""
+        self.fecha_filtro = ""
         self.tab_activo = 0
+        self._is_loading = False
+        self._is_loading_subdatos = False
 
         # UI Components
         self._init_ui()
@@ -90,7 +91,6 @@ class CarteraView(ft.Container):
         )
 
         # Filtro por fecha única con DatePicker
-        self.fecha_filtro = ""
         self.lbl_fecha_filtro = ft.Text("Filtrar por fecha", size=10.5, color="grey700", weight="w500")
 
         self.date_picker = ft.DatePicker(
@@ -157,13 +157,35 @@ class CarteraView(ft.Container):
             border=ft.border.all(1, Config.COLOR_BORDER)
         )
 
+        # Botones de Acción del Cliente (visibles solo cuando hay cliente seleccionado)
+        self.btn_pagar_global = ft.ElevatedButton(
+            text="Registrar Pago",
+            icon=ft.icons.PAYMENTS_ROUNDED,
+            bgcolor=Config.COLOR_SUCCESS,
+            color="white",
+            height=34,
+            visible=False,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=lambda e: self._abrir_modal_pago(self.cliente_seleccionado)
+        )
+        self.btn_cuotas_global = ft.OutlinedButton(
+            text="Plan de Cuotas",
+            icon=ft.icons.EVENT_NOTE_ROUNDED,
+            height=34,
+            visible=False,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=lambda e: self._abrir_modal_cuotas(self.cliente_seleccionado)
+        )
+
         # 4. Ensamble Principal
         self.content = ft.Column([
             ft.Row([
                 ft.Column([self.lbl_titulo, self.lbl_subtitulo], spacing=2),
                 ft.Container(expand=True),
+                self.btn_cuotas_global,
+                self.btn_pagar_global,
                 self.btn_refrescar
-            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
             self.kpis_row,
             ft.Row([
                 self.col_izquierda,
@@ -210,8 +232,24 @@ class CarteraView(ft.Container):
             expand=True
         )
 
+    def _crear_loading_indicador(self, mensaje: str = "Cargando datos...") -> ft.Container:
+        return ft.Container(
+            content=ft.Column([
+                ft.ProgressRing(width=28, height=28, stroke_width=2.5, color=Config.COLOR_PRIMARY),
+                ft.Text(mensaje, size=11, color=Config.COLOR_TEXT_MUTED)
+            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+            alignment=ft.alignment.center,
+            expand=True,
+            padding=25
+        )
+
     def did_mount(self):
-        self.load_data()
+        # Registrar DatePicker en overlay de la página al montarse
+        if self.page and self.date_picker not in self.page.overlay:
+            self.page.overlay.append(self.date_picker)
+        # Iniciar carga solo si no se ha cargado
+        if not self.clientes_lista and not self._is_loading:
+            self.load_data()
 
     def safe_update(self):
         try:
@@ -221,22 +259,23 @@ class CarteraView(ft.Container):
             pass
 
     def load_data(self):
-        """Carga en segundo plano los KPIs y la lista de clientes."""
+        """Carga en segundo plano los KPIs y la lista de clientes con protección contra concurrencia."""
+        if self._is_loading:
+            return
+        self._is_loading = True
+
         def worker():
             try:
-                # 1. Cargar KPIs
-                kpis = self.cartera_repo.get_cartera_kpis()
-                self.kpis_data = kpis
-
-                # 2. Cargar clientes con filtros
-                clientes = self.cartera_repo.get_estado_cuenta_clientes(
+                # Una sola llamada que descarga ventas una vez y calcula KPIs + lista
+                kpis, clientes = self.cartera_repo.get_resumen_cartera(
                     search=self.busqueda_actual,
                     filtro_saldo=self.filtro_saldo_actual,
                     fecha_filtro=self.fecha_filtro
                 )
+                self.kpis_data = kpis
                 self.clientes_lista = clientes
 
-                # 3. Actualizar UI
+                # Actualizar UI
                 self._actualizar_kpis_ui()
                 self._render_lista_clientes()
 
@@ -250,6 +289,8 @@ class CarteraView(ft.Container):
                 self.safe_update()
             except Exception as ex:
                 log_error("CarteraView.load_data", ex)
+            finally:
+                self._is_loading = False
 
         import threading
         threading.Thread(target=worker, daemon=True).start()
@@ -334,8 +375,6 @@ class CarteraView(ft.Container):
 
     def _abrir_date_picker(self, e):
         if self.page:
-            if self.date_picker not in self.page.overlay:
-                self.page.overlay.append(self.date_picker)
             self.date_picker.open = True
             self.page.update()
 
@@ -359,7 +398,7 @@ class CarteraView(ft.Container):
         self.cliente_seleccionado = cli
         self._render_lista_clientes()
         self._cargar_detalle_cliente(cli, recargar_datos=True)
-        self.safe_update()
+        # NO llamar safe_update aquí — _cargar_detalle_cliente ya lo hace
 
     def _cargar_detalle_cliente(self, cli: dict, recargar_datos: bool = True):
         nom = cli.get("nombre", "")
@@ -367,62 +406,42 @@ class CarteraView(ft.Container):
         tot_fac = cli.get("total_facturado", 0.0)
         tot_ab = cli.get("total_abonado", 0.0)
 
-        # Botones de Acción limpios (un solo icono por botón, texto sin emojis)
-        btn_pagar = ft.ElevatedButton(
-            text="Registrar Pago",
-            icon=ft.icons.PAYMENTS_ROUNDED,
-            bgcolor=Config.COLOR_SUCCESS,
-            color="white",
-            height=32,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
-            on_click=lambda e: self._abrir_modal_pago(cli)
-        )
+        # Mostrar botones de acción en el top bar
+        self.btn_pagar_global.visible = True
+        self.btn_cuotas_global.visible = True
 
-        btn_cuotas = ft.OutlinedButton(
-            text="Plan de Cuotas",
-            icon=ft.icons.EVENT_NOTE_ROUNDED,
-            height=32,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
-            on_click=lambda e: self._abrir_modal_cuotas(cli)
-        )
-
-        # Header Limpio sin superposiciones
+        # Header informativo del cliente (solo datos, sin botones)
         header_cliente = ft.Container(
             content=ft.Row([
-                # Bloque Izquierdo: Icono + Nombre + Subtotales
-                ft.Row([
-                    ft.Container(
-                        content=ft.Icon(ft.icons.PERSON_ROUNDED, color=Config.COLOR_PRIMARY, size=24),
-                        bgcolor="#e0e7ff",
-                        padding=8,
-                        border_radius=8
-                    ),
-                    ft.Column([
-                        ft.Row([
-                            ft.Text(nom, size=14, weight="bold", color=Config.COLOR_PRIMARY, overflow=ft.TextOverflow.ELLIPSIS),
-                            ft.Container(
-                                content=ft.Text(f"Saldo: ${saldo:,.0f}", size=10, weight="bold", color="white"),
-                                bgcolor="#DC2626" if saldo > 0.01 else "#16A34A",
-                                padding=ft.padding.symmetric(horizontal=6, vertical=2),
-                                border_radius=6
-                            )
-                        ], spacing=6, alignment=ft.MainAxisAlignment.START),
-                        ft.Row([
-                            ft.Text(f"Facturado: ${tot_fac:,.0f}", size=10.5, color=Config.COLOR_TEXT_MUTED),
-                            ft.Text(f"• Abonado: ${tot_ab:,.0f}", size=10.5, color=Config.COLOR_SUCCESS, weight="w500"),
-                            ft.Text(f"• Pendiente: ${saldo:,.0f}", size=10.5, color="#DC2626" if saldo > 0.01 else Config.COLOR_TEXT_MUTED, weight="bold")
-                        ], spacing=6, wrap=True)
-                    ], spacing=2)
-                ], spacing=8, expand=True),
-                # Bloque Derecho: Botones
-                ft.Row([btn_cuotas, btn_pagar], spacing=6)
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Container(
+                    content=ft.Icon(ft.icons.PERSON_ROUNDED, color=Config.COLOR_PRIMARY, size=22),
+                    bgcolor="#e0e7ff",
+                    padding=7,
+                    border_radius=8
+                ),
+                ft.Column([
+                    ft.Row([
+                        ft.Text(nom, size=14, weight="bold", color=Config.COLOR_PRIMARY, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
+                        ft.Container(
+                            content=ft.Text(f"Saldo: ${saldo:,.0f}", size=10, weight="bold", color="white"),
+                            bgcolor="#DC2626" if saldo > 0.01 else "#16A34A",
+                            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=6
+                        )
+                    ], spacing=8),
+                    ft.Row([
+                        ft.Text(f"Facturado: ${tot_fac:,.0f}", size=10, color=Config.COLOR_TEXT_MUTED),
+                        ft.Text(f"• Abonado: ${tot_ab:,.0f}", size=10, color=Config.COLOR_SUCCESS, weight="w500"),
+                        ft.Text(f"• Pendiente: ${saldo:,.0f}", size=10, color="#DC2626" if saldo > 0.01 else "grey600", weight="bold")
+                    ], spacing=6)
+                ], spacing=2, expand=True)
+            ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             padding=ft.padding.symmetric(horizontal=12, vertical=8),
             bgcolor=Config.COLOR_MUTED,
             border_radius=8
         )
 
-        # Tab Bar Compacto (Sin expand=True para evitar márgenes gigantes)
+        # Tab Bar Compacto
         self.tabs_detalle = ft.Tabs(
             selected_index=self.tab_activo,
             animation_duration=150,
@@ -435,7 +454,11 @@ class CarteraView(ft.Container):
             on_change=self._on_tab_change
         )
 
-        self.tab_content_container = ft.Container(expand=True, padding=ft.padding.only(top=4))
+        self.tab_content_container = ft.Container(
+            content=self._crear_loading_indicador(f"Cargando información de {nom}...") if recargar_datos else None,
+            expand=True,
+            padding=ft.padding.only(top=4)
+        )
 
         self.panel_derecho_contenido.content = ft.Column([
             header_cliente,
@@ -443,10 +466,14 @@ class CarteraView(ft.Container):
             self.tab_content_container
         ], expand=True, spacing=6)
 
+        # Actualizar pantalla INMEDIATAMENTE para que aparezca el panel del cliente
+        self.safe_update()
+
         if recargar_datos:
             self._recargar_subdatos_cliente(nom, saldo)
         else:
             self._render_tab_activo()
+            self.safe_update()
 
     def _on_tab_change(self, e):
         self.tab_activo = e.control.selected_index
@@ -454,20 +481,31 @@ class CarteraView(ft.Container):
         self.safe_update()
 
     def _recargar_subdatos_cliente(self, nombre_cliente: str, saldo_actual: float = 0.0):
+        self._is_loading_subdatos = True
+        self.tab_content_container.content = self._crear_loading_indicador(f"Cargando facturas y pagos de {nombre_cliente}...")
+        self.safe_update()
+
         def worker():
             try:
                 self.facturas_cliente = self.cartera_repo.get_facturas_cliente(nombre_cliente)
                 self.historial_pagos = self.cartera_repo.get_historial_pagos_cliente(nombre_cliente)
                 self.cuotas_cliente = self.cartera_repo.get_cuotas_cliente(nombre_cliente, saldo_actual_cliente=saldo_actual)
-                self._render_tab_activo()
-                self.safe_update()
             except Exception as ex:
                 log_error("CarteraView._recargar_subdatos_cliente", ex)
+            finally:
+                self._is_loading_subdatos = False
+                self._render_tab_activo()
+                self.safe_update()
 
         import threading
         threading.Thread(target=worker, daemon=True).start()
 
     def _render_tab_activo(self):
+        if self._is_loading_subdatos:
+            nom = self.cliente_seleccionado.get("nombre", "") if self.cliente_seleccionado else ""
+            self.tab_content_container.content = self._crear_loading_indicador(f"Cargando datos de {nom}...")
+            return
+
         if self.tab_activo == 0:
             self._render_tab_facturas()
         elif self.tab_activo == 1:
