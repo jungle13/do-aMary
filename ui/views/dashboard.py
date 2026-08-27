@@ -423,25 +423,36 @@ class DashboardView(ft.Container):
             ft.Container(height=30)
         ], scroll=ft.ScrollMode.AUTO, expand=True)
 
-        # ── TAB 2: Resumen Financiero por Día ────────────────────────────────
-        self.dias_grid = ft.ResponsiveRow(columns=12, spacing=14, run_spacing=14)
+        # ── TAB 2: Resumen Financiero por Día (Agrupado por Semanas) ─────────
+        self.semanas_col = ft.Column(spacing=14)
+        self._semanas_bodies: list[tuple[ft.Container, ft.Icon]] = []
         self._dias_cargados = False
 
         self._tab2_loading = ft.Row(
             [ft.ProgressRing(width=28, height=28, color=Config.COLOR_PRIMARY),
-             ft.Text("Cargando resumen diario...", size=13, color="grey600")],
+             ft.Text("Cargando resumen diario por semanas...", size=13, color="grey600")],
             alignment=ft.MainAxisAlignment.CENTER,
             visible=False
+        )
+
+        self.btn_toggle_all = ft.OutlinedButton(
+            text="Contraer Todas",
+            icon=ft.icons.UNFOLD_LESS_ROUNDED,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=8),
+                padding=ft.padding.symmetric(horizontal=12, vertical=6)
+            ),
+            on_click=self._toggle_todas_semanas
         )
 
         self.tab2_content = ft.Column([
             ft.Container(
                 content=ft.Row([
                     ft.Icon(ft.icons.CALENDAR_MONTH_ROUNDED, size=20, color=Config.COLOR_PRIMARY),
-                    ft.Text("Matriz Financiera Diaria del Mes", size=16, weight="bold",
+                    ft.Text("Matriz Financiera Diaria por Semanas", size=16, weight="bold",
                             color=Config.COLOR_PRIMARY),
                     ft.Container(expand=True),
-                    ft.Text("Indicadores detallados día a día", size=12, color="grey600"),
+                    self.btn_toggle_all,
                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 bgcolor="white", padding=ft.padding.symmetric(horizontal=16, vertical=12),
                 border_radius=10,
@@ -451,7 +462,7 @@ class DashboardView(ft.Container):
                 margin=ft.padding.only(bottom=8)
             ),
             self._tab2_loading,
-            self.dias_grid,
+            self.semanas_col,
             ft.Container(height=40)
         ], scroll=ft.ScrollMode.AUTO, expand=True)
 
@@ -892,7 +903,28 @@ class DashboardView(ft.Container):
             self.progress_bar.visible = False
             self.safe_update()
 
-    # ─── TAB 2: Carga y Renderizado del Resumen por Día ────────────────────────
+    # ─── TAB 2: Carga y Renderizado del Resumen por Día Agrupado por Semanas ──
+
+    def _toggle_todas_semanas(self, e):
+        """Contrae o despliega todas las semanas simultáneamente."""
+        cualquiera_visible = any(body.visible for body, _ in self._semanas_bodies)
+        nuevo_estado = not cualquiera_visible
+
+        for body, icon in self._semanas_bodies:
+            body.visible = nuevo_estado
+            icon.name = (
+                ft.icons.KEYBOARD_ARROW_UP_ROUNDED
+                if nuevo_estado
+                else ft.icons.KEYBOARD_ARROW_DOWN_ROUNDED
+            )
+
+        self.btn_toggle_all.text = "Contraer Todas" if nuevo_estado else "Desplegar Todas"
+        self.btn_toggle_all.icon = (
+            ft.icons.UNFOLD_LESS_ROUNDED
+            if nuevo_estado
+            else ft.icons.UNFOLD_MORE_ROUNDED
+        )
+        self.safe_update()
 
     def _render_dias_grid(
         self,
@@ -901,36 +933,195 @@ class DashboardView(ft.Container):
         meta_diaria: float,
         costo_inv_global: float,
     ) -> None:
-        """Construye y agrega las tarjetas de cada día del mes a la cuadrícula."""
+        """Construye y agrupa por semanas las tarjetas de cada día del mes."""
         try:
+            self.semanas_col.controls.clear()
+            self._semanas_bodies.clear()
+
             dias_en_mes = calendar.monthrange(hoy_obj.year, hoy_obj.month)[1]
             dias_semana = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-            cards = []
-            for num_dia in range(1, dias_en_mes + 1):
-                fecha_obj = datetime.date(hoy_obj.year, hoy_obj.month, num_dia)
-                dia_key = fecha_obj.strftime("%Y-%m-%d")
-                datos_dia = detalle_mes.get(dia_key, {})
-                nombre_dia = dias_semana[fecha_obj.weekday()]
-                es_futuro = fecha_obj > hoy_obj
 
-                card = self._build_card_dia_resumen(
-                    fecha_obj=fecha_obj,
-                    nombre_dia=nombre_dia,
-                    datos=datos_dia,
-                    meta_diaria=meta_diaria,
-                    costo_inv_global=costo_inv_global,
-                    es_futuro=es_futuro,
-                )
-                cards.append(
-                    ft.Container(content=card, col={"xs": 12, "sm": 12, "md": 6, "lg": 6})
-                )
+            # Generar semanas (Semana 1 a Semana 4 o 5 según días del mes)
+            semanas_info = []
+            dia_inicio = 1
+            num_sem = 1
+            while dia_inicio <= dias_en_mes:
+                dia_fin = min(dia_inicio + 6, dias_en_mes)
+                semanas_info.append((f"Semana {num_sem}", dia_inicio, dia_fin))
+                dia_inicio = dia_fin + 1
+                num_sem += 1
 
-            self.dias_grid.controls = cards
+            for titulo_sem, ini_dia, fin_dia in semanas_info:
+                cards_semana = []
+                tot_v_sem = 0.0
+                tot_c_sem = 0.0
+                tot_r_sem = 0.0
+
+                for num_dia in range(ini_dia, fin_dia + 1):
+                    fecha_obj = datetime.date(hoy_obj.year, hoy_obj.month, num_dia)
+                    dia_key = fecha_obj.strftime("%Y-%m-%d")
+                    datos_dia = detalle_mes.get(dia_key, {})
+                    nombre_dia = dias_semana[fecha_obj.weekday()]
+                    es_futuro = fecha_obj > hoy_obj
+
+                    tot_v_sem += float(datos_dia.get("ventas_total") or 0.0)
+                    tot_c_sem += float(datos_dia.get("compras") or 0.0)
+                    tot_r_sem += float(datos_dia.get("recaudado") or 0.0)
+
+                    card = self._build_card_dia_resumen(
+                        fecha_obj=fecha_obj,
+                        nombre_dia=nombre_dia,
+                        datos=datos_dia,
+                        meta_diaria=meta_diaria,
+                        costo_inv_global=costo_inv_global,
+                        es_futuro=es_futuro,
+                    )
+                    # 3 columnas en pantallas grandes (lg: 4), 2 en medianas (md: 6), 1 en pequeñas (sm: 12)
+                    cards_semana.append(
+                        ft.Container(content=card, col={"xs": 12, "sm": 12, "md": 6, "lg": 4})
+                    )
+
+                seccion = self._crear_seccion_semana(
+                    titulo_semana=titulo_sem,
+                    dia_ini=ini_dia,
+                    dia_fin=fin_dia,
+                    cards_dias=cards_semana,
+                    tot_ventas=tot_v_sem,
+                    tot_compras=tot_c_sem,
+                    tot_recaudado=tot_r_sem,
+                    fecha_base=hoy_obj,
+                    abierta_por_defecto=True,
+                )
+                self.semanas_col.controls.append(seccion)
+
+            self.btn_toggle_all.text = "Contraer Todas"
+            self.btn_toggle_all.icon = ft.icons.UNFOLD_LESS_ROUNDED
             self._dias_cargados = True
             self._tab2_loading.visible = False
         except Exception as ex:
             import traceback
             traceback.print_exc()
+
+    def _crear_seccion_semana(
+        self,
+        titulo_semana: str,
+        dia_ini: int,
+        dia_fin: int,
+        cards_dias: list,
+        tot_ventas: float,
+        tot_compras: float,
+        tot_recaudado: float,
+        fecha_base: datetime.date,
+        abierta_por_defecto: bool = True
+    ) -> ft.Container:
+        """Crea un módulo colapsable (acordeón) para una semana con su resumen financiero."""
+        meses_abr = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+        mes_nom = meses_abr[fecha_base.month - 1]
+        rango_txt = f"{dia_ini:02d} {mes_nom} - {dia_fin:02d} {mes_nom}"
+
+        grid_dias = ft.ResponsiveRow(controls=cards_dias, columns=12, spacing=14, run_spacing=14)
+        body_container = ft.Container(
+            content=grid_dias,
+            visible=abierta_por_defecto,
+            padding=ft.padding.only(top=10, bottom=6)
+        )
+
+        arrow_icon = ft.Icon(
+            ft.icons.KEYBOARD_ARROW_UP_ROUNDED if abierta_por_defecto else ft.icons.KEYBOARD_ARROW_DOWN_ROUNDED,
+            size=22,
+            color=Config.COLOR_PRIMARY
+        )
+
+        self._semanas_bodies.append((body_container, arrow_icon))
+
+        def _toggle(e):
+            body_container.visible = not body_container.visible
+            arrow_icon.name = (
+                ft.icons.KEYBOARD_ARROW_UP_ROUNDED
+                if body_container.visible
+                else ft.icons.KEYBOARD_ARROW_DOWN_ROUNDED
+            )
+            cualquiera_visible = any(b.visible for b, _ in self._semanas_bodies)
+            self.btn_toggle_all.text = "Contraer Todas" if cualquiera_visible else "Desplegar Todas"
+            self.btn_toggle_all.icon = (
+                ft.icons.UNFOLD_LESS_ROUNDED
+                if cualquiera_visible
+                else ft.icons.UNFOLD_MORE_ROUNDED
+            )
+            self.safe_update()
+
+        resumen_chips = [
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.TRENDING_UP_ROUNDED, size=13, color="teal800"),
+                    ft.Text(f"Ventas: ${tot_ventas:,.0f}", size=11, weight="bold", color="teal800"),
+                ], spacing=4),
+                bgcolor="#f0fdf4", padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                border_radius=6, border=ft.border.all(1, "#bbf7d0")
+            ),
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.SHOPPING_CART_ROUNDED, size=13, color="purple800"),
+                    ft.Text(f"Compras: ${tot_compras:,.0f}", size=11, weight="bold", color="purple800"),
+                ], spacing=4),
+                bgcolor="#faf5ff", padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                border_radius=6, border=ft.border.all(1, "#e9d5ff")
+            ),
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.SAVINGS_ROUNDED, size=13, color="green800"),
+                    ft.Text(f"Recaudado: ${tot_recaudado:,.0f}", size=11, weight="bold", color="green800"),
+                ], spacing=4),
+                bgcolor="#ecfdf5", padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                border_radius=6, border=ft.border.all(1, "#a7f3d0")
+            ),
+        ]
+
+        header = ft.Container(
+            content=ft.Row([
+                # Izquierda: Título y rango de fechas
+                ft.Row([
+                    ft.Container(
+                        content=ft.Icon(ft.icons.CALENDAR_VIEW_WEEK_ROUNDED, size=18, color=Config.COLOR_PRIMARY),
+                        bgcolor=ft.colors.with_opacity(0.1, Config.COLOR_PRIMARY),
+                        padding=6,
+                        border_radius=6
+                    ),
+                    ft.Text(titulo_semana, size=14, weight="bold", color=Config.COLOR_PRIMARY),
+                    ft.Container(
+                        content=ft.Text(rango_txt, size=11, weight="w600", color="grey700"),
+                        bgcolor="#f1f5f9",
+                        padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                        border_radius=12,
+                        border=ft.border.all(1, "#e2e8f0")
+                    ),
+                ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                
+                # Centro: Chips de resumen financiero semanal
+                ft.Row(resumen_chips, spacing=6, wrap=True),
+                
+                # Derecha: Conteo de días e ícono de acordeón
+                ft.Row([
+                    ft.Text(f"{len(cards_dias)} días", size=11, color="grey600", weight="w500"),
+                    arrow_icon
+                ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor="#ffffff",
+            padding=ft.padding.symmetric(horizontal=14, vertical=10),
+            border_radius=10,
+            border=ft.border.all(1, "#e2e8f0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=3, color=ft.colors.with_opacity(0.03, "black")),
+            on_click=_toggle,
+            ink=True,
+        )
+
+        return ft.Container(
+            content=ft.Column([
+                header,
+                body_container
+            ], spacing=0),
+            margin=ft.padding.only(bottom=4)
+        )
 
     def _fetch_dias_worker(self) -> None:
         """
