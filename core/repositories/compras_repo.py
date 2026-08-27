@@ -376,3 +376,178 @@ class ComprasRepository:
         except Exception as ex:
             log_error(f"eliminar_compra_individual({id_compra})", ex)
             return False
+
+    def get_compras_documentos(
+        self,
+        page: int = 1,
+        page_size: int = 15,
+        search: str = "",
+        fecha_corte: str | None = None,
+        proveedor_filtro: str | None = None,
+        tipo_doc_filtro: str | None = None,
+    ) -> tuple[list, int]:
+        """
+        Obtiene las compras agrupadas a nivel de documento (Factura / Remisión / Entrada),
+        con totales de insumos, costo total e IVA total.
+        """
+        try:
+            filtros = ["estado_registro=neq.ANULADO"]
+            if fecha_corte and fecha_corte.strip():
+                filtros.append(f"fecha=lte.{fecha_corte.strip()}T23:59:59")
+            if proveedor_filtro and proveedor_filtro != "TODOS":
+                prov_q = urllib.parse.quote(str(proveedor_filtro).strip())
+                filtros.append(f"proveedor=eq.{prov_q}")
+
+            query_filtros = "&" + "&".join(filtros)
+            endpoint = (
+                f"registro_compras?select=id_compra,fecha,numero_entrada,numero_factura,"
+                f"proveedor,codigo_insumo,cantidad,costo_unitario,iva,valor_iva,costo_total,"
+                f"estado_registro,catalogo_insumos(nombre)"
+                f"{query_filtros}&order=fecha.desc"
+            )
+
+            raw_compras = self.db.get_all(endpoint, page_size=2000, timeout=15)
+            if not raw_compras:
+                return [], 0
+
+            agrupado = {}
+            for r in raw_compras:
+                ea = str(r.get("numero_entrada") or "").strip()
+                fac = str(r.get("numero_factura") or "").strip()
+                prov = str(r.get("proveedor") or "Varios").strip()
+                fecha_str = str(r.get("fecha") or "")[:10]
+                ref = ea if ea else (fac if fac else "S/N")
+                tipo_doc = "EA" if ea else ("FAC" if fac else "S/D")
+
+                # Filtro por tipo de documento si está activo
+                if tipo_doc_filtro and tipo_doc_filtro != "TODOS":
+                    if tipo_doc_filtro in ("EA", "REMISIÓN", "REMISIÓN (EA)") and tipo_doc != "EA":
+                        continue
+                    if tipo_doc_filtro in ("FAC", "FACTURA", "FACTURA POS (FAC)") and tipo_doc != "FAC":
+                        continue
+
+                key = f"{ref}_{prov}_{fecha_str}"
+                if key not in agrupado:
+                    agrupado[key] = {
+                        "doc_key": key,
+                        "ref": ref,
+                        "tipo_doc": tipo_doc,
+                        "numero_entrada": ea,
+                        "numero_factura": fac,
+                        "proveedor": prov,
+                        "fecha": fecha_str,
+                        "cant_insumos": 0,
+                        "total_unidades": 0.0,
+                        "costo_total": 0.0,
+                        "iva_total": 0.0,
+                        "insumos": [],
+                    }
+
+                cant = float(r.get("cantidad") or 0.0)
+                costo = float(r.get("costo_total") or 0.0)
+                iva = float(r.get("valor_iva") or r.get("iva") or 0.0)
+
+                agrupado[key]["cant_insumos"] += 1
+                agrupado[key]["total_unidades"] += cant
+                agrupado[key]["costo_total"] += costo
+                agrupado[key]["iva_total"] += iva
+                agrupado[key]["insumos"].append(r)
+
+            docs_list = list(agrupado.values())
+
+            # Búsqueda textual sobre los documentos
+            if search and search.strip():
+                s = search.strip().lower()
+                docs_list = [
+                    d for d in docs_list
+                    if s in d["ref"].lower()
+                    or s in d["proveedor"].lower()
+                    or s in d["numero_entrada"].lower()
+                    or s in d["numero_factura"].lower()
+                    or any(s in str(item.get("codigo_insumo") or "").lower() or
+                           s in str(item.get("catalogo_insumos", {}).get("nombre") or "").lower()
+                           for item in d["insumos"])
+                ]
+
+            total_records = len(docs_list)
+            offset = max(0, (page - 1) * page_size)
+            page_items = docs_list[offset:offset + page_size]
+
+            return page_items, total_records
+        except Exception as ex:
+            log_error("get_compras_documentos", ex)
+            return [], 0
+
+    def get_insumos_de_documento(
+        self,
+        numero_entrada: str | None = None,
+        numero_factura: str | None = None,
+        proveedor: str | None = None,
+    ) -> list:
+        """Obtiene todas las líneas de insumos de una entrada o factura."""
+        try:
+            filtros = ["estado_registro=neq.ANULADO"]
+            or_parts = []
+            if numero_entrada and numero_entrada.strip():
+                or_parts.append(f"numero_entrada.eq.{urllib.parse.quote(numero_entrada.strip())}")
+            if numero_factura and numero_factura.strip():
+                or_parts.append(f"numero_factura.eq.{urllib.parse.quote(numero_factura.strip())}")
+
+            if or_parts:
+                filtros.append(f"or=({','.join(or_parts)})")
+
+            if proveedor and proveedor.strip() and proveedor != "TODOS":
+                filtros.append(f"proveedor=eq.{urllib.parse.quote(proveedor.strip())}")
+
+            query_filtros = "&" + "&".join(filtros)
+            endpoint = (
+                f"registro_compras?select=id_compra,fecha,numero_entrada,numero_factura,"
+                f"proveedor,codigo_insumo,cantidad,costo_unitario,iva,valor_iva,costo_total,"
+                f"estado_registro,catalogo_insumos(nombre,tipo_unidad)"
+                f"{query_filtros}&order=fecha.desc"
+            )
+
+            res = self.db.get_all(endpoint, timeout=12)
+            return res or []
+        except Exception as ex:
+            log_error("get_insumos_de_documento", ex)
+            return []
+
+    def eliminar_documento_compras_completo(
+        self,
+        numero_entrada: str | None = None,
+        numero_factura: str | None = None,
+        proveedor: str | None = None,
+    ) -> bool:
+        """Elimina todos los registros de compra pertenecientes a un documento."""
+        try:
+            insumos = self.get_insumos_de_documento(numero_entrada, numero_factura, proveedor)
+            if not insumos:
+                return True
+
+            or_parts = []
+            if numero_entrada and numero_entrada.strip():
+                or_parts.append(f"numero_entrada.eq.{urllib.parse.quote(numero_entrada.strip())}")
+            if numero_factura and numero_factura.strip():
+                or_parts.append(f"numero_factura.eq.{urllib.parse.quote(numero_factura.strip())}")
+
+            if not or_parts:
+                return False
+
+            filtros = [f"or=({','.join(or_parts)})"]
+            if proveedor and proveedor.strip() and proveedor != "TODOS":
+                filtros.append(f"proveedor=eq.{urllib.parse.quote(proveedor.strip())}")
+
+            endpoint = f"registro_compras?{'&'.join(filtros)}"
+            res = self.db.delete(endpoint, timeout=12)
+
+            ref_doc = numero_entrada or numero_factura or "S/N"
+            registrar_accion(
+                accion=f"Eliminación de documento de compra completo: {ref_doc} ({len(insumos)} insumos)",
+                modulo="COMPRAS",
+                detalles={"documento": ref_doc, "proveedor": proveedor, "cantidad_insumos": len(insumos)}
+            )
+            return bool(res and res.status_code in (200, 204))
+        except Exception as ex:
+            log_error("eliminar_documento_compras_completo", ex)
+            return False

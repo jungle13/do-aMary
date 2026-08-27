@@ -547,3 +547,162 @@ class VentasRepository:
         except Exception as ex:
             log_error(f"get_codigos_factura_especifica({tipo}, {ref})", ex)
         return []
+
+    def get_ventas_documentos(
+        self,
+        page: int = 1,
+        page_size: int = 15,
+        search: str = "",
+        fecha_corte: str | None = None,
+        tipo_documento_filtro: str | None = None,
+    ) -> tuple[list, int]:
+        """
+        Obtiene las ventas agrupadas a nivel de documento (Factura POS / Remisión),
+        con totales de insumos, cantidad de unidades, subtotal, IVA y total de venta.
+        """
+        try:
+            filtros = ["estado_registro=neq.ANULADO"]
+            if fecha_corte and fecha_corte.strip():
+                filtros.append(f"fecha=lte.{fecha_corte.strip()}T23:59:59")
+            if tipo_documento_filtro and tipo_documento_filtro != "TODOS":
+                td_enc = urllib.parse.quote(str(tipo_documento_filtro).strip())
+                filtros.append(f"tipo_documento=eq.{td_enc}")
+
+            query_filtros = "&" + "&".join(filtros)
+            endpoint = (
+                f"registro_ventas?select=id_venta,fecha,factura_no,tipo_documento,"
+                f"codigo_insumo,descripcion,cantidad,subtotal,descuento,iva,total,"
+                f"estado_registro,catalogo_insumos(nombre,categoria,tipo_unidad)"
+                f"{query_filtros}&order=fecha.desc,factura_no.desc"
+            )
+
+            raw_ventas = self.db.get_all(endpoint, page_size=2000, timeout=15)
+            if not raw_ventas:
+                return [], 0
+
+            agrupado = {}
+            for r in raw_ventas:
+                fac = str(r.get("factura_no") or "").strip()
+                tipo_doc = str(r.get("tipo_documento") or "Factura POS").strip()
+                fecha_str = str(r.get("fecha") or "")[:10]
+                ref = fac if fac else "S/N"
+
+                key = f"{ref}_{fecha_str}_{tipo_doc}"
+                if key not in agrupado:
+                    agrupado[key] = {
+                        "doc_key": key,
+                        "ref": ref,
+                        "factura_no": fac,
+                        "tipo_documento": tipo_doc,
+                        "fecha": fecha_str,
+                        "cant_insumos": 0,
+                        "total_unidades": 0.0,
+                        "subtotal_total": 0.0,
+                        "descuento_total": 0.0,
+                        "iva_total": 0.0,
+                        "total_venta": 0.0,
+                        "insumos": [],
+                    }
+
+                cant = float(r.get("cantidad") or 0.0)
+                subt = float(r.get("subtotal") or 0.0)
+                desc = float(r.get("descuento") or 0.0)
+                iva = float(r.get("iva") or 0.0)
+                tot = float(r.get("total") or 0.0)
+
+                agrupado[key]["cant_insumos"] += 1
+                agrupado[key]["total_unidades"] += cant
+                agrupado[key]["subtotal_total"] += subt
+                agrupado[key]["descuento_total"] += desc
+                agrupado[key]["iva_total"] += iva
+                agrupado[key]["total_venta"] += tot
+                agrupado[key]["insumos"].append(r)
+
+            docs_list = list(agrupado.values())
+
+            # Búsqueda textual sobre los documentos
+            if search and search.strip():
+                s = search.strip().lower()
+                docs_list = [
+                    d for d in docs_list
+                    if s in d["ref"].lower()
+                    or s in d["tipo_documento"].lower()
+                    or s in d["factura_no"].lower()
+                    or any(
+                        s in str(item.get("codigo_insumo") or "").lower()
+                        or s in str(item.get("catalogo_insumos", {}).get("nombre") or item.get("descripcion") or "").lower()
+                        for item in d["insumos"]
+                    )
+                ]
+
+            total_records = len(docs_list)
+            offset = max(0, (page - 1) * page_size)
+            page_items = docs_list[offset:offset + page_size]
+
+            return page_items, total_records
+        except Exception as ex:
+            log_error("get_ventas_documentos", ex)
+            return [], 0
+
+    def get_insumos_de_factura_venta(
+        self,
+        factura_no: str | None = None,
+        tipo_documento: str | None = None,
+    ) -> list:
+        """Obtiene todas las líneas de insumos de una factura de venta o remisión."""
+        try:
+            filtros = ["estado_registro=neq.ANULADO"]
+            if factura_no and factura_no.strip():
+                fac_enc = urllib.parse.quote(factura_no.strip())
+                filtros.append(f"factura_no=eq.{fac_enc}")
+
+            if tipo_documento and tipo_documento.strip() and tipo_documento != "TODOS":
+                td_enc = urllib.parse.quote(tipo_documento.strip())
+                filtros.append(f"tipo_documento=eq.{td_enc}")
+
+            query_filtros = "&" + "&".join(filtros)
+            endpoint = (
+                f"registro_ventas?select=id_venta,fecha,factura_no,tipo_documento,"
+                f"codigo_insumo,descripcion,cantidad,subtotal,descuento,iva,total,"
+                f"estado_registro,catalogo_insumos(nombre,categoria,tipo_unidad)"
+                f"{query_filtros}&order=fecha.desc"
+            )
+
+            res = self.db.get_all(endpoint, timeout=12)
+            return res or []
+        except Exception as ex:
+            log_error("get_insumos_de_factura_venta", ex)
+            return []
+
+    def eliminar_documento_ventas_completo(
+        self,
+        factura_no: str | None = None,
+        tipo_documento: str | None = None,
+    ) -> bool:
+        """
+        Elimina todas las líneas de una venta o remisión y reincorpora el stock
+        de cada insumo al inventario disponible.
+        """
+        try:
+            items = self.get_insumos_de_factura_venta(factura_no, tipo_documento)
+            if not items:
+                return False
+
+            exito = True
+            for it in items:
+                id_v = it.get("id_venta")
+                if id_v:
+                    ok = self.eliminar_venta_individual(id_v)
+                    if not ok:
+                        exito = False
+
+            if exito:
+                registrar_accion(
+                    accion=f"Eliminación completa de documento de venta {factura_no} ({len(items)} líneas y stock reincorporado)",
+                    modulo="VENTAS",
+                    detalles={"factura_no": factura_no, "tipo_documento": tipo_documento, "lineas": len(items)}
+                )
+            return exito
+        except Exception as ex:
+            log_error("eliminar_documento_ventas_completo", ex)
+            return False

@@ -183,18 +183,92 @@ class ComprasView(ft.Container):
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
         )
         
-        # Filtro de Proveedor para la tabla principal
+        # Modo de Vista: "FACTURA" (por documento/factura) o "INSUMO" (por cada insumo)
+        self.modo_vista_tabla = "FACTURA"
+        self.tipo_doc_filtro = "TODOS"
+        self.panel_filtros_abierto = False
+
+        # Selector de Modo de Vista (Por Factura vs Por Insumo)
+        self.seg_modo_vista = ft.SegmentedButton(
+            segments=[
+                ft.Segment(
+                    value="FACTURA",
+                    label=ft.Text("Por Factura", size=11, weight="w600"),
+                    icon=ft.Icon(ft.icons.RECEIPT_LONG_OUTLINED, size=15)
+                ),
+                ft.Segment(
+                    value="INSUMO",
+                    label=ft.Text("Por Insumo", size=11, weight="w600"),
+                    icon=ft.Icon(ft.icons.INVENTORY_2_OUTLINED, size=15)
+                ),
+            ],
+            selected={"FACTURA"},
+            on_change=self.on_modo_vista_change,
+            height=36,
+        )
+
+        # Botón para desplegar/contraer panel de filtros
+        self.btn_toggle_filtros = ft.OutlinedButton(
+            text="Filtros",
+            icon=ft.icons.TUNE_ROUNDED,
+            height=36,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=8),
+                padding=ft.padding.symmetric(horizontal=12, vertical=4)
+            ),
+            on_click=self.toggle_panel_filtros
+        )
+
+        # Filtro de Proveedor para el panel de filtros
         self.drop_filtro_proveedor_tabla = ft.Dropdown(
             options=[ft.dropdown.Option("TODOS", "Todos los Proveedores")],
             value="TODOS",
             label="Proveedor",
             dense=True,
-            width=180,
+            width=240,
             border_radius=8,
             text_size=12,
             content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
             height=38,
             on_change=lambda e: self.on_filtro_proveedor_change(e)
+        )
+
+        # Botón para seleccionar fecha en el panel de filtros
+        self.btn_fecha_filtro = ft.OutlinedButton(
+            text="Filtrar por Fecha",
+            icon=ft.icons.CALENDAR_MONTH_ROUNDED,
+            height=38,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=8),
+                padding=ft.padding.symmetric(horizontal=12, vertical=4)
+            ),
+            on_click=self.open_date_picker
+        )
+
+        # Botón para limpiar todos los filtros del panel
+        self.btn_limpiar_todos_filtros = ft.TextButton(
+            text="Limpiar Filtros",
+            icon=ft.icons.CLEAR_ALL_ROUNDED,
+            icon_color="red600",
+            style=ft.ButtonStyle(color="red700"),
+            on_click=self.limpiar_todos_los_filtros
+        )
+
+        # Panel de Filtros Unificado Colapsable (Una sola fila limpia: Proveedor, Fecha, Limpiar)
+        self.panel_filtros = ft.Container(
+            visible=False,
+            bgcolor="white",
+            border=ft.border.all(1, "#e2e8f0"),
+            border_radius=10,
+            padding=ft.padding.symmetric(horizontal=12, vertical=8),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.03, "black")),
+            content=ft.Row([
+                self.drop_filtro_proveedor_tabla,
+                self.btn_fecha_filtro,
+                self.btn_clear_date,
+                ft.Container(expand=True),
+                self.btn_limpiar_todos_filtros
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=10, wrap=False)
         )
 
         # File Picker
@@ -214,19 +288,17 @@ class ComprasView(ft.Container):
         # Diálogo de Confirmación (se construirá dinámicamente)
         self.dlg_confirm = ft.AlertDialog(modal=True)
         
-        # Tabla de Datos Optimizada
+        # Tabla de Datos (por defecto en Modo Factura)
         self.data_table = ft.DataTable(
-            data_row_min_height=36,
-            data_row_max_height=42,
-            heading_row_height=38,
+            data_row_min_height=38,
+            data_row_max_height=46,
+            heading_row_height=40,
             columns=[
                 ft.DataColumn(ft.Text("Entrada & Fecha", weight="bold", size=12)),
-                ft.DataColumn(ft.Container(content=ft.Text("Proveedor", weight="bold", size=12), width=160)),
-                ft.DataColumn(ft.Container(content=ft.Text("Insumo / Descripción", weight="bold", size=12), width=280)),
-                ft.DataColumn(ft.Text("Cant.", weight="bold", size=12), numeric=True),
-                ft.DataColumn(ft.Text("Costo Unit.", weight="bold", size=12), numeric=True),
-                ft.DataColumn(ft.Text("IVA", weight="bold", size=12), numeric=True),
-                ft.DataColumn(ft.Text("Total", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Container(content=ft.Text("Proveedor", weight="bold", size=12), width=240)),
+                ft.DataColumn(ft.Text("Cant. Insumos", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Costo Total", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("IVA Total", weight="bold", size=12), numeric=True),
                 ft.DataColumn(ft.Text("Acciones", weight="bold", size=12)),
             ],
             rows=[],
@@ -298,17 +370,12 @@ class ComprasView(ft.Container):
         
         # --- PREPARACIÓN DE LAS PESTAÑAS (TABS) ---
         
-        # --- PREPARACIÓN DE LAS PESTAÑAS (TABS) ---
-        
         # 1. Contenido Tab 1: Registro Compras
         row_filtros_compras = ft.Row([
+            self.seg_modo_vista,
             self.search_autocomplete,
-            self.drop_filtro_proveedor_tabla,
-            self.btn_date,
-            self.btn_clear_date,
-            ft.Container(expand=True),
-            self.btn_crear_manual
-        ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            self.btn_toggle_filtros,
+        ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
         
         contenedor_tabla_compras = ft.Container(
             content=ft.Row([ft.Column([self.data_table], scroll=ft.ScrollMode.ALWAYS)], scroll=ft.ScrollMode.ALWAYS, expand=True, vertical_alignment=ft.CrossAxisAlignment.START),
@@ -321,7 +388,7 @@ class ComprasView(ft.Container):
         )
         
         layout_tab_compras = ft.Container(
-            content=ft.Column([row_filtros_compras, contenedor_tabla_compras, footer_paginacion], expand=True, spacing=10),
+            content=ft.Column([row_filtros_compras, self.panel_filtros, contenedor_tabla_compras, footer_paginacion], expand=True, spacing=10),
             padding=ft.padding.only(top=15),
             expand=True
         )
@@ -471,24 +538,15 @@ class ComprasView(ft.Container):
             bgcolor="teal700", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=12, visible=False
         )
 
-        self.btn_toggle_panel = ft.IconButton(
-            icon=ft.icons.HISTORY_TOGGLE_OFF,
-            tooltip="Ver Histórico de Compras del Día",
-            on_click=self.toggle_right_panel
-        )
-
         self.lbl_titulo = ft.Text("Módulo de Compras", size=24, weight="bold", color=Config.COLOR_PRIMARY)
         main_column = ft.Column([
             self.progress_bar,
-            ft.Row([self.lbl_titulo, self.filtro_badge_compras, ft.Container(expand=True), self.btn_toggle_panel, self.btn_fullscreen]),
+            ft.Row([self.lbl_titulo, self.filtro_badge_compras, ft.Container(expand=True), self.btn_fullscreen]),
             self.summary_container,
             self.tabs
         ], expand=True, spacing=10)
 
-        self.content = ft.Row([
-            main_column,
-            self.right_panel
-        ], expand=True, spacing=10)
+        self.content = main_column
         
         self.load_data()
         self._render_tabla_cargas()
@@ -1075,6 +1133,35 @@ class ComprasView(ft.Container):
         elif self.page:
             self.page.update()
         
+    def on_modo_vista_change(self, e):
+        """Cambia el modo de visualización entre Por Factura y Por Insumo."""
+        if e and hasattr(e, "control") and e.control.selected:
+            self.modo_vista_tabla = list(e.control.selected)[0]
+        self.current_page = 1
+        self.load_data()
+
+    def toggle_panel_filtros(self, e):
+        """Despliega o colapsa el panel de filtros unificado."""
+        self.panel_filtros_abierto = not self.panel_filtros_abierto
+        self.panel_filtros.visible = self.panel_filtros_abierto
+        self.btn_toggle_filtros.icon = ft.icons.FILTER_ALT_OFF_ROUNDED if self.panel_filtros_abierto else ft.icons.TUNE_ROUNDED
+        self.safe_update()
+
+    def limpiar_todos_los_filtros(self, e=None):
+        """Restablece todos los filtros aplicados a sus valores por defecto."""
+        self.drop_filtro_proveedor_tabla.value = "TODOS"
+        self.fecha_corte = None
+        self.btn_fecha_filtro.text = "Filtrar por Fecha"
+        self.btn_clear_date.visible = False
+        self.date_picker.value = None
+        self.search_autocomplete.value = ""
+        self.search_input_text.value = ""
+        self.filtro_factura_activo = None
+        self.filtro_proveedor_activo = None
+        self.current_page = 1
+        self.load_data()
+        self.safe_update()
+
     def on_filtro_proveedor_change(self, e):
         self.current_page = 1
         self.load_data()
@@ -1096,9 +1183,6 @@ class ComprasView(ft.Container):
                 self.drop_filtro_proveedor_tabla.options = opts
                 if curr_val in [o.key for o in opts]:
                     self.drop_filtro_proveedor_tabla.value = curr_val
-
-                opts_p = [ft.dropdown.Option("TODOS", "Todos")] + [ft.dropdown.Option(p, p[:15]) for p in provs]
-                self.drop_filtro_panel_prov.options = opts_p
         except Exception:
             pass
 
@@ -1106,7 +1190,6 @@ class ComprasView(ft.Container):
             try:
                 self.summary_container.update()
                 self.drop_filtro_proveedor_tabla.update()
-                self.drop_filtro_panel_prov.update()
             except Exception:
                 pass
             
@@ -1116,8 +1199,7 @@ class ComprasView(ft.Container):
     def on_date_change(self, e):
         if self.date_picker.value:
             self.fecha_corte = self.date_picker.value.strftime("%Y-%m-%d")
-            self.btn_date.tooltip = f"Fecha: {self.fecha_corte}"
-            self.btn_date.icon_color = "blue"
+            self.btn_fecha_filtro.text = f"Corte: {self.fecha_corte}"
             self.btn_clear_date.visible = True
             if self.page:
                 self.page.update()
@@ -1127,10 +1209,9 @@ class ComprasView(ft.Container):
     def on_date_dismiss(self, e):
         pass
         
-    def clear_date(self, e):
+    def clear_date(self, e=None):
         self.fecha_corte = None
-        self.btn_date.tooltip = "Filtrar por Fecha"
-        self.btn_date.icon_color = None
+        self.btn_fecha_filtro.text = "Filtrar por Fecha"
         self.btn_clear_date.visible = False
         self.date_picker.value = None
         if self.page:
@@ -1797,101 +1878,204 @@ class ComprasView(ft.Container):
             prov_filtro = prov_tabla
         f_corte = getattr(self, 'fecha_corte', None)
 
-        data, total = self.db.get_compras(
-            page=self.current_page, 
-            page_size=self.page_size, 
-            search=search_val,
-            fecha_corte=f_corte,
-            factura_filtro=fact_filtro,
-            proveedor_filtro=prov_filtro
-        )
-        
-        self.total_records = total
-        self.total_pages = math.ceil(total / self.page_size) if total > 0 else 1
-        
-        self.data_table.rows.clear()
-        
-        for item in data:
-            fecha_raw = str(item.get('fecha', ''))
-            str_fecha = fecha_raw[:10] if len(fecha_raw) >= 10 else fecha_raw
-            
-            num_ea = str(item.get('numero_entrada') or '')
-            num_fac = str(item.get('numero_factura') or '')
-            doc_label = f"EA #{num_ea}" if num_ea else (f"Fact #{num_fac}" if num_fac else 'S/N')
-            str_prov = str(item.get('proveedor') or 'Varios')
-            str_codigo = str(item.get('codigo_insumo', ''))
-            
-            cat_info = item.get('catalogo_insumos') or {}
-            nombre_insumo = cat_info.get('nombre') or item.get('descripcion') or 'Desconocido'
-            
-            cantidad = float(item.get('cantidad', 0) or 0)
-            costo_unit = float(item.get('costo_unitario', 0) or 0)
-            costo_tot = float(item.get('costo_total', 0) or 0)
-            iva_val = float(item.get('iva') or item.get('valor_iva') or 0)
-            
-            str_cant = f"{int(cantidad)} unds" if cantidad.is_integer() else f"{cantidad:g} unds"
-            str_costo_unit = f"${costo_unit:,.2f}"
-            str_iva = f"${iva_val:,.2f}"
-            str_costo_tot = f"${costo_tot:,.2f}"
-            
-            cell_doc = ft.Container(
-                content=ft.Column([
-                    ft.Row([
-                        ft.Container(
-                            content=ft.Text("EA" if num_ea else "FAC", size=9, weight="bold", color="teal800"),
-                            bgcolor="#e6f4ea", padding=ft.padding.symmetric(horizontal=4, vertical=1), border_radius=3
-                        ),
-                        ft.Text(doc_label, size=11, weight="bold", color=Config.COLOR_PRIMARY)
-                    ], spacing=4),
-                    ft.Text(str_fecha, size=10, color="grey600")
-                ], spacing=1, alignment=ft.MainAxisAlignment.CENTER),
-                padding=ft.padding.symmetric(vertical=2)
+        if self.modo_vista_tabla == "FACTURA":
+            # 1. Configurar columnas de la tabla para Modo Factura / Documento
+            self.data_table.columns = [
+                ft.DataColumn(ft.Text("Entrada & Fecha", weight="bold", size=12)),
+                ft.DataColumn(ft.Container(content=ft.Text("Proveedor", weight="bold", size=12), width=240)),
+                ft.DataColumn(ft.Text("Cant. Insumos", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Costo Total", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("IVA Total", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Acciones", weight="bold", size=12)),
+            ]
+
+            data, total = self.db.get_compras_documentos(
+                page=self.current_page,
+                page_size=self.page_size,
+                search=search_val,
+                fecha_corte=f_corte,
+                proveedor_filtro=prov_filtro,
             )
 
-            cell_prov = ft.Container(
-                content=ft.Text(str_prov, size=11, weight="w500", overflow=ft.TextOverflow.ELLIPSIS),
-                width=160
-            )
+            self.total_records = total
+            self.total_pages = math.ceil(total / self.page_size) if total > 0 else 1
+            self.data_table.rows.clear()
 
-            cell_item = ft.Container(
-                content=ft.Row([
-                    ft.Text(f"[{str_codigo}]", size=11, weight="bold", color=Config.COLOR_PRIMARY),
-                    ft.Text(nombre_insumo, size=11, weight="w500", overflow=ft.TextOverflow.ELLIPSIS, expand=True)
-                ], spacing=5),
-                width=280
-            )
+            for doc in data:
+                fecha_str = str(doc.get("fecha", ""))
+                num_ea = str(doc.get("numero_entrada") or "")
+                num_fac = str(doc.get("numero_factura") or "")
+                doc_label = f"EA #{num_ea}" if num_ea else (f"Fact #{num_fac}" if num_fac else "S/N")
+                prov_str = str(doc.get("proveedor") or "Varios")
+                cant_items = int(doc.get("cant_insumos") or 0)
+                tot_unds = float(doc.get("total_unidades") or 0.0)
+                costo_tot = float(doc.get("costo_total") or 0.0)
+                iva_tot = float(doc.get("iva_total") or 0.0)
 
-            row = ft.DataRow(
-                cells=[
-                    ft.DataCell(cell_doc),
-                    ft.DataCell(cell_prov),
-                    ft.DataCell(cell_item),
-                    ft.DataCell(ft.Text(str_cant, size=11, weight="bold")),
-                    ft.DataCell(ft.Text(str_costo_unit, size=11)),
-                    ft.DataCell(ft.Text(str_iva, size=11, color="grey700")),
-                    ft.DataCell(ft.Text(str_costo_tot, size=11, color="teal800", weight="bold")),
-                    ft.DataCell(
+                str_cant = f"{cant_items} insumos ({int(tot_unds)} unds)" if tot_unds.is_integer() else f"{cant_items} insumos ({tot_unds:g} unds)"
+                str_costo = f"${costo_tot:,.2f}"
+                str_iva = f"${iva_tot:,.2f}"
+
+                cell_doc = ft.Container(
+                    content=ft.Column([
                         ft.Row([
-                            ft.IconButton(
-                                icon=ft.icons.EDIT_OUTLINED, 
-                                icon_color="blue", 
-                                icon_size=18,
-                                tooltip="Editar Compra", 
-                                on_click=lambda e, i=item: self.abrir_modal_editar_compra(i)
+                            ft.Container(
+                                content=ft.Text("EA" if num_ea else "FAC", size=9, weight="bold", color="teal800"),
+                                bgcolor="#e6f4ea", padding=ft.padding.symmetric(horizontal=4, vertical=1), border_radius=3
                             ),
-                            ft.IconButton(
-                                icon=ft.icons.DELETE_OUTLINED, 
-                                icon_color="red", 
-                                icon_size=18,
-                                tooltip="Eliminar Compra", 
-                                on_click=lambda e, i=item: self.confirmar_eliminar_compra(i)
-                            )
-                        ], spacing=0)
-                    ),
-                ]
+                            ft.Text(doc_label, size=11, weight="bold", color=Config.COLOR_PRIMARY)
+                        ], spacing=4),
+                        ft.Text(fecha_str, size=10, color="grey600")
+                    ], spacing=1, alignment=ft.MainAxisAlignment.CENTER),
+                    padding=ft.padding.symmetric(vertical=2)
+                )
+
+                cell_prov = ft.Container(
+                    content=ft.Text(prov_str, size=11, weight="w500", overflow=ft.TextOverflow.ELLIPSIS),
+                    width=240
+                )
+
+                cell_cant = ft.Container(
+                    content=ft.Text(str_cant, size=11, weight="bold"),
+                    alignment=ft.alignment.center_right
+                )
+
+                row = ft.DataRow(
+                    cells=[
+                        ft.DataCell(cell_doc),
+                        ft.DataCell(cell_prov),
+                        ft.DataCell(cell_cant),
+                        ft.DataCell(ft.Text(str_costo, size=11, color="teal800", weight="bold")),
+                        ft.DataCell(ft.Text(str_iva, size=11, color="grey700")),
+                        ft.DataCell(
+                            ft.Row([
+                                ft.IconButton(
+                                    icon=ft.icons.VISIBILITY_OUTLINED,
+                                    icon_color="teal700",
+                                    icon_size=18,
+                                    tooltip="Ver Detalle del Documento",
+                                    on_click=lambda e, d=doc: self.abrir_modal_detalle_documento(d)
+                                ),
+                                ft.IconButton(
+                                    icon=ft.icons.DELETE_OUTLINED,
+                                    icon_color="red700",
+                                    icon_size=18,
+                                    tooltip="Eliminar Documento Completo",
+                                    on_click=lambda e, d=doc: self.confirmar_eliminar_documento(d)
+                                )
+                            ], spacing=0)
+                        )
+                    ]
+                )
+                self.data_table.rows.append(row)
+
+        else:
+            # 2. Configurar columnas de la tabla para Modo Insumo
+            self.data_table.columns = [
+                ft.DataColumn(ft.Text("Entrada & Fecha", weight="bold", size=12)),
+                ft.DataColumn(ft.Container(content=ft.Text("Proveedor", weight="bold", size=12), width=160)),
+                ft.DataColumn(ft.Container(content=ft.Text("Insumo / Descripción", weight="bold", size=12), width=280)),
+                ft.DataColumn(ft.Text("Cant.", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Costo Unit.", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("IVA", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Total", weight="bold", size=12), numeric=True),
+                ft.DataColumn(ft.Text("Acciones", weight="bold", size=12)),
+            ]
+
+            data, total = self.db.get_compras(
+                page=self.current_page,
+                page_size=self.page_size,
+                search=search_val,
+                fecha_corte=f_corte,
+                factura_filtro=fact_filtro,
+                proveedor_filtro=prov_filtro
             )
-            self.data_table.rows.append(row)
-            
+
+            self.total_records = total
+            self.total_pages = math.ceil(total / self.page_size) if total > 0 else 1
+            self.data_table.rows.clear()
+
+            for item in data:
+                fecha_raw = str(item.get('fecha', ''))
+                str_fecha = fecha_raw[:10] if len(fecha_raw) >= 10 else fecha_raw
+
+                num_ea = str(item.get('numero_entrada') or '')
+                num_fac = str(item.get('numero_factura') or '')
+                doc_label = f"EA #{num_ea}" if num_ea else (f"Fact #{num_fac}" if num_fac else 'S/N')
+                str_prov = str(item.get('proveedor') or 'Varios')
+                str_codigo = str(item.get('codigo_insumo', ''))
+
+                cat_info = item.get('catalogo_insumos') or {}
+                nombre_insumo = cat_info.get('nombre') or item.get('descripcion') or 'Desconocido'
+
+                cantidad = float(item.get('cantidad', 0) or 0)
+                costo_unit = float(item.get('costo_unitario', 0) or 0)
+                costo_tot = float(item.get('costo_total', 0) or 0)
+                iva_val = float(item.get('iva') or item.get('valor_iva') or 0)
+
+                str_cant = f"{int(cantidad)} unds" if cantidad.is_integer() else f"{cantidad:g} unds"
+                str_costo_unit = f"${costo_unit:,.2f}"
+                str_iva = f"${iva_val:,.2f}"
+                str_costo_tot = f"${costo_tot:,.2f}"
+
+                cell_doc = ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Container(
+                                content=ft.Text("EA" if num_ea else "FAC", size=9, weight="bold", color="teal800"),
+                                bgcolor="#e6f4ea", padding=ft.padding.symmetric(horizontal=4, vertical=1), border_radius=3
+                            ),
+                            ft.Text(doc_label, size=11, weight="bold", color=Config.COLOR_PRIMARY)
+                        ], spacing=4),
+                        ft.Text(str_fecha, size=10, color="grey600")
+                    ], spacing=1, alignment=ft.MainAxisAlignment.CENTER),
+                    padding=ft.padding.symmetric(vertical=2)
+                )
+
+                cell_prov = ft.Container(
+                    content=ft.Text(str_prov, size=11, weight="w500", overflow=ft.TextOverflow.ELLIPSIS),
+                    width=160
+                )
+
+                cell_item = ft.Container(
+                    content=ft.Row([
+                        ft.Text(f"[{str_codigo}]", size=11, weight="bold", color=Config.COLOR_PRIMARY),
+                        ft.Text(nombre_insumo, size=11, weight="w500", overflow=ft.TextOverflow.ELLIPSIS, expand=True)
+                    ], spacing=5),
+                    width=280
+                )
+
+                row = ft.DataRow(
+                    cells=[
+                        ft.DataCell(cell_doc),
+                        ft.DataCell(cell_prov),
+                        ft.DataCell(cell_item),
+                        ft.DataCell(ft.Text(str_cant, size=11, weight="bold")),
+                        ft.DataCell(ft.Text(str_costo_unit, size=11)),
+                        ft.DataCell(ft.Text(str_iva, size=11, color="grey700")),
+                        ft.DataCell(ft.Text(str_costo_tot, size=11, color="teal800", weight="bold")),
+                        ft.DataCell(
+                            ft.Row([
+                                ft.IconButton(
+                                    icon=ft.icons.EDIT_OUTLINED, 
+                                    icon_color="blue", 
+                                    icon_size=18,
+                                    tooltip="Editar Compra", 
+                                    on_click=lambda e, i=item: self.abrir_modal_editar_compra(i)
+                                ),
+                                ft.IconButton(
+                                    icon=ft.icons.DELETE_OUTLINED, 
+                                    icon_color="red", 
+                                    icon_size=18,
+                                    tooltip="Eliminar Compra", 
+                                    on_click=lambda e, i=item: self.confirmar_eliminar_compra(i)
+                                )
+                            ], spacing=0)
+                        ),
+                    ]
+                )
+                self.data_table.rows.append(row)
+
         self.update_pagination_ui()
         
     def update_pagination_ui(self):
@@ -2151,21 +2335,34 @@ class ComprasView(ft.Container):
         self.dlg_crud.open = False
         self.safe_update()
 
-    def abrir_modal_crear_compra(self, e=None):
+    def abrir_modal_crear_compra(
+        self,
+        e=None,
+        default_ea: str = "",
+        default_factura: str = "",
+        default_proveedor: str = "",
+        default_fecha: str | None = None,
+        on_saved_callback=None
+    ):
+        """Abre el formulario para registrar una nueva compra de insumo."""
         if not hasattr(self, 'dlg_crud'):
             self._construir_modal_crud()
             
         insumos, _ = self.db.get_insumos(page=1, page_size=99999)
-        self.crud_codigo_insumo.suggestions = [{"key": i['codigo_insumo'], "value": f"[{i['codigo_insumo']}] {i['nombre']}"} for i in insumos]
+        self.crud_codigo_insumo.suggestions = [
+            {"key": i['codigo_insumo'], "value": f"[{i['codigo_insumo']}] {i['nombre']}"}
+            for i in insumos
+        ]
         
         self.crud_item_id = None
+        self._crud_on_saved_callback = on_saved_callback
         self.dlg_crud.title.value = "Registrar Nueva Compra"
         self.crud_codigo_insumo.value = ""
         from core.fecha_utils import get_hoy_local_str
-        self.crud_fecha.value = get_hoy_local_str()
-        self.crud_ea.value = ""
-        self.crud_factura.value = ""
-        self.crud_proveedor.value = ""
+        self.crud_fecha.value = default_fecha or get_hoy_local_str()
+        self.crud_ea.value = default_ea or ""
+        self.crud_factura.value = default_factura or ""
+        self.crud_proveedor.value = default_proveedor or ""
         self.crud_cantidad.value = ""
         self.crud_costo_unit.value = ""
         self.crud_iva.value = "0"
@@ -2175,14 +2372,19 @@ class ComprasView(ft.Container):
         self.dlg_crud.open = True
         self.safe_update()
 
-    def abrir_modal_editar_compra(self, item):
+    def abrir_modal_editar_compra(self, item, on_saved_callback=None):
+        """Abre el formulario para editar una compra existente."""
         if not hasattr(self, 'dlg_crud'):
             self._construir_modal_crud()
             
         insumos, _ = self.db.get_insumos(page=1, page_size=99999)
-        self.crud_codigo_insumo.suggestions = [{"key": i['codigo_insumo'], "value": f"[{i['codigo_insumo']}] {i['nombre']}"} for i in insumos]
+        self.crud_codigo_insumo.suggestions = [
+            {"key": i['codigo_insumo'], "value": f"[{i['codigo_insumo']}] {i['nombre']}"}
+            for i in insumos
+        ]
         
         self.crud_item_id = item.get("id_compra")
+        self._crud_on_saved_callback = on_saved_callback
         self.dlg_crud.title.value = "Editar Compra"
         
         cod = item.get("codigo_insumo", "")
@@ -2249,6 +2451,11 @@ class ComprasView(ft.Container):
             self._cerrar_crud()
             self.page.snack_bar = ft.SnackBar(ft.Text(msg), bgcolor="green")
             self.page.snack_bar.open = True
+            if hasattr(self, '_crud_on_saved_callback') and self._crud_on_saved_callback:
+                try:
+                    self._crud_on_saved_callback()
+                except Exception:
+                    pass
             self.load_data()
             self.load_summary()
         else:
@@ -2256,7 +2463,8 @@ class ComprasView(ft.Container):
             self.page.snack_bar.open = True
             self.safe_update()
 
-    def confirmar_eliminar_compra(self, item):
+    def confirmar_eliminar_compra(self, item, on_deleted_callback=None):
+        """Muestra confirmación para eliminar una línea individual de compra."""
         id_compra = item.get("id_compra")
         cant = float(item.get("cantidad") or 0)
         insumo = item.get("catalogo_insumos", {}).get("nombre", "Desconocido")
@@ -2269,6 +2477,11 @@ class ComprasView(ft.Container):
             if self.db.eliminar_compra_individual(id_compra):
                 self.page.snack_bar = ft.SnackBar(ft.Text("Compra eliminada y stock revertido."), bgcolor="green")
                 self.page.snack_bar.open = True
+                if on_deleted_callback:
+                    try:
+                        on_deleted_callback()
+                    except Exception:
+                        pass
                 self.load_data()
                 self.load_summary()
             else:
@@ -2302,5 +2515,295 @@ class ComprasView(ft.Container):
         )
         self.page.overlay.append(dlg)
         dlg.open = True
+        self.safe_update()
+
+    def abrir_modal_detalle_documento(self, doc_item: dict):
+        """
+        Abre un modal grande completo con el desglose de todos los insumos
+        que componen la compra / documento seleccionado, con acciones para
+        editar, eliminar y agregar insumos directamente.
+        """
+        num_ea = str(doc_item.get("numero_entrada") or "").strip()
+        num_fac = str(doc_item.get("numero_factura") or "").strip()
+        prov_nombre = str(doc_item.get("proveedor") or "Varios").strip()
+        fecha_doc = str(doc_item.get("fecha") or "")[:10]
+        doc_titulo = f"Entrada EA #{num_ea}" if num_ea else (f"Factura #{num_fac}" if num_fac else "Documento de Compra")
+
+        # Contenedores dinámicos del modal
+        lbl_tot_costo = ft.Text("$0", size=12, weight="bold", color="teal800")
+        lbl_tot_iva = ft.Text("$0", size=12, weight="bold", color="grey800")
+        lbl_cant_items = ft.Text("0 insumos", size=12, weight="bold", color=Config.COLOR_PRIMARY)
+        table_insumos = ft.DataTable(
+            column_spacing=12,
+            data_row_min_height=36,
+            data_row_max_height=40,
+            heading_row_height=36,
+            columns=[
+                ft.DataColumn(ft.Container(content=ft.Text("Código", weight="bold", size=11), width=55)),
+                ft.DataColumn(ft.Container(content=ft.Text("Insumo / Descripción", weight="bold", size=11), width=230)),
+                ft.DataColumn(ft.Container(content=ft.Text("Cant.", weight="bold", size=11), width=65, alignment=ft.alignment.center_right), numeric=True),
+                ft.DataColumn(ft.Container(content=ft.Text("Costo Unit.", weight="bold", size=11), width=95, alignment=ft.alignment.center_right), numeric=True),
+                ft.DataColumn(ft.Container(content=ft.Text("IVA", weight="bold", size=11), width=85, alignment=ft.alignment.center_right), numeric=True),
+                ft.DataColumn(ft.Container(content=ft.Text("Total", weight="bold", size=11), width=105, alignment=ft.alignment.center_right), numeric=True),
+                ft.DataColumn(ft.Container(content=ft.Text("Acciones", weight="bold", size=11), width=75, alignment=ft.alignment.center)),
+            ],
+            rows=[],
+            heading_row_color="#f8fafc",
+            border=ft.border.all(1, "#e2e8f0"),
+            border_radius=8,
+            vertical_lines=ft.border.BorderSide(1, "#f1f5f9"),
+            horizontal_lines=ft.border.BorderSide(1, "#e2e8f0"),
+        )
+
+        loading_ring = ft.ProgressRing(width=18, height=18, color=Config.COLOR_PRIMARY, visible=False)
+        table_container = ft.Container(
+            content=ft.Column(
+                controls=[table_insumos],
+                scroll=ft.ScrollMode.AUTO,
+                tight=True,
+            ),
+            border=ft.border.all(1, "#e2e8f0"),
+            border_radius=8,
+            padding=0,
+            bgcolor="white"
+        )
+
+        dlg_detalle = ft.AlertDialog(modal=True)
+
+        def _recargar_lista_insumos():
+            loading_ring.visible = True
+            if self.page:
+                try:
+                    self.page.update()
+                except Exception:
+                    pass
+
+            items = self.db.get_insumos_de_documento(num_ea, num_fac, prov_nombre)
+            if not items and doc_item.get("insumos"):
+                items = doc_item.get("insumos")
+
+            tot_costo = sum(float(x.get("costo_total") or 0) for x in items)
+            tot_iva = sum(float(x.get("valor_iva") or x.get("iva") or 0) for x in items)
+            tot_cant = sum(float(x.get("cantidad") or 0) for x in items)
+
+            lbl_tot_costo.value = f"${tot_costo:,.2f}"
+            lbl_tot_iva.value = f"${tot_iva:,.2f}"
+            lbl_cant_items.value = f"{len(items)} insumos ({int(tot_cant) if tot_cant.is_integer() else tot_cant:g} unds)"
+
+            table_insumos.rows.clear()
+            for it in items:
+                cod = str(it.get("codigo_insumo") or "")
+                nom = it.get("catalogo_insumos", {}).get("nombre") or it.get("descripcion") or "Desconocido"
+                cant = float(it.get("cantidad") or 0)
+                costo_u = float(it.get("costo_unitario") or 0)
+                iva_u = float(it.get("valor_iva") or it.get("iva") or 0)
+                tot_linea = float(it.get("costo_total") or 0)
+
+                str_cant = f"{int(cant)} unds" if cant.is_integer() else f"{cant:g} unds"
+
+                row = ft.DataRow(
+                    cells=[
+                        ft.DataCell(ft.Container(content=ft.Text(cod, size=11, weight="bold", color=Config.COLOR_PRIMARY), width=55)),
+                        ft.DataCell(ft.Container(content=ft.Text(nom, size=11, overflow=ft.TextOverflow.ELLIPSIS), width=230)),
+                        ft.DataCell(ft.Container(content=ft.Text(str_cant, size=11, weight="w600"), width=65, alignment=ft.alignment.center_right)),
+                        ft.DataCell(ft.Container(content=ft.Text(f"${costo_u:,.2f}", size=11), width=95, alignment=ft.alignment.center_right)),
+                        ft.DataCell(ft.Container(content=ft.Text(f"${iva_u:,.2f}", size=11, color="grey700"), width=85, alignment=ft.alignment.center_right)),
+                        ft.DataCell(ft.Container(content=ft.Text(f"${tot_linea:,.2f}", size=11, color="teal800", weight="bold"), width=105, alignment=ft.alignment.center_right)),
+                        ft.DataCell(
+                            ft.Container(
+                                content=ft.Row([
+                                    ft.IconButton(
+                                        icon=ft.icons.EDIT_OUTLINED,
+                                        icon_color="blue700",
+                                        icon_size=16,
+                                        tooltip="Editar este Insumo",
+                                        style=ft.ButtonStyle(padding=0),
+                                        width=28,
+                                        height=28,
+                                        on_click=lambda e, item_sel=it: self.abrir_modal_editar_compra(
+                                            item_sel,
+                                            on_saved_callback=_recargar_lista_insumos
+                                        )
+                                    ),
+                                    ft.IconButton(
+                                        icon=ft.icons.DELETE_OUTLINED,
+                                        icon_color="red700",
+                                        icon_size=16,
+                                        tooltip="Eliminar este Insumo",
+                                        style=ft.ButtonStyle(padding=0),
+                                        width=28,
+                                        height=28,
+                                        on_click=lambda e, item_sel=it: self.confirmar_eliminar_compra(
+                                            item_sel,
+                                            on_deleted_callback=_recargar_lista_insumos
+                                        )
+                                    ),
+                                ], spacing=2, tight=True, alignment=ft.MainAxisAlignment.CENTER),
+                                width=75,
+                                alignment=ft.alignment.center
+                            )
+                        ),
+                    ]
+                )
+                table_insumos.rows.append(row)
+
+            # Ajustar altura dinámica para que no cree espacios en blanco vacíos
+            n_rows = len(items)
+            table_container.height = min(360, max(90, n_rows * 40 + 42))
+
+            loading_ring.visible = False
+            if self.page:
+                try:
+                    self.page.update()
+                except Exception:
+                    pass
+
+        # Cabecera del diálogo con badges horizontales compactos
+        header_chips = ft.Row([
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.INVENTORY_2_ROUNDED, size=13, color=Config.COLOR_PRIMARY),
+                    lbl_cant_items
+                ], tight=True, spacing=4),
+                bgcolor="#f0f9ff", padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                border_radius=6, border=ft.border.all(1, "#bae6fd")
+            ),
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.PAYMENTS_OUTLINED, size=13, color="teal800"),
+                    ft.Text("Costo Total:", size=11, color="grey700"),
+                    lbl_tot_costo
+                ], tight=True, spacing=4),
+                bgcolor="#f0fdf4", padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                border_radius=6, border=ft.border.all(1, "#bbf7d0")
+            ),
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.RECEIPT_OUTLINED, size=13, color="grey800"),
+                    ft.Text("IVA Total:", size=11, color="grey700"),
+                    lbl_tot_iva
+                ], tight=True, spacing=4),
+                bgcolor="#faf5ff", padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                border_radius=6, border=ft.border.all(1, "#e9d5ff")
+            ),
+        ], spacing=10, wrap=False, alignment=ft.MainAxisAlignment.START)
+
+        btn_agregar_insumo_doc = ft.ElevatedButton(
+            text="Agregar Insumo a este Documento",
+            icon=ft.icons.ADD_CIRCLE_OUTLINE_ROUNDED,
+            bgcolor=Config.COLOR_PRIMARY,
+            color="white",
+            height=34,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), padding=ft.padding.symmetric(horizontal=12, vertical=2)),
+            on_click=lambda e: self.abrir_modal_crear_compra(
+                default_ea=num_ea,
+                default_factura=num_fac,
+                default_proveedor=prov_nombre,
+                default_fecha=fecha_doc,
+                on_saved_callback=_recargar_lista_insumos
+            )
+        )
+
+        dlg_detalle.title = ft.Row([
+            ft.Icon(ft.icons.RECEIPT_LONG_ROUNDED, size=22, color=Config.COLOR_PRIMARY),
+            ft.Column([
+                ft.Text(doc_titulo, size=15, weight="bold", color=Config.COLOR_PRIMARY),
+                ft.Text(f"Proveedor: {prov_nombre}  •  Fecha: {fecha_doc}", size=11, color="grey700")
+            ], spacing=1, expand=True),
+            btn_agregar_insumo_doc
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+        dlg_detalle.content = ft.Container(
+            width=880,
+            content=ft.Column([
+                header_chips,
+                table_container,
+                ft.Row([loading_ring], alignment=ft.MainAxisAlignment.CENTER)
+            ], tight=True, spacing=8)
+        )
+
+        dlg_detalle.actions = [
+            ft.ElevatedButton(
+                "Cerrar",
+                icon=ft.icons.CHECK,
+                bgcolor="#334155",
+                color="white",
+                height=34,
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
+                on_click=lambda e: (setattr(dlg_detalle, 'open', False), self.safe_update(), self.load_data(), self.load_summary())
+            )
+        ]
+
+        # Cargar los datos en la tabla antes de abrir el modal
+        _recargar_lista_insumos()
+        self.page.overlay.append(dlg_detalle)
+        dlg_detalle.open = True
+        self.safe_update()
+
+    def confirmar_eliminar_documento(self, doc_item: dict):
+        """
+        Muestra un diálogo de confirmación para eliminar todas las compras
+        asociadas a un documento completo (Entrada / Factura) y revertir el stock.
+        """
+        num_ea = str(doc_item.get("numero_entrada") or "").strip()
+        num_fac = str(doc_item.get("numero_factura") or "").strip()
+        prov = str(doc_item.get("proveedor") or "Varios").strip()
+        ref = doc_item.get("ref") or (f"EA #{num_ea}" if num_ea else (f"Fact #{num_fac}" if num_fac else "S/N"))
+        cant_insumos = int(doc_item.get("cant_insumos") or 0)
+        costo_tot = float(doc_item.get("costo_total") or 0.0)
+
+        def do_eliminar_doc(e):
+            dlg_del_doc.open = False
+            self.safe_update()
+
+            ok = self.db.eliminar_documento_compras_completo(
+                numero_entrada=num_ea if num_ea else None,
+                numero_factura=num_fac if num_fac else None,
+                proveedor=prov if prov != "Varios" else None
+            )
+
+            if ok:
+                self.page.snack_bar = ft.SnackBar(
+                    ft.Text(f"Documento {ref} eliminado completamente y stock revertido."),
+                    bgcolor="green"
+                )
+                self.page.snack_bar.open = True
+                self.load_data()
+                self.load_summary()
+            else:
+                self.page.snack_bar = ft.SnackBar(
+                    ft.Text(f"Error al eliminar el documento {ref} en la base de datos."),
+                    bgcolor="red"
+                )
+                self.page.snack_bar.open = True
+                self.safe_update()
+
+        dlg_del_doc = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.DELETE_FOREVER_ROUNDED, color="red700", size=24),
+                ft.Text("Eliminar Documento Completo de Compra", color="red700", weight="bold")
+            ]),
+            content=ft.Container(
+                width=450,
+                content=ft.Column([
+                    ft.Text(f"Documento: {ref}", size=14, weight="bold"),
+                    ft.Text(f"Proveedor: {prov}", size=13),
+                    ft.Text(f"Cantidad de Insumos: {cant_insumos} líneas registradas", size=13),
+                    ft.Text(f"Costo Total a Eliminar: ${costo_tot:,.2f}", size=14, color="red800", weight="bold"),
+                    ft.Divider(),
+                    ft.Text(
+                        "⚠️ ADVERTENCIA CRÍTICA: Se eliminarán permanentemente todas las líneas de insumos asociadas a este documento y se restará automáticamente la cantidad correspondiente del inventario.",
+                        size=11, color="red900", weight="w600"
+                    )
+                ], tight=True, spacing=6)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: (setattr(dlg_del_doc, 'open', False), self.safe_update())),
+                ft.ElevatedButton("Eliminar Todo el Documento", bgcolor="red700", color="white", on_click=do_eliminar_doc)
+            ]
+        )
+
+        self.page.overlay.append(dlg_del_doc)
+        dlg_del_doc.open = True
         self.safe_update()
     # --- FIN CRUD MANUAL COMPRAS ---

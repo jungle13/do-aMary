@@ -128,9 +128,27 @@ class SupabaseClient:
     def eliminar_compra_individual(self, id_compra: str):
         return self.compras_repo.eliminar_compra_individual(id_compra)
 
+    def get_compras_documentos(self, page=1, page_size=15, search="", fecha_corte=None, proveedor_filtro=None, tipo_doc_filtro=None):
+        return self.compras_repo.get_compras_documentos(page, page_size, search, fecha_corte, proveedor_filtro, tipo_doc_filtro)
+
+    def get_insumos_de_documento(self, numero_entrada=None, numero_factura=None, proveedor=None):
+        return self.compras_repo.get_insumos_de_documento(numero_entrada, numero_factura, proveedor)
+
+    def eliminar_documento_compras_completo(self, numero_entrada=None, numero_factura=None, proveedor=None):
+        return self.compras_repo.eliminar_documento_compras_completo(numero_entrada, numero_factura, proveedor)
+
     # --- VENTAS ---
     def get_ventas(self, page=1, page_size=20, search="", fecha_corte=None, categoria_filtro=None, factura_filtro=None, tipo_documento_filtro=None):
         return self.ventas_repo.get_ventas(page, page_size, search, fecha_corte, categoria_filtro, factura_filtro, tipo_documento_filtro)
+
+    def get_ventas_documentos(self, page=1, page_size=15, search="", fecha_corte=None, tipo_documento_filtro=None):
+        return self.ventas_repo.get_ventas_documentos(page, page_size, search, fecha_corte, tipo_documento_filtro)
+
+    def get_insumos_de_factura_venta(self, factura_no=None, tipo_documento=None):
+        return self.ventas_repo.get_insumos_de_factura_venta(factura_no, tipo_documento)
+
+    def eliminar_documento_ventas_completo(self, factura_no=None, tipo_documento=None):
+        return self.ventas_repo.eliminar_documento_ventas_completo(factura_no, tipo_documento)
 
     def get_historial_ventas_dia(self, fecha_dia=None, agrupar_por="CATEGORIA", tipo_documento=None) -> list:
         return self.ventas_repo.get_historial_ventas_dia(fecha_dia, agrupar_por, tipo_documento)
