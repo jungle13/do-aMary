@@ -7,6 +7,7 @@ from core.gemini_parser import GeminiParser
 from core.fecha_utils import parsear_a_fecha_local, get_hoy_local_str, get_ahora_iso, formatear_fecha_hora_local
 from core.audit_logger import registrar_accion
 from ui.components.autocomplete import CustomAutoComplete
+from ui.components.periodo_selector import PeriodoSelectorWidget
 
 class AjustesInventarioView(ft.Container):
     def __init__(self):
@@ -75,35 +76,76 @@ class AjustesInventarioView(ft.Container):
         )
         
         self.date_picker = ft.DatePicker(on_change=lambda e: self._on_filter_change())
-        self.btn_date = ft.IconButton(
-            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
-            tooltip="Filtrar por Fecha de Ajuste",
-            on_click=lambda e: self.date_picker.pick_date()
+        
+        # Panel de Filtros Unificado (Colapsable)
+        self.panel_filtros_abierto = False
+        self.btn_toggle_filtros = ft.IconButton(
+            icon=ft.icons.TUNE_ROUNDED,
+            tooltip="Filtros de Ajustes",
+            on_click=self.toggle_panel_filtros
+        )
+
+        self.btn_date_filtro = ft.OutlinedButton(
+            text="Filtrar por Fecha",
+            icon=ft.icons.CALENDAR_MONTH_ROUNDED,
+            height=36,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=8),
+                padding=ft.padding.symmetric(horizontal=10, vertical=4)
+            ),
+            on_click=self._open_date_picker
         )
         self.btn_clear_date = ft.IconButton(
             icon=ft.icons.CLEAR,
             icon_color="red",
             visible=False,
+            tooltip="Limpiar Fecha",
             on_click=self._clear_date
         )
 
         self.drop_tipo = ft.Dropdown(
             options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("Entrada"), ft.dropdown.Option("Salida")],
-            value="Todos", label="Tipo", dense=True, width=110, height=34, text_size=11,
+            value="Todos", label="Tipo", dense=True, width=120, height=36, text_size=11,
             content_padding=ft.padding.symmetric(horizontal=8, vertical=4), on_change=lambda e: self._on_filter_change()
         )
 
         self.drop_origen = ft.Dropdown(
             options=[ft.dropdown.Option("Todos"), ft.dropdown.Option("Cierre de Mes"), ft.dropdown.Option("Manual")],
-            value="Todos", label="Origen", dense=True, width=135, height=34, text_size=11,
+            value="Todos", label="Origen", dense=True, width=135, height=36, text_size=11,
             content_padding=ft.padding.symmetric(horizontal=8, vertical=4), on_change=lambda e: self._on_filter_change()
         )
         
         motivos_combinados = ["Todos"] + list(self.mapa_motivos.keys())
         self.drop_motivo = ft.Dropdown(
             options=[ft.dropdown.Option(m) for m in motivos_combinados],
-            value="Todos", label="Motivo", dense=True, width=160, height=34, text_size=11,
+            value="Todos", label="Motivo", dense=True, width=160, height=36, text_size=11,
             content_padding=ft.padding.symmetric(horizontal=8, vertical=4), on_change=lambda e: self._on_filter_change()
+        )
+
+        self.btn_limpiar_todos_filtros = ft.TextButton(
+            text="Limpiar Filtros",
+            icon=ft.icons.CLEAR_ALL_ROUNDED,
+            icon_color="red600",
+            style=ft.ButtonStyle(color="red700"),
+            on_click=self.limpiar_todos_los_filtros
+        )
+
+        self.panel_filtros = ft.Container(
+            visible=False,
+            bgcolor="white",
+            border=ft.border.all(1, "#e2e8f0"),
+            border_radius=10,
+            padding=ft.padding.symmetric(horizontal=12, vertical=8),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.03, "black")),
+            content=ft.Row([
+                self.btn_date_filtro,
+                self.btn_clear_date,
+                self.drop_tipo,
+                self.drop_origen,
+                self.drop_motivo,
+                ft.Container(expand=True),
+                self.btn_limpiar_todos_filtros
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=10, wrap=False)
         )
 
         self.btn_prev = ft.IconButton(icon=ft.icons.ARROW_BACK_IOS, icon_size=14, on_click=self._prev_page, disabled=True)
@@ -117,7 +159,7 @@ class AjustesInventarioView(ft.Container):
             icon=ft.icons.ADD,
             bgcolor=Config.COLOR_PRIMARY,
             color="white",
-            height=32,
+            height=34,
             style=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=7),
                 padding=ft.padding.symmetric(horizontal=10, vertical=0)
@@ -191,15 +233,17 @@ class AjustesInventarioView(ft.Container):
             padding=10, bgcolor="#fafafa", border_radius=8, border=ft.border.all(1, "#eeeeee")
         )
         
-        filtros_row = ft.Row([
-            ft.Container(content=self.search_filter_autocomplete, expand=True),
-            self.btn_date,
-            self.btn_clear_date,
-            self.drop_tipo,
-            self.drop_origen,
-            self.drop_motivo,
-            self.btn_agregar_ajuste
-        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        filtros_row = ft.Container(
+            content=ft.Row([
+                ft.Container(content=self.search_filter_autocomplete, expand=True),
+                self.btn_toggle_filtros,
+                self.btn_agregar_ajuste
+            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor="white",
+            padding=8,
+            border_radius=8,
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.04, "black"))
+        )
         
         paginacion_row = ft.Row([
             ft.Container(expand=True),
@@ -212,10 +256,11 @@ class AjustesInventarioView(ft.Container):
             content=ft.Column([
                 kpi_bar,
                 filtros_row,
-                ft.Container(content=self.lista_ajustes, expand=True, bgcolor="#f5f5f5", border_radius=10, padding=10, shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))),
+                self.panel_filtros,
+                ft.Container(content=self.lista_ajustes, expand=True, bgcolor="#f5f5f5", border_radius=10, padding=8, shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))),
                 paginacion_row
-            ], expand=True, spacing=10),
-            padding=ft.padding.only(top=8),
+            ], expand=True, spacing=8),
+            padding=ft.padding.only(top=6),
             expand=True
         )
 
@@ -223,7 +268,7 @@ class AjustesInventarioView(ft.Container):
         header_escaneo = ft.Container(
             content=ft.Row([
                 ft.ElevatedButton(
-                    "📷 Escanear Hoja de Ajustes (Foto / PDF)",
+                    "Escanear Hoja de Ajustes (Foto / PDF)",
                     icon=ft.icons.CAMERA_ALT_ROUNDED,
                     bgcolor=Config.COLOR_PRIMARY,
                     color="white",
@@ -295,11 +340,13 @@ class AjustesInventarioView(ft.Container):
             expand=True
         )
 
+        self.periodo_selector = PeriodoSelectorWidget(on_change_callback=self.on_periodo_change, page=self.page)
         self.content = ft.Column([
             ft.Row([
                 ft.Icon(ft.icons.TUNE_ROUNDED, size=24, color=Config.COLOR_PRIMARY),
                 ft.Text("Gestión y Ajustes de Inventario", size=22, weight="bold", color=Config.COLOR_PRIMARY),
                 ft.Container(expand=True),
+                self.periodo_selector,
                 self.btn_fullscreen
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
             self.tabs_control
@@ -453,6 +500,10 @@ class AjustesInventarioView(ft.Container):
                 self.update()
         except Exception:
             pass
+
+    def safe_page_update(self):
+        """Alias para actualización segura de página."""
+        self.safe_update()
 
     def toggle_fullscreen(self, e):
         self.is_fullscreen = not getattr(self, "is_fullscreen", False)
@@ -740,20 +791,207 @@ class AjustesInventarioView(ft.Container):
             except Exception:
                 pass
 
-    def _clear_date(self, e):
+    def _open_date_picker(self, e=None):
+        if not self.page:
+            return
+        if self.date_picker not in self.page.overlay:
+            self.page.overlay.append(self.date_picker)
+            try:
+                self.page.update()
+            except Exception:
+                pass
+        try:
+            self.date_picker.pick_date()
+        except AssertionError:
+            try:
+                self.page.update()
+                self.date_picker.pick_date()
+            except Exception:
+                pass
+
+    def _clear_date(self, e=None):
         self.date_picker.value = None
-        self.btn_date.tooltip = "Filtrar por Fecha de Ajuste"
-        self.btn_date.icon_color = None
+        self.btn_date_filtro.text = "Filtrar por Fecha"
         self.btn_clear_date.visible = False
         self._on_filter_change()
         
     def _on_filter_change(self):
         self.current_page = 1
         if self.date_picker.value:
-            self.btn_date.tooltip = f"Fecha: {self.date_picker.value.strftime('%Y-%m-%d')}"
-            self.btn_date.icon_color = "blue"
+            self.btn_date_filtro.text = self.date_picker.value.strftime('%Y-%m-%d')
             self.btn_clear_date.visible = True
+        else:
+            self.btn_date_filtro.text = "Filtrar por Fecha"
+            self.btn_clear_date.visible = False
         self.render_table()
+        self.safe_update()
+
+    def toggle_panel_filtros(self, e=None):
+        self.panel_filtros_abierto = not self.panel_filtros_abierto
+        self.panel_filtros.visible = self.panel_filtros_abierto
+        self.btn_toggle_filtros.icon = ft.icons.FILTER_ALT_OFF_ROUNDED if self.panel_filtros_abierto else ft.icons.TUNE_ROUNDED
+        self.safe_update()
+
+    def limpiar_todos_los_filtros(self, e=None):
+        self.search_filter_autocomplete.value = ""
+        self.search_input_text.value = ""
+        self.date_picker.value = None
+        self.btn_date_filtro.text = "Filtrar por Fecha"
+        self.btn_clear_date.visible = False
+        self.drop_tipo.value = "Todos"
+        self.drop_origen.value = "Todos"
+        self.drop_motivo.value = "Todos"
+        self.current_page = 1
+        self.render_table()
+        self.safe_update()
+
+    def abrir_modal_editar_ajuste(self, aj):
+        id_ajuste = aj.get("id_ajuste")
+        cod = aj.get("codigo_insumo", "")
+        cat_info = aj.get("catalogo_insumos", {})
+        nombre = cat_info.get("nombre", "Desconocido") if isinstance(cat_info, dict) else "Desconocido"
+        es_entrada = aj.get("tipo_ajuste") in ('AJUSTE_ENTRADA', 'ENTRADA_POR_SOBRANTE')
+        
+        tipo_drop = ft.Dropdown(
+            label="Tipo de Ajuste",
+            options=[ft.dropdown.Option("ENTRADA"), ft.dropdown.Option("SALIDA")],
+            value="ENTRADA" if es_entrada else "SALIDA",
+            dense=True,
+            expand=True,
+            border_radius=8
+        )
+        
+        def _get_motivos(tipo):
+            if tipo == "ENTRADA":
+                return ["Sobrante de Inventario", "Donación Entrante", "Devolución Cliente", "Otro (Entrada)"]
+            else:
+                return ["Daño / Merma", "Vencimiento", "Pérdida", "Consumo Familiar", "Consumo Cliente (Cortesía)", "Donación Saliente", "Otro (Salida)"]
+        
+        motivo_actual = aj.get("motivo_observacion", "")
+        motivos_opts = _get_motivos(tipo_drop.value)
+        if motivo_actual and motivo_actual not in motivos_opts:
+            motivos_opts.insert(0, motivo_actual)
+            
+        motivo_drop = ft.Dropdown(
+            label="Motivo del Ajuste",
+            options=[ft.dropdown.Option(m) for m in motivos_opts],
+            value=motivo_actual if motivo_actual in motivos_opts else (motivos_opts[0] if motivos_opts else None),
+            dense=True,
+            expand=True,
+            border_radius=8
+        )
+        
+        def _on_edit_tipo_change(e):
+            nuevos = _get_motivos(tipo_drop.value)
+            motivo_drop.options = [ft.dropdown.Option(m) for m in nuevos]
+            motivo_drop.value = nuevos[0] if nuevos else None
+            self.safe_page_update()
+            
+        tipo_drop.on_change = _on_edit_tipo_change
+        
+        cant_actual = float(aj.get("cantidad") or 0.0)
+        costo_u_actual = float(aj.get("costo_unitario_congelado") or 0.0)
+        
+        txt_cant = ft.TextField(
+            label="Cantidad",
+            value=str(int(cant_actual) if cant_actual.is_integer() else cant_actual),
+            dense=True,
+            expand=True,
+            border_radius=8,
+            keyboard_type=ft.KeyboardType.NUMBER
+        )
+        
+        txt_costo = ft.TextField(
+            label="Costo Unitario ($)",
+            value=str(int(costo_u_actual) if costo_u_actual.is_integer() else costo_u_actual),
+            dense=True,
+            expand=True,
+            border_radius=8,
+            keyboard_type=ft.KeyboardType.NUMBER
+        )
+        
+        lbl_tot_calc = ft.Text(f"Total Impacto: ${float(aj.get('costo_total_ajuste') or 0.0):,.2f}", size=12, weight="bold", color=Config.COLOR_PRIMARY)
+        
+        def _recalc_tot(e):
+            try:
+                c = float((txt_cant.value or "0").replace(',', '.'))
+                cu = float((txt_costo.value or "0").replace(',', '.'))
+                lbl_tot_calc.value = f"Total Impacto: ${c * cu:,.2f}"
+            except ValueError:
+                lbl_tot_calc.value = "Total Impacto: $0.00"
+            self.safe_page_update()
+            
+        txt_cant.on_change = _recalc_tot
+        txt_costo.on_change = _recalc_tot
+        
+        def _do_guardar(e):
+            try:
+                nueva_cant = float((txt_cant.value or "0").replace(',', '.'))
+                nuevo_cu = float((txt_costo.value or "0").replace(',', '.'))
+                if nueva_cant <= 0:
+                    self.mostrar_alerta("La cantidad debe ser mayor a cero.", "red")
+                    return
+                if nuevo_cu < 0:
+                    self.mostrar_alerta("El costo unitario no puede ser negativo.", "red")
+                    return
+                if not motivo_drop.value:
+                    self.mostrar_alerta("Debes seleccionar un motivo.", "red")
+                    return
+                    
+                tipo_bd = "AJUSTE_ENTRADA" if tipo_drop.value == "ENTRADA" else "AJUSTE_SALIDA"
+                if tipo_drop.value == "ENTRADA" and motivo_drop.value == "Sobrante de Inventario":
+                    tipo_bd = "ENTRADA_POR_SOBRANTE"
+                elif tipo_drop.value == "SALIDA" and motivo_drop.value == "Vencimiento":
+                    tipo_bd = "BAJA_VENCIMIENTO"
+                elif tipo_drop.value == "SALIDA" and motivo_drop.value == "Pérdida":
+                    tipo_bd = "SALIDA_POR_FALTANTE"
+                    
+                tot_ajuste = round(nueva_cant * nuevo_cu, 2)
+                
+                payload = {
+                    "tipo_ajuste": tipo_bd,
+                    "motivo_observacion": motivo_drop.value,
+                    "cantidad": nueva_cant,
+                    "costo_unitario_congelado": nuevo_cu,
+                    "costo_total_ajuste": tot_ajuste
+                }
+                
+                dlg_edit.open = False
+                self.safe_page_update()
+                
+                if self.db.actualizar_ajuste(id_ajuste, payload):
+                    self.mostrar_alerta(f"✓ Ajuste de [{cod}] actualizado exitosamente.", "green700")
+                    self.load_data()
+                else:
+                    self.mostrar_alerta("Error al actualizar el ajuste en la base de datos.", "red")
+            except Exception as ex:
+                self.mostrar_alerta(f"Error al procesar: {ex}", "red")
+
+        dlg_edit = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.EDIT_NOTE_ROUNDED, color=Config.COLOR_PRIMARY, size=20),
+                ft.Text(f"Editar Ajuste - [{cod}]", size=15, weight="bold", color=Config.COLOR_PRIMARY, expand=True)
+            ], spacing=6),
+            content=ft.Container(
+                width=460,
+                content=ft.Column([
+                    ft.Text(nombre, size=12, color="grey700", weight="w500"),
+                    ft.Row([tipo_drop, motivo_drop], spacing=8),
+                    ft.Row([txt_cant, txt_costo], spacing=8),
+                    lbl_tot_calc
+                ], tight=True, spacing=10)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: (setattr(dlg_edit, 'open', False), self.safe_page_update())),
+                ft.ElevatedButton("Guardar Cambios", bgcolor=Config.COLOR_PRIMARY, color="white", on_click=_do_guardar)
+            ]
+        )
+        
+        if self.page:
+            if dlg_edit not in self.page.overlay:
+                self.page.overlay.append(dlg_edit)
+            dlg_edit.open = True
+            self.safe_page_update()
         
     def _prev_page(self, e):
         if self.current_page > 1:
@@ -787,6 +1025,11 @@ class AjustesInventarioView(ft.Container):
         self.data_completa = self.db.get_ajustes_inventario()
         self.render_table(val_inv_base)
 
+    def on_periodo_change(self, nuevo_periodo: str):
+        self.current_page = 1
+        self.render_table()
+        self.safe_update()
+
     def render_table(self, val_inv_base=None):
         if val_inv_base is None:
             # Recuperar el valor base desde el label si no se provee (eliminando caracteres de moneda)
@@ -807,6 +1050,7 @@ class AjustesInventarioView(ft.Container):
         filtro_tipo = self.drop_tipo.value
         filtro_origen = self.drop_origen.value if hasattr(self, "drop_origen") else "Todos"
         filtro_motivo = self.drop_motivo.value
+        mes_filtro = self.periodo_selector.get_periodo_actual() if hasattr(self, "periodo_selector") else None
         
         filtered_data = []
         total_ent_pos = 0.0
@@ -837,6 +1081,8 @@ class AjustesInventarioView(ft.Container):
             match_texto = all(t in texto_aj for t in tokens_filtro) if tokens_filtro else True
             fecha_ajuste_local = parsear_a_fecha_local(aj.get("fecha_ajuste"))
             match_fecha = filtro_fecha is None or fecha_ajuste_local == filtro_fecha
+            f_aj = str(aj.get("fecha_ajuste") or "")[:7]
+            match_periodo = (filtro_fecha is not None) or (mes_filtro is None) or (f_aj == mes_filtro)
             
             tipo_ajuste_str = "Entrada" if es_entrada else "Salida"
             match_tipo = filtro_tipo == "Todos" or filtro_tipo == tipo_ajuste_str
@@ -849,7 +1095,7 @@ class AjustesInventarioView(ft.Container):
 
             match_motivo = filtro_motivo == "Todos" or filtro_motivo == aj["motivo_observacion"]
             
-            if match_texto and match_fecha and match_tipo and match_origen and match_motivo:
+            if match_texto and match_fecha and match_tipo and match_origen and match_motivo and match_periodo:
                 filtered_data.append(aj)
 
             # Acumular KPIs sobre todos los datos VÁLIDOS del historial general, sin importar los filtros visuales.
@@ -894,84 +1140,106 @@ class AjustesInventarioView(ft.Container):
                 lbl_origen = f"Cierre {mes_periodo}" if mes_periodo else "Cierre de Mes"
                 badge_origen = ft.Container(
                     content=ft.Row([
-                        ft.Icon(ft.icons.LOCK_CLOCK_ROUNDED, size=13, color="#6D28D9"),
-                        ft.Text(lbl_origen, color="#6D28D9", weight="bold", size=11)
-                    ], spacing=4),
-                    padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                        ft.Icon(ft.icons.LOCK_CLOCK_ROUNDED, size=11, color="#6D28D9"),
+                        ft.Text(lbl_origen, color="#6D28D9", weight="bold", size=9.5)
+                    ], spacing=3, tight=True),
+                    padding=ft.padding.symmetric(horizontal=6, vertical=2),
                     bgcolor="#EDE9FE",
-                    border_radius=12,
+                    border_radius=10,
                     border=ft.border.all(1, "#DDD6FE"),
                     tooltip="Ajuste originado por auditoría de Cierre de Mes"
                 )
             else:
                 badge_origen = ft.Container(
                     content=ft.Row([
-                        ft.Icon(ft.icons.EDIT_NOTE_ROUNDED, size=13, color="#475569"),
-                        ft.Text("Ajuste Manual", color="#475569", weight="bold", size=11)
-                    ], spacing=4),
-                    padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                        ft.Icon(ft.icons.EDIT_NOTE_ROUNDED, size=11, color="#475569"),
+                        ft.Text("Manual", color="#475569", weight="bold", size=9.5)
+                    ], spacing=3, tight=True),
+                    padding=ft.padding.symmetric(horizontal=6, vertical=2),
                     bgcolor="#F1F5F9",
-                    border_radius=12,
+                    border_radius=10,
                     border=ft.border.all(1, "#E2E8F0"),
                     tooltip="Ajuste operativo manual registrado de forma individual"
                 )
 
-            # Tarjeta de Ajuste (Card UI)
-            tipo_bg = "#e8f5e9" if es_entrada else "#ffebee"
-            tipo_color = "green" if es_entrada else "red"
+            # Tipo de Ajuste
+            tipo_bg = "#ecfdf5" if es_entrada else "#fef2f2"
+            tipo_color = "green700" if es_entrada else "red700"
             badge_tipo = ft.Container(
-                content=ft.Text("Entrada" if es_entrada else "Salida", color=tipo_color, weight="bold", size=12),
-                padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                content=ft.Text("Entrada (+)" if es_entrada else "Salida (-)", color=tipo_color, weight="bold", size=10),
+                padding=ft.padding.symmetric(horizontal=6, vertical=2),
                 bgcolor=tipo_bg,
-                border_radius=15
+                border=ft.border.all(1, "#a7f3d0" if es_entrada else "#fecaca"),
+                border_radius=10
             )
 
             fecha_item_local = parsear_a_fecha_local(aj.get("fecha_ajuste"))
-            fila1_cabecera = ft.Row([
+
+            # Fila 1: Badges, Insumo, Fecha e Importe Total
+            fila1 = ft.Row([
+                badge_tipo,
+                badge_origen,
+                ft.Text(f"[{aj['codigo_insumo']}] {nombre}", size=12.5, weight="bold", color="black87", expand=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                 ft.Row([
-                    ft.Icon(ft.icons.CALENDAR_MONTH, size=15, color="grey"),
-                    ft.Text(fecha_item_local, size=11.5, color="grey"),
-                    badge_origen
-                ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                badge_tipo
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                    ft.Icon(ft.icons.CALENDAR_MONTH_ROUNDED, size=12, color="grey600"),
+                    ft.Text(fecha_item_local, size=10.5, color="grey600"),
+                ], spacing=3, tight=True),
+                ft.Text(val_total_str, size=13, weight="bold", color=tipo_color)
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=6)
 
-            fila2_principal = ft.Row([
-                ft.Container(content=ft.Text(f"[{aj['codigo_insumo']}] {nombre}", size=16, weight="bold"), expand=True),
-                ft.Text(val_total_str, size=16, weight="bold", color=tipo_color)
-            ])
-
-            fila3_detalles = ft.Row([
-                ft.Container(content=ft.Text(f"Motivo: {aj['motivo_observacion']}", size=13, color="grey"), expand=True),
-                ft.Text(f"Cant: {aj['cantidad']}", size=13, color="grey", weight="bold"),
-                ft.Text(f"Costo U: ${aj['costo_unitario_congelado']:,.2f}", size=13, color="grey")
-            ], alignment=ft.MainAxisAlignment.START, spacing=20)
-
-            tarjeta_content = [fila1_cabecera, fila2_principal, fila3_detalles]
-
+            # Fila 2: Detalles (Motivo, Cantidad, Costo Unitario) y Botones de Acción (Iconos con Tooltips)
+            btn_style_compact = ft.ButtonStyle(padding=0)
+            
             if aj["estado_registro"] == "VÁLIDO":
-                fila4_acciones = ft.Column([
-                    ft.Divider(height=1, color="#f0f0f0"),
-                    ft.Row([
-                        ft.TextButton("Anular Registro", icon=ft.icons.CANCEL, icon_color="red", style=ft.ButtonStyle(color="red"), on_click=lambda e, id_aj=aj["id_ajuste"]: self.anular_registro(id_aj))
-                    ], alignment=ft.MainAxisAlignment.END)
-                ])
-                tarjeta_content.append(fila4_acciones)
+                btn_editar = ft.IconButton(
+                    icon=ft.icons.EDIT_OUTLINED,
+                    icon_size=15,
+                    icon_color="blue700",
+                    width=26,
+                    height=26,
+                    style=btn_style_compact,
+                    tooltip="Editar ajuste",
+                    on_click=lambda e, a=aj: self.abrir_modal_editar_ajuste(a)
+                )
+                btn_anular = ft.IconButton(
+                    icon=ft.icons.CANCEL_OUTLINED,
+                    icon_size=15,
+                    icon_color="red700",
+                    width=26,
+                    height=26,
+                    style=btn_style_compact,
+                    tooltip="Anular ajuste",
+                    on_click=lambda e, id_aj=aj["id_ajuste"]: self.anular_registro(id_aj)
+                )
+                acciones_row = ft.Row([btn_editar, btn_anular], spacing=2, tight=True)
             else:
-                fila4_acciones = ft.Column([
-                    ft.Divider(height=1, color="#f0f0f0"),
-                    ft.Row([
-                        ft.Text("Registro Anulado", color="grey", italic=True)
-                    ], alignment=ft.MainAxisAlignment.END)
-                ])
-                tarjeta_content.append(fila4_acciones)
+                acciones_row = ft.Container(
+                    content=ft.Text("ANULADO", size=9, weight="bold", color="red400"),
+                    bgcolor="#fef2f2",
+                    border=ft.border.all(1, "#fecaca"),
+                    padding=ft.padding.symmetric(horizontal=5, vertical=1),
+                    border_radius=4
+                )
+
+            fila2 = ft.Row([
+                ft.Row([
+                    ft.Text("Motivo: ", size=10.5, color="grey600"),
+                    ft.Text(str(aj.get('motivo_observacion') or 'N/A'), size=10.5, weight="w500", color="black87"),
+                    ft.Text(" • ", color="grey400", size=10),
+                    ft.Text("Cant: ", size=10.5, color="grey600"),
+                    ft.Text(f"{float(aj.get('cantidad') or 0):g} unds", size=10.5, weight="bold", color="black87"),
+                    ft.Text(" • ", color="grey400", size=10),
+                    ft.Text(f"Costo U: ${float(aj.get('costo_unitario_congelado') or 0):,.0f}", size=10.5, color="grey700")
+                ], spacing=2, expand=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                acciones_row
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
             tarjeta = ft.Container(
-                content=ft.Column(tarjeta_content, spacing=8),
+                content=ft.Column([fila1, fila2], spacing=4),
                 bgcolor="white",
-                padding=15,
+                padding=ft.padding.symmetric(horizontal=10, vertical=6),
                 border_radius=8,
-                border=ft.border.all(1, "#e0e0e0")
+                border=ft.border.all(1, "#e2e8f0")
             )
             self.lista_ajustes.controls.append(tarjeta)
             

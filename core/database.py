@@ -29,6 +29,19 @@ class BaseDatabase:
             self.url = self.url + "/rest/v1"
 
         self.session = requests.Session()
+        from requests.adapters import HTTPAdapter
+        from urllib3.util import Retry
+
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=0.3,
+            status_forcelist=[500, 502, 503, 504],
+            raise_on_status=False
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=10, pool_maxsize=20)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
+
         self.headers = {
             "apikey": self.key,
             "Authorization": f"Bearer {self.key}",
@@ -37,11 +50,21 @@ class BaseDatabase:
         self.session.headers.update(self.headers)
         logger.info("Sesión HTTP de base de datos inicializada correctamente.")
 
+    def reset_session(self):
+        """Cierra sockets anteriores y renueva la sesión HTTP para auto-recuperación de conexión."""
+        try:
+            if hasattr(self, "session") and self.session:
+                self.session.close()
+        except Exception:
+            pass
+        self._init_connection()
+        logger.info("Sesión HTTP de base de datos restablecida correctamente.")
+
     def check_connection(self) -> tuple[bool, str]:
         if not self.url or not self.key:
             return False, "Faltan credenciales de Supabase en configuración (.env)"
         try:
-            res = self.session.get(f"{self.url}/catalogo_insumos?limit=1", headers=self.headers, timeout=10)
+            res = self.session.get(f"{self.url}/catalogo_insumos?limit=1", headers=self.headers, timeout=12)
             if res.status_code == 200:
                 return True, "Conexión exitosa con Supabase"
             return False, f"Error del servidor HTTP {res.status_code}: {res.text}"
@@ -52,7 +75,7 @@ class BaseDatabase:
             msg = log_error("check_connection_generico", e)
             return False, msg
 
-    def get(self, endpoint: str, params: dict | None = None, custom_headers: dict | None = None, timeout: int = 10) -> requests.Response | None:
+    def get(self, endpoint: str, params: dict | None = None, custom_headers: dict | None = None, timeout: int = 15) -> requests.Response | None:
         try:
             url = f"{self.url}/{endpoint}" if not endpoint.startswith("http") else endpoint
             headers = self.headers.copy()
@@ -64,8 +87,8 @@ class BaseDatabase:
             log_error(f"GET {endpoint}", ex)
             return None
 
-    def get_all(self, endpoint: str, page_size: int = 1000, timeout: int = 15) -> list[dict]:
-        """Descarga todos los registros paginados de un endpoint PostgREST."""
+    def get_all(self, endpoint: str, page_size: int = 2000, timeout: int = 25) -> list[dict]:
+        """Descarga todos los registros paginados de un endpoint PostgREST con alta resiliencia."""
         all_rows = []
         offset = 0
         sep = "&" if "?" in endpoint else "?"

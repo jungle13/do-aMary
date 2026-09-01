@@ -235,3 +235,51 @@ class ClientesRepository:
         except Exception as ex:
             log_error(f"actualizar_cliente({id_cliente})", ex)
             return False
+
+    def asignar_vendedor_cliente(self, nombre_cliente: str, vendedor: str | None, porcentaje_comision: float = 0.0) -> bool:
+        """Asigna o actualiza el vendedor encargado y porcentaje de comisión a un cliente."""
+        try:
+            nombre_clean = self.normalizar_nombre_cliente(nombre_cliente)
+            nom_enc = urllib.parse.quote(nombre_clean)
+            v_val = (vendedor or "").strip()
+            p_val = max(0.0, float(porcentaje_comision or 0.0))
+
+            payload = {
+                "vendedor_encargado": v_val if v_val else None,
+                "porcentaje_comision": p_val
+            }
+
+            # Asegurar que el cliente existe primero
+            cli = self.get_or_create_cliente(nombre_clean)
+            if cli and cli.get("id_cliente"):
+                id_enc = urllib.parse.quote(str(cli["id_cliente"]))
+                res = self.db.patch(f"clientes?id_cliente=eq.{id_enc}", json_data=payload, timeout=8)
+            else:
+                res = self.db.patch(f"clientes?nombre=eq.{nom_enc}", json_data=payload, timeout=8)
+
+            ok = bool(res and res.status_code in (200, 204))
+            if ok:
+                with self._cache_lock:
+                    if nombre_clean in self._cache_clientes:
+                        self._cache_clientes[nombre_clean]["vendedor_encargado"] = payload["vendedor_encargado"]
+                        self._cache_clientes[nombre_clean]["porcentaje_comision"] = payload["porcentaje_comision"]
+            return ok
+        except Exception as ex:
+            log_error(f"asignar_vendedor_cliente({nombre_cliente})", ex)
+            return False
+
+    def get_vendedores_disponibles(self) -> list[str]:
+        """Retorna la lista de vendedores únicos registrados en el catálogo de clientes."""
+        try:
+            res = self.db.get("clientes?select=vendedor_encargado&vendedor_encargado=not.is.null", timeout=6)
+            if res and res.status_code == 200 and res.json():
+                vendedores = set()
+                for r in res.json():
+                    v = (r.get("vendedor_encargado") or "").strip()
+                    if v:
+                        vendedores.add(v)
+                return sorted(list(vendedores))
+            return []
+        except Exception as ex:
+            log_error("get_vendedores_disponibles", ex)
+            return []

@@ -56,7 +56,7 @@ class ConteoInicialView(ft.Container):
         )
 
         self.btn_qr_movil = ft.ElevatedButton(
-            "📱 Conteo Móvil (QR)",
+            "Conteo Móvil (QR)",
             icon=ft.icons.QR_CODE_SCANNER_ROUNDED,
             bgcolor=Config.COLOR_PRIMARY,
             color="white",
@@ -636,7 +636,7 @@ class ConteoInicialView(ft.Container):
         )
 
         btn_activar_tunnel = ft.ElevatedButton(
-            "🌐 Activar Acceso por Internet (Cloudflare)",
+            "Activar Acceso por Internet (Cloudflare)",
             icon=ft.icons.CLOUD_SYNC_ROUNDED,
             bgcolor=Config.COLOR_PRIMARY,
             color="white",

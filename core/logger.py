@@ -1,4 +1,4 @@
-﻿"""
+"""
 Módulo centralizado de logging y diagnóstico de errores para Sistema Doña Mary.
 Proporciona trazabilidad completa en consola y archivo de log para facilitar la depuración.
 """
@@ -40,14 +40,50 @@ def get_logger(name: str = "DonaMaryApp") -> logging.Logger:
     """Retorna un logger con el nombre especificado que hereda la configuración base."""
     return logging.getLogger(f"DonaMaryApp.{name}")
 
+def _enviar_error_remoto_bg(context: str, tipo_error: str, mensaje: str, tb: str, extra_info: dict | None):
+    """Envía el registro del error a Supabase en segundo plano sin bloquear la aplicación."""
+    try:
+        from core.database import BaseDatabase
+        usuario = "admin"
+        try:
+            from core.audit_logger import get_current_user_name
+            usuario = get_current_user_name() or "admin"
+        except Exception:
+            pass
+        
+        db = BaseDatabase()
+        payload = {
+            "modulo": str(context)[:100],
+            "tipo_error": str(tipo_error)[:100],
+            "mensaje_error": str(mensaje)[:500],
+            "traceback": str(tb)[:4000],
+            "usuario": str(usuario)[:50],
+            "datos_adicionales": extra_info or {}
+        }
+        db.post("registro_errores_sistema", json_data=payload, timeout=5)
+    except Exception:
+        # Fallo silencioso si no hay internet o si la base de datos no está disponible
+        pass
+
 def log_error(context: str, error: Exception, extra_info: dict | None = None) -> str:
     """
-    Registra un error detallado con traceback completo y contexto.
+    Registra un error detallado con traceback completo y contexto en consola,
+    en archivo local app.log y en la base de datos Supabase para telemetría en producción.
     Retorna un mensaje legible para mostrar al usuario.
     """
     tb = traceback.format_exc()
+    tipo_error = type(error).__name__
+    mensaje = str(error)
     info_str = f" | Contexto extra: {extra_info}" if extra_info else ""
-    logger.error(f"Error en [{context}]: {str(error)}{info_str}\nTraceback:\n{tb}")
+    logger.error(f"Error en [{context}]: {mensaje}{info_str}\nTraceback:\n{tb}")
+    
+    # Enviar a Supabase en hilo secundario daemon
+    import threading
+    threading.Thread(
+        target=_enviar_error_remoto_bg,
+        args=(context, tipo_error, mensaje, tb, extra_info),
+        daemon=True
+    ).start()
     
     # Mensaje amigable para la UI
-    return f"Ocurrió un error en [{context}]: {str(error)}"
+    return f"Ocurrió un error en [{context}]: {mensaje}"

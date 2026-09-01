@@ -307,7 +307,7 @@ class CierreInventarioView(ft.Container):
             self.badge_estado_auditoria,
             ft.Container(expand=True),
             ft.ElevatedButton(
-                "🔄 Actualizar",
+                "Actualizar",
                 icon=ft.icons.REFRESH_ROUNDED,
                 bgcolor=Config.COLOR_BACKGROUND,
                 color=Config.COLOR_PRIMARY,
@@ -320,7 +320,7 @@ class CierreInventarioView(ft.Container):
                 on_click=lambda e: threading.Thread(target=self._worker_cargar_datos_auditoria, daemon=True).start()
             ),
             ft.ElevatedButton(
-                "📱 QR Móvil",
+                "QR Móvil",
                 icon=ft.icons.QR_CODE_SCANNER_ROUNDED,
                 bgcolor=Config.COLOR_PRIMARY,
                 color="white",
@@ -332,7 +332,7 @@ class CierreInventarioView(ft.Container):
                 on_click=self.abrir_modal_qr
             ),
             ft.ElevatedButton(
-                "🔒 Cerrar Periodo",
+                "Cerrar Periodo",
                 icon=ft.icons.LOCK_ROUNDED,
                 bgcolor=Config.COLOR_ACCENT,
                 color="white",
@@ -707,7 +707,16 @@ class CierreInventarioView(ft.Container):
                 on_click=lambda e, item_sel=it: self.seleccionar_insumo_para_conteo(item_sel)
             )
 
-            acciones_row = [btn_ojo, btn_lapiz]
+            btn_eliminar = ft.IconButton(
+                icon=ft.icons.DELETE_OUTLINE_ROUNDED,
+                icon_color="red600",
+                icon_size=17,
+                tooltip="Eliminar Conteo Físico",
+                visible=(fisico is not None),
+                on_click=lambda e, item_sel=it: self.confirmar_eliminar_conteo(item_sel)
+            )
+
+            acciones_row = [btn_ojo, btn_lapiz, btn_eliminar]
 
             # Botón Ajuste (solo si hay descuadre y no está ajustado)
             if est_ui == "DESCUADRADO" and dif is not None and dif != 0:
@@ -872,6 +881,79 @@ class CierreInventarioView(ft.Container):
         except Exception as ex:
             log_error(f"_worker_guardar_conteo({cod})", ex)
             self.mostrar_alerta(f"Error al guardar conteo: {ex}", "red")
+
+    def confirmar_eliminar_conteo(self, item):
+        cod = item.get("codigo_insumo")
+        nom = item.get("nombre")
+        fisico = item.get("cantidad_fisica")
+
+        def on_confirmar(e):
+            self._cerrar_dialogo(dlg_del)
+            self._ejecutar_eliminar_conteo(item)
+
+        dlg_del = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.DELETE_SWEEP_ROUNDED, color="red600", size=22),
+                ft.Text("Eliminar Conteo Físico", weight="bold", size=15, color=Config.COLOR_PRIMARY)
+            ], spacing=6),
+            content=ft.Container(
+                width=420,
+                content=ft.Column([
+                    ft.Text("¿Estás seguro de eliminar el conteo físico de este insumo?", size=13),
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text(f"[{cod}] {nom}", weight="bold", size=12.5, color=Config.COLOR_PRIMARY),
+                            ft.Text(f"Conteo actual a limpiar: {float(fisico):g} unidades" if fisico is not None else "Sin conteo", size=11.5, color="red700", weight="bold"),
+                        ], spacing=2),
+                        padding=8,
+                        bgcolor="#FEF2F2",
+                        border=ft.border.all(1, "#FECACA"),
+                        border_radius=6
+                    ),
+                    ft.Text("El estado volverá a PENDIENTE y la acción quedará registrada en el Historial de Conteo y Auditoría.", size=11, color="grey700")
+                ], tight=True, spacing=8)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: self._cerrar_dialogo(dlg_del)),
+                ft.ElevatedButton("Eliminar Conteo", bgcolor="red600", color="white", on_click=on_confirmar)
+            ]
+        )
+        self.page.overlay.append(dlg_del)
+        dlg_del.open = True
+        self.safe_update()
+
+    def _ejecutar_eliminar_conteo(self, item):
+        threading.Thread(target=self._worker_eliminar_conteo, args=(item,), daemon=True).start()
+
+    def _worker_eliminar_conteo(self, item):
+        cod = item.get("codigo_insumo")
+        try:
+            res = self.mobile_service.eliminar_conteo(
+                codigo_insumo=cod,
+                mes_periodo=self.mes_seleccionado,
+                usuario="Escritorio",
+                rol="ADMINISTRADOR"
+            )
+
+            # Actualizar memoria local
+            for it in self.insumos_lista:
+                if str(it.get("codigo_insumo")) == str(cod):
+                    it["cantidad_fisica"] = None
+                    it["estado"] = "PENDIENTE"
+                    it["observacion"] = "[Escritorio (ADMINISTRADOR)] Conteo físico eliminado/limpiado"
+                    it["usuario_conteo"] = "Escritorio"
+                    break
+
+            # Si el insumo eliminado estaba activo en el panel rápido de conteo, limpiarlo
+            if self.insumo_activo and str(self.insumo_activo.get("codigo_insumo")) == str(cod):
+                self.insumo_activo["cantidad_fisica"] = None
+                self.txt_cant_fisica.value = "0"
+
+            self.mostrar_alerta(f"✓ Conteo físico eliminado para [{cod}]", "green")
+            self._filtrar_y_renderizar_tabla()
+        except Exception as ex:
+            log_error(f"_worker_eliminar_conteo({cod})", ex)
+            self.mostrar_alerta(f"Error al eliminar conteo: {ex}", "red")
 
     # ==========================================
     # MODAL DE AJUSTE AUTOMÁTICO
@@ -1206,7 +1288,7 @@ class CierreInventarioView(ft.Container):
             actions=[
                 ft.TextButton("Revisar Manualmente", on_click=lambda ev: self._cerrar_dialogo(dlg_smart)),
                 ft.ElevatedButton(
-                    "🔒 ✓ Aplicar Ajustes y Cerrar Mes",
+                    "Aplicar Ajustes y Cerrar Mes",
                     bgcolor=Config.COLOR_PRIMARY,
                     color="white",
                     icon=ft.icons.LOCK_ROUNDED,
@@ -1335,7 +1417,7 @@ class CierreInventarioView(ft.Container):
         )
 
         btn_activar_tunnel = ft.ElevatedButton(
-            "🌐 Activar Acceso por Internet (Cloudflare)",
+            "Activar Acceso por Internet (Cloudflare)",
             icon=ft.icons.CLOUD_SYNC_ROUNDED,
             bgcolor=Config.COLOR_PRIMARY,
             color="white",
@@ -1532,8 +1614,26 @@ class CierreInventarioView(ft.Container):
             )
         else:
             for h in historial:
-                disp_icon = ft.icons.PHONE_ANDROID_ROUNDED if h.get("dispositivo") == "WEB_MOVIL" else ft.icons.DESKTOP_WINDOWS_ROUNDED
-                disp_color = Config.COLOR_ACCENT if h.get("dispositivo") == "WEB_MOVIL" else Config.COLOR_PRIMARY
+                es_eliminacion = (h.get("modo") == "ELIMINAR_CONTEO")
+                if es_eliminacion:
+                    disp_icon = ft.icons.DELETE_SWEEP_ROUNDED
+                    disp_color = "red600"
+                    badge_cant = ft.Container(
+                        content=ft.Text("ELIMINADO", size=10, weight="bold", color="red700"),
+                        padding=ft.padding.symmetric(horizontal=8, vertical=2),
+                        bgcolor="#fef2f2",
+                        border=ft.border.all(1, "#fecaca"),
+                        border_radius=6
+                    )
+                else:
+                    disp_icon = ft.icons.PHONE_ANDROID_ROUNDED if h.get("dispositivo") == "WEB_MOVIL" else ft.icons.DESKTOP_WINDOWS_ROUNDED
+                    disp_color = Config.COLOR_ACCENT if h.get("dispositivo") == "WEB_MOVIL" else Config.COLOR_PRIMARY
+                    badge_cant = ft.Container(
+                        content=ft.Text(f"{h.get('cantidad_ingresada')} unds", size=11, weight="bold", color="green700"),
+                        padding=ft.padding.symmetric(horizontal=8, vertical=2),
+                        bgcolor=ft.colors.with_opacity(0.1, "green"),
+                        border_radius=6
+                    )
                 
                 items_timeline.append(
                     ft.Container(
@@ -1541,26 +1641,21 @@ class CierreInventarioView(ft.Container):
                             ft.Row([
                                 ft.Row([
                                     ft.Icon(disp_icon, size=15, color=disp_color),
-                                    ft.Text(f"{h.get('usuario')} ({h.get('rol')})", size=12, weight="bold", color=Config.COLOR_PRIMARY),
+                                    ft.Text(f"{h.get('usuario')} ({h.get('rol')})", size=12, weight="bold", color=Config.COLOR_PRIMARY if not es_eliminacion else "red800"),
                                 ], spacing=6),
                                 ft.Container(expand=True),
-                                ft.Container(
-                                    content=ft.Text(f"{h.get('cantidad_ingresada')} unds", size=11, weight="bold", color="green700"),
-                                    padding=ft.padding.symmetric(horizontal=8, vertical=2),
-                                    bgcolor=ft.colors.with_opacity(0.1, "green"),
-                                    border_radius=6
-                                )
+                                badge_cant
                             ]),
                             ft.Row([
                                 ft.Text(f"🕒 {h.get('fecha')} {h.get('hora')} • {h.get('dispositivo')}", size=10, color=Config.COLOR_TEXT_MUTED),
                                 ft.Container(expand=True),
-                                ft.Text(f"Modo: {h.get('modo')}", size=10, weight="w500", color="grey700")
+                                ft.Text(f"Modo: {h.get('modo')}", size=10, weight="w500", color="red700" if es_eliminacion else "grey700")
                             ]),
                             ft.Text(h.get("observacion") or "", size=11, color="black87", italic=True) if h.get("observacion") else ft.Container()
                         ], spacing=3),
                         padding=10,
-                        bgcolor="#F8FAFC",
-                        border=ft.border.all(1, "#E2E8F0"),
+                        bgcolor="#fff5f5" if es_eliminacion else "#F8FAFC",
+                        border=ft.border.all(1, "#fecaca" if es_eliminacion else "#E2E8F0"),
                         border_radius=8
                     )
                 )

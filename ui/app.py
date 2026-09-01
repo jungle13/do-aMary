@@ -33,12 +33,12 @@ class AppLayout(ft.Row):
         
         self.initial_route = "dashboard" if es_admin else "inventario"
 
-        # Instanciar vista inicial
+        self.active_route = self.initial_route
+        self._nav_token = 0
+
+        # Instanciar vista inicial limpia
         self.views = {}
-        if self.initial_route == "dashboard":
-            self.views["dashboard"] = DashboardView()
-        else:
-            self.views["inventario"] = InventarioView()
+        self.views[self.initial_route] = self._crear_vista(self.initial_route)
 
         self.active_view = ft.Container(
             content=self.views[self.initial_route],
@@ -48,26 +48,114 @@ class AppLayout(ft.Row):
             alignment=ft.alignment.top_left
         )
 
-        self.sidebar = Sidebar(self.on_route_change, usuario_data=self.usuario_data, on_logout=self.on_logout)
+        self.sidebar = Sidebar(
+            self.on_route_change,
+            usuario_data=self.usuario_data,
+            on_logout=self.on_logout,
+            on_reset=self.reset_global_state
+        )
 
         self.controls = [
             self.sidebar,
             self.active_view
         ]
 
+    def _crear_vista(self, route_name: str):
+        """Fábrica de vistas para instanciación limpia bajo demanda."""
+        if route_name == "dashboard": return DashboardView()
+        elif route_name == "inventario": return InventarioView()
+        elif route_name == "compras": return ComprasView()
+        elif route_name == "ventas": return VentasView()
+        elif route_name == "cartera": return CarteraView()
+        elif route_name == "conteo": return ConteoInicialView()
+        elif route_name == "ajustes_inventario": return AjustesInventarioView()
+        elif route_name == "cierre_mes": return CierreInventarioView()
+        elif route_name == "informes": return InformesView()
+        return InventarioView()
+
+    def reset_global_state(self):
+        """
+        Auto-recuperación y purga total en caliente:
+        1. Limpia modales y diálogos huérfanos en overlay.
+        2. Restablece la sesión HTTP y sockets TCP con Supabase.
+        3. Vacía la caché de vistas y recarga la vista actual desde cero.
+        """
+        logger.info("Iniciando auto-recuperación y purga global de caché...")
+        try:
+            # 1. Limpiar overlay
+            if self.page and hasattr(self.page, "overlay"):
+                self.page.overlay.clear()
+
+            # 2. Resetear sesión HTTP
+            from core.database import BaseDatabase
+            BaseDatabase().reset_session()
+
+            # 3. Limpiar caché de clientes
+            try:
+                from core.repositories.clientes_repo import ClientesRepository
+                ClientesRepository().limpiar_cache()
+            except Exception:
+                pass
+
+            # 4. Vaciar vistas y re-instanciar la activa
+            self.views.clear()
+            self._nav_token += 1
+            curr_token = self._nav_token
+            
+            nueva_vista = self._crear_vista(self.active_route)
+            self.views[self.active_route] = nueva_vista
+            self.active_view.content = nueva_vista
+
+            if self.page:
+                self.page.snack_bar = ft.SnackBar(
+                    content=ft.Row([
+                        ft.Icon(ft.icons.CHECK_CIRCLE, color="white", size=18),
+                        ft.Text("Sistema restaurado y caché purgada", color="white")
+                    ]),
+                    bgcolor="green700",
+                    duration=2500
+                )
+                self.page.snack_bar.open = True
+                self.page.update()
+
+            # 5. Cargar datos en segundo plano protegido
+            def reload_bg():
+                if hasattr(nueva_vista, 'load_data'):
+                    try:
+                        nueva_vista.load_data()
+                    except Exception as ex:
+                        log_error(f"reset load_data en {self.active_route}", ex)
+                if hasattr(nueva_vista, 'load_summary'):
+                    try:
+                        nueva_vista.load_summary()
+                    except Exception as ex:
+                        log_error(f"reset load_summary en {self.active_route}", ex)
+            threading.Thread(target=reload_bg, daemon=True).start()
+
+        except Exception as e:
+            log_error("reset_global_state", e)
+
     def did_mount(self):
         # Actualizar estado activo en el sidebar para la vista inicial
         if hasattr(self.sidebar, "actualizar_estado_activo"):
             self.sidebar.actualizar_estado_activo(self.initial_route)
             
-        # Iniciar carga de datos
+        # Iniciar carga de datos con token de protección
+        self._nav_token += 1
+        curr_token = self._nav_token
         def load_data_bg():
-            vista = self.views[self.initial_route]
+            if curr_token != self._nav_token:
+                return
+            vista = self.views.get(self.initial_route)
+            if not vista:
+                return
             if hasattr(vista, 'load_data'):
                 try:
                     vista.load_data()
                 except Exception as e:
                     log_error(f"load_data en vista inicial {self.initial_route}", e)
+            if curr_token != self._nav_token:
+                return
             if hasattr(vista, 'load_summary'):
                 try:
                     vista.load_summary()
@@ -80,18 +168,21 @@ class AppLayout(ft.Row):
             return
         
         logger.info(f"Navegando a ruta: {route_name}")
-        # Instanciar de forma perezosa (Lazy Loading) para evitar lag inicial
+        self.active_route = route_name
+        self._nav_token += 1
+        curr_token = self._nav_token
+
+        # Auto-purga de modales residuales al cambiar de pantalla
+        if self.page and hasattr(self.page, "overlay"):
+            try:
+                self.page.overlay.clear()
+            except Exception:
+                pass
+
+        # Instanciación limpia bajo demanda
         if route_name not in self.views:
             try:
-                if route_name == "dashboard": self.views[route_name] = DashboardView()
-                elif route_name == "inventario": self.views[route_name] = InventarioView()
-                elif route_name == "compras": self.views[route_name] = ComprasView()
-                elif route_name == "ventas": self.views[route_name] = VentasView()
-                elif route_name == "cartera": self.views[route_name] = CarteraView()
-                elif route_name == "conteo": self.views[route_name] = ConteoInicialView()
-                elif route_name == "ajustes_inventario": self.views[route_name] = AjustesInventarioView()
-                elif route_name == "cierre_mes": self.views[route_name] = CierreInventarioView()
-                elif route_name == "informes": self.views[route_name] = InformesView()
+                self.views[route_name] = self._crear_vista(route_name)
             except Exception as e:
                 log_error(f"Error instanciando vista {route_name}", e)
                 return
@@ -113,14 +204,18 @@ class AppLayout(ft.Row):
             if hasattr(self.sidebar, "actualizar_estado_activo"):
                 self.sidebar.actualizar_estado_activo(route_name)
             
-            # Forzar recarga de datos al navegar para evitar caché estancada
+            # Recarga protegida contra carreras de hilos (thread cancellation)
             def load_data_bg():
+                if curr_token != self._nav_token:
+                    return  # El usuario ya navegó a otra pestaña, abortar silenciosamente
                 if hasattr(vista, 'load_data'):
                     try:
                         vista.load_data()
                     except Exception as e:
                         log_error(f"reload load_data en {route_name}", e)
                         
+                if curr_token != self._nav_token:
+                    return  # El usuario ya navegó a otra pestaña, abortar silenciosamente
                 if hasattr(vista, 'load_summary'):
                     try:
                         vista.load_summary()

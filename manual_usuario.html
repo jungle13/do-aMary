@@ -1,0 +1,1212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manual Integral de Usuario • Doña Mary App v2.0</title>
+  
+  <!-- Tipografía Google Fonts & FontAwesome -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <style>
+    :root {
+      --primary: #0F172A;
+      --primary-accent: #2563EB;
+      --primary-light: #EFF6FF;
+      --secondary: #0D9488;
+      --secondary-light: #F0FDFA;
+      --success: #16A34A;
+      --success-light: #DCFCE7;
+      --warning: #D97706;
+      --warning-light: #FEF3C7;
+      --danger: #DC2626;
+      --danger-light: #FEE2E2;
+      --purple: #7C3AED;
+      --purple-light: #F5F3FF;
+      --bg-body: #F8FAFC;
+      --bg-card: #FFFFFF;
+      --border-color: #E2E8F0;
+      --text-main: #1E293B;
+      --text-muted: #64748B;
+      --sidebar-width: 290px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-body);
+      color: var(--text-main);
+      display: flex;
+      min-height: 100vh;
+      font-size: 14.5px;
+      line-height: 1.6;
+    }
+
+    /* ─── SIDEBAR NAVEGACIÓN ─── */
+    .sidebar {
+      width: var(--sidebar-width);
+      background: #0F172A;
+      color: #F8FAFC;
+      height: 100vh;
+      position: sticky;
+      top: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      border-right: 1px solid #1E293B;
+      z-index: 100;
+    }
+
+    .sidebar-brand {
+      padding: 24px 20px 18px 20px;
+      border-bottom: 1px solid #1E293B;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-icon {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, #2563EB, #0D9488);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      color: white;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+    }
+
+    .brand-text h2 { font-size: 15px; font-weight: 800; letter-spacing: -0.3px; color: white; }
+    .brand-text span { font-size: 11px; color: #94A3B8; font-weight: 500; }
+
+    .nav-section {
+      padding: 18px 20px 6px 20px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #64748B;
+    }
+
+    .nav-list { list-style: none; padding: 0 10px; }
+    .nav-item a {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 12px;
+      color: #94A3B8;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 8px;
+      transition: all 0.15s ease;
+      margin-bottom: 2px;
+    }
+
+    .nav-item a:hover {
+      background: #1E293B;
+      color: #FFFFFF;
+      transform: translateX(3px);
+    }
+
+    .nav-item a.active {
+      background: #2563EB;
+      color: #FFFFFF;
+      font-weight: 600;
+      box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3);
+    }
+
+    .nav-item i { width: 18px; font-size: 14px; text-align: center; }
+
+    /* ─── CONTENIDO PRINCIPAL ─── */
+    .main-wrapper {
+      flex: 1;
+      max-width: 1150px;
+      padding: 40px 50px;
+      overflow-y: auto;
+    }
+
+    .doc-header {
+      background: white;
+      padding: 36px 40px;
+      border-radius: 16px;
+      border: 1px solid var(--border-color);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+      margin-bottom: 35px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .doc-header::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, #2563EB, #0D9488, #7C3AED);
+    }
+
+    .doc-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--primary-light);
+      color: var(--primary-accent);
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .doc-header h1 {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--primary);
+      letter-spacing: -0.5px;
+      margin-bottom: 10px;
+    }
+
+    .doc-header p {
+      font-size: 15px;
+      color: var(--text-muted);
+      max-width: 820px;
+      line-height: 1.6;
+    }
+
+    /* ─── SECCIONES Y TARJETAS ─── */
+    .doc-section {
+      background: white;
+      padding: 36px 40px;
+      border-radius: 16px;
+      border: 1px solid var(--border-color);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+      margin-bottom: 35px;
+      scroll-margin-top: 30px;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 21px;
+      font-weight: 800;
+      color: var(--primary);
+      letter-spacing: -0.3px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid #F1F5F9;
+    }
+
+    .section-title i { color: var(--primary-accent); }
+    .section-lead { font-size: 15px; color: var(--text-muted); margin-bottom: 24px; }
+
+    /* ─── CALLOUTS ─── */
+    .callout {
+      padding: 16px 20px;
+      border-radius: 12px;
+      margin: 20px 0;
+      display: flex;
+      gap: 14px;
+      font-size: 13.5px;
+      line-height: 1.6;
+    }
+    .callout-info { background: var(--primary-light); border-left: 4px solid var(--primary-accent); color: #1E3A8A; }
+    .callout-success { background: var(--success-light); border-left: 4px solid var(--success); color: #065F46; }
+    .callout-warning { background: var(--warning-light); border-left: 4px solid var(--warning); color: #92400E; }
+    .callout-purple { background: var(--purple-light); border-left: 4px solid var(--purple); color: #5B21B6; }
+    .callout-danger { background: var(--danger-light); border-left: 4px solid var(--danger); color: #991B1B; }
+
+    /* ─── PASO A PASO (TIMELINE / STEPS) ─── */
+    .steps-flow {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin: 24px 0;
+    }
+
+    .step-box {
+      display: flex;
+      gap: 18px;
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      padding: 18px 22px;
+      border-radius: 12px;
+      transition: all 0.2s ease;
+    }
+
+    .step-box:hover {
+      background: white;
+      border-color: #CBD5E1;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+    }
+
+    .step-num {
+      width: 32px;
+      height: 32px;
+      background: var(--primary-accent);
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .step-content h4 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 6px;
+    }
+
+    .step-content p {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* ─── TABLAS ESTILIZADAS ─── */
+    .data-table-doc {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      font-size: 13.5px;
+    }
+
+    .data-table-doc th {
+      background: #F8FAFC;
+      color: var(--primary);
+      font-weight: 700;
+      text-align: left;
+      padding: 12px 16px;
+      border-bottom: 2px solid #E2E8F0;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .data-table-doc td {
+      padding: 13px 16px;
+      border-bottom: 1px solid #F1F5F9;
+      vertical-align: middle;
+    }
+
+    .data-table-doc tr:hover td { background: #FAFAFA; }
+
+    /* ─── BADGES Y TAGS ─── */
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    .badge-blue { background: #DBEAFE; color: #1E40AF; }
+    .badge-green { background: #DCFCE7; color: #166534; }
+    .badge-purple { background: #F3E8FF; color: #6B21A8; }
+    .badge-amber { background: #FEF3C7; color: #92400E; }
+    .badge-gray { background: #E2E8F0; color: #334155; }
+    .badge-red { background: #FEE2E2; color: #991B1B; }
+
+    /* ─── ACCORDION / FAQ ─── */
+    .faq-item {
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      margin-bottom: 12px;
+      background: #FFFFFF;
+      overflow: hidden;
+    }
+
+    .faq-question {
+      padding: 16px 20px;
+      font-weight: 700;
+      color: var(--primary);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #F8FAFC;
+      transition: background 0.15s ease;
+    }
+
+    .faq-question:hover { background: #F1F5F9; }
+    .faq-answer {
+      padding: 18px 20px;
+      font-size: 13.5px;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border-color);
+      line-height: 1.6;
+    }
+
+    /* ─── GRID DE CARDS ─── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin: 20px 0;
+    }
+
+    .kpi-card-explain {
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      border-radius: 12px;
+      padding: 18px;
+      transition: all 0.2s ease;
+    }
+
+    .kpi-card-explain:hover {
+      border-color: #CBD5E1;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.04);
+    }
+
+    .kpi-card-explain h4 {
+      font-size: 14.5px;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 6px;
+    }
+
+    .kpi-card-explain p {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .kpi-tag {
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 4px;
+      display: inline-block;
+      margin-bottom: 8px;
+    }
+    .tag-blue { background: #DBEAFE; color: #1E40AF; }
+    .tag-green { background: #DCFCE7; color: #166534; }
+    .tag-purple { background: #F3E8FF; color: #6B21A8; }
+    .tag-amber { background: #FEF3C7; color: #92400E; }
+
+    code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      background: #E2E8F0;
+      color: #0F172A;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    /* ─── PIE DE PÁGINA ─── */
+    .doc-footer {
+      text-align: center;
+      padding: 30px 0 10px 0;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 900px) {
+      body { flex-direction: column; }
+      .sidebar { width: 100%; height: auto; position: relative; }
+      .main-wrapper { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ─── MENÚ LATERAL ─── -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon"><i class="fa-solid fa-boxes-stacked"></i></div>
+      <div class="brand-text">
+        <h2>Doña Mary SAS</h2>
+        <span>Manual Integral v2.0</span>
+      </div>
+    </div>
+
+    <div class="nav-section">Inicio & Seguridad</div>
+    <ul class="nav-list">
+      <li class="nav-item"><a href="#introduccion" class="active"><i class="fa-solid fa-house"></i> Introducción</a></li>
+      <li class="nav-item"><a href="#credenciales"><i class="fa-solid fa-key"></i> Usuarios y Accesos</a></li>
+      <li class="nav-item"><a href="#selector-periodo"><i class="fa-solid fa-calendar-days"></i> Selector de Períodos</a></li>
+      <li class="nav-item"><a href="#filtros-sistema"><i class="fa-solid fa-filter"></i> Guía de Filtros del Sistema</a></li>
+    </ul>
+
+    <div class="nav-section">Módulos del Sistema</div>
+    <ul class="nav-list">
+      <li class="nav-item"><a href="#dashboard"><i class="fa-solid fa-chart-line"></i> 1. Dashboard Ejecutivo</a></li>
+      <li class="nav-item"><a href="#inventario"><i class="fa-solid fa-box-open"></i> 2. Catálogo Inventario</a></li>
+      <li class="nav-item"><a href="#compras"><i class="fa-solid fa-cart-shopping"></i> 3. Carga de Compras (PDF)</a></li>
+      <li class="nav-item"><a href="#ventas"><i class="fa-solid fa-receipt"></i> 4. Ventas (POS & Remisión)</a></li>
+      <li class="nav-item"><a href="#cartera"><i class="fa-solid fa-hand-holding-dollar"></i> 5. Gestión de Cartera</a></li>
+      <li class="nav-item"><a href="#ajustes"><i class="fa-solid fa-wand-magic-sparkles"></i> 6. Ajustes con IA & Plantilla</a></li>
+      <li class="nav-item"><a href="#cierres"><i class="fa-solid fa-clipboard-check"></i> 7. Cierre & Conciliación</a></li>
+      <li class="nav-item"><a href="#mobile"><i class="fa-solid fa-mobile-screen-button"></i> 8. App Web Móvil</a></li>
+    </ul>
+
+    <div class="nav-section">Reportes & Legal</div>
+    <ul class="nav-list">
+      <li class="nav-item"><a href="#reportes"><i class="fa-solid fa-file-invoice-dollar"></i> Catálogo de Informes</a></li>
+      <li class="nav-item"><a href="#faq"><i class="fa-solid fa-circle-question"></i> Preguntas Frecuentes</a></li>
+      <li class="nav-item"><a href="#limitaciones"><i class="fa-solid fa-triangle-exclamation"></i> Alcance & Limitaciones</a></li>
+      <li class="nav-item"><a href="#disclaimer"><i class="fa-solid fa-scale-balanced"></i> Disclaimer & Copyright</a></li>
+    </ul>
+  </aside>
+
+  <!-- ─── CONTENIDO PRINCIPAL ─── -->
+  <main class="main-wrapper">
+    <header class="doc-header">
+      <div class="doc-badge"><i class="fa-solid fa-shield-halved"></i> Sistema Oficial • Edición 2026</div>
+      <h1>Manual Integral de Usuario y Operación</h1>
+      <p>Guía de operación diaria, carga masiva de facturas en PDF, uso de la plantilla de ajustes, filtros por módulo, control de cartera y conciliación contable para <strong>Desechables y Abarrotes Doña Mary S.A.S.</strong></p>
+    </header>
+
+    <!-- ─── INTRODUCCIÓN ─── -->
+    <section id="introduccion" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-compass"></i> Visión General y Arquitectura</div>
+      <p class="section-lead">La plataforma <strong>Doña Mary Inventario</strong> es un ecosistema híbrido compuesto por una <strong>Aplicación de Escritorio Flet</strong> de alto rendimiento para administración, y un <strong>Servidor Web Móvil FastAPI</strong> para conteos colaborativos en bodega con celulares, ambos conectados a la base de datos en tiempo real de <strong>PostgreSQL / Supabase</strong>.</p>
+
+      <div class="callout callout-info">
+        <i class="fa-solid fa-circle-info"></i>
+        <div>
+          <strong>Principio de Integridad Automática:</strong> Todas las transacciones impactan el sistema en tiempo real. Cuando se aprueba una compra o un ajuste, el costo promedio ponderado y el stock se actualizan de inmediato; cuando se registra una remisión, se genera la cuenta por cobrar en Cartera y se recalculan las ventas del día.
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── USUARIOS Y CREDENCIALES ─── -->
+    <section id="credenciales" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-users-gear"></i> Directorio de Usuarios y Contraseñas del Sistema</div>
+      <p class="section-lead">Lista de usuarios habilitados en la base de datos con sus respectivos roles y niveles de autorización para la aplicación de escritorio y el portal web móvil:</p>
+
+      <table class="data-table-doc">
+        <thead>
+          <tr>
+            <th>Usuario</th>
+            <th>Contraseña</th>
+            <th>Rol / Perfil</th>
+            <th>Módulos Autorizados</th>
+            <th>Acceso Web Móvil</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>admin</code></td>
+            <td><code>123</code></td>
+            <td><span class="badge badge-purple">ADMINISTRADOR</span></td>
+            <td>Acceso total a todos los módulos, reportes y aprobaciones.</td>
+            <td><span class="badge badge-green">Supervisor / Total</span></td>
+          </tr>
+          <tr>
+            <td><code>mary</code></td>
+            <td><code>mary41</code></td>
+            <td><span class="badge badge-purple">ADMINISTRADOR</span></td>
+            <td>Dirección general, Dashboard, Cartera, Cierres y Reportes.</td>
+            <td><span class="badge badge-green">Supervisor / Total</span></td>
+          </tr>
+          <tr>
+            <td><code>eliana</code></td>
+            <td><code>eliana31</code></td>
+            <td><span class="badge badge-purple">ADMINISTRADOR</span></td>
+            <td>Auditoría contable, Cierres de período, Precios y Ajustes.</td>
+            <td><span class="badge badge-green">Supervisor / Total</span></td>
+          </tr>
+          <tr>
+            <td><code>aux1</code>, <code>aux2</code>, <code>aux3</code></td>
+            <td><code>aux1</code>, <code>aux2</code>, <code>aux3</code></td>
+            <td><span class="badge badge-blue">OPERADOR (Auxiliar)</span></td>
+            <td>Carga de facturas, Ventas, Compras y Registro de Cartera.</td>
+            <td><span class="badge badge-blue">Conteo + Referencia</span></td>
+          </tr>
+          <tr>
+            <td><code>bod1</code>, <code>bod2</code>, <code>bod3</code>, <code>bod4</code>, <code>bod5</code></td>
+            <td><code>bod1</code>, <code>bod2</code>, <code>bod3</code>, <code>bod4</code>, <code>bod5</code></td>
+            <td><span class="badge badge-gray">OPERADOR (Bodega)</span></td>
+            <td>Conteos físicos de stock y verificación de mercancía.</td>
+            <td><span class="badge badge-amber">Conteo Ciego</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ─── SELECTOR GLOBAL DE PERÍODO ─── -->
+    <section id="selector-periodo" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-calendar-check"></i> El Selector Global de Período</div>
+      <p class="section-lead">Ubicado en la barra superior derecha de la aplicación, permite alternar la perspectiva temporal de toda la empresa con un solo clic.</p>
+
+      <div class="kpi-grid">
+        <div class="kpi-card-explain">
+          <span class="kpi-tag tag-blue">Sincronización</span>
+          <h4>Cambio Global en Cascada</h4>
+          <p>Al seleccionar <strong>Agosto 2026</strong> o <strong>Septiembre 2026</strong>, todos los módulos adaptan sus tarjetas y tablas al rango de dicho mes.</p>
+        </div>
+        <div class="kpi-card-explain">
+          <span class="kpi-tag tag-green">Estados del Mes</span>
+          <h4>Insignia Visual de Control</h4>
+          <p>Indica si el mes está <code>ABIERTO</code> (operativo y recibiendo facturas), <code>EN_AUDITORIA</code> (en conteo de bodega) o <code>CERRADO</code> (bloqueado y conciliado).</p>
+        </div>
+        <div class="kpi-card-explain">
+          <span class="kpi-tag tag-purple">Persistencia</span>
+          <h4>Libros Abiertos</h4>
+          <p>Cambiar de mes no borra datos históricos; recalcula los KPIs financieros del mes elegido manteniendo disponibles los saldos acumulados de clientes.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── GUÍA DE FILTROS DEL SISTEMA ─── -->
+    <section id="filtros-sistema" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-filter"></i> Guía Completa de Filtros Presentes en Cada Módulo</div>
+      <p class="section-lead">Cada módulo del software cuenta con controles de filtrado diseñados para segmentar y auditar la información con precisión:</p>
+
+      <table class="data-table-doc">
+        <thead>
+          <tr>
+            <th>Módulo</th>
+            <th>Filtros y Controles Disponibles</th>
+            <th>Comportamiento y Utilidad</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Dashboard Ejecutivo</strong></td>
+            <td>• Selector de Mes/Período<br>• Pestaña General vs Resumen Semanal<br>• Despliegue/Contracción de Semanas</td>
+            <td>Permite alternar entre el mes actual y meses cerrados, y examinar el flujo de caja global o el detalle de cada día.</td>
+          </tr>
+          <tr>
+            <td><strong>Catálogo de Inventario</strong></td>
+            <td>• Búsqueda predictiva (Código o Nombre)<br>• Dropdown de Categoría (Todas o específica)<br>• Dropdown de Estado (<code>Habilitados</code>, <code>Inhabilitados</code>, <code>Todos</code>)<br>• Ordenamiento interactivo por columnas<br>• Botón Toggle de Desglose de KPIs</td>
+            <td>Filtra insumos activos para operaciones diarias o incluye inhabilitados; ordena por mayor/menor stock o costo, y muestra/oculta el desglose de compras y ventas.</td>
+          </tr>
+          <tr>
+            <td><strong>Compras y Entradas</strong></td>
+            <td>• Buscador por Factura o Proveedor<br>• Selector de Bodega (Principal o Secundaria)<br>• Filtro de Período/Mes</td>
+            <td>Localiza facturas de compras específicas, audita entradas por proveedor y segmenta recepciones por bodega física.</td>
+          </tr>
+          <tr>
+            <td><strong>Ventas y Salidas</strong></td>
+            <td>• Buscador por Factura, Remisión o Cliente<br>• Tipo de Documento (<code>Factura POS</code>, <code>Remisión</code>, <code>Todos</code>)<br>• Filtro de Período/Mes<br>• Estado de Registro (<code>VÁLIDO</code> o <code>ANULADO</code>)</td>
+            <td>Permite separar las ventas de contado de mostrador frente a los despachos institucionales a crédito, o auditar documentos anulados.</td>
+          </tr>
+          <tr>
+            <td><strong>Gestión de Cartera</strong></td>
+            <td>• Filtro por Vendedor / Encargado (Mary, etc.)<br>• Estado de Deuda (<code>Con Saldo Pendiente</code>, <code>Al Día</code>, <code>Todos</code>)<br>• Buscador por Cliente / NIT / Teléfono<br>• Criterio de Ordenamiento (Mayor saldo, Antigüedad)</td>
+            <td>Filtro crucial para cobranza: segmenta la cartera por cobrador responsable y aísla a los clientes con facturas vencidas.</td>
+          </tr>
+          <tr>
+            <td><strong>Ajustes de Stock</strong></td>
+            <td>• Tipo de Ajuste (<code>Entradas/Sobrantes</code>, <code>Salidas/Mermas</code>, <code>Todos</code>)<br>• Buscador por Insumo o Motivo<br>• Filtro por Rango de Fechas</td>
+            <td>Audita mermas por rotura o vencimiento frente a sobrantes de conteo, filtrando por palabras clave del motivo.</td>
+          </tr>
+          <tr>
+            <td><strong>Cierres y Auditoría</strong></td>
+            <td>• Selector de Período a Auditar<br>• Filtro de Estado (<code>ABIERTO</code>, <code>EN_AUDITORIA</code>, <code>CERRADO</code>)<br>• Filtro de Discrepancias (Solo con descuadre)</td>
+            <td>Permite a los auditores concentrarse únicamente en los productos con diferencias entre el sistema y el conteo físico.</td>
+          </tr>
+          <tr>
+            <td><strong>Informes & Reportes</strong></td>
+            <td>• Filtro Dinámico de Período (Mes actual, Histórico, Meses previos, Día)<br>• Tipo de Reporte (7 módulos)<br>• Nivel de Detalle (<code>Resumido</code> por categorías o <code>Completo</code> ítem por ítem)</td>
+            <td>Controla la ventana temporal y el nivel de profundidad de los reportes membretados para impresión y exportación en PDF.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ─── 1. DASHBOARD EJECUTIVO ─── -->
+    <section id="dashboard" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-chart-pie"></i> 1. Módulo: Dashboard Ejecutivo</div>
+      <p class="section-lead">Es el centro de comando directivo de Doña Mary. Ofrece una vista panorámica de la salud comercial, rentabilidad y flujo de caja.</p>
+
+      <table class="data-table-doc">
+        <thead>
+          <tr>
+            <th>Pestaña / Vista</th>
+            <th>Lo que estás viendo</th>
+            <th>Acciones Disponibles</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Resumen General (Tab 1)</strong></td>
+            <td>8 Tarjetas de KPIs maestros, balance de IVA comercial, neto de ajustes por mermas, gráfico diario de barras con meta unificada ($11M/día) y tablas Top 10.</td>
+            <td>Cambiar mes de análisis, inspeccionar insumos de mayor rotación y verificar el valor monetario del inventario unificado.</td>
+          </tr>
+          <tr>
+            <td><strong>Resumen Diario por Semanas (Tab 2)</strong></td>
+            <td>Matriz diaria agrupada en 5 semanas con tarjetas individuales de los 31 días del mes, detallando ventas POS, Remisión, Compras, Recaudos e IVA diario.</td>
+            <td>Desplegar o contraer semanas, evaluar el cumplimiento porcentual de cada día vs la meta y analizar el flujo financiero día por día.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ─── 2. CATÁLOGO DE INVENTARIO ─── -->
+    <section id="inventario" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-boxes-stacked"></i> 2. Módulo: Catálogo e Inventario Maestro</div>
+      <p class="section-lead">Control de los 2.790 insumos y productos con stock físico en bodega, costos unitarios y proyección de ingresos.</p>
+
+      <div class="kpi-grid">
+        <div class="kpi-card-explain">
+          <span class="kpi-tag tag-blue">Fórmula de Stock</span>
+          <h4>Cálculo Dinámico de Existencias</h4>
+          <p><code>Stock = Stock Inicial + Compras - Ventas + Ajustes Entrada - Ajustes Salida</code></p>
+        </div>
+        <div class="kpi-card-explain">
+          <span class="kpi-tag tag-green">Valorización</span>
+          <h4>Valor Total de Inventario</h4>
+          <p>Suma de <code>Stock Positivo × Costo Unitario Maestro</code>, garantizando total congruencia (\$90.68M).</p>
+        </div>
+        <div class="kpi-card-explain">
+          <span class="kpi-tag tag-amber">Alertas de Reposición</span>
+          <h4>Stock Mínimo</h4>
+          <p>Banderas rojas automáticas cuando el saldo disponible es inferior al umbral de seguridad (por defecto 5 unidades).</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── 3. CARGA DE COMPRAS ─── -->
+    <section id="compras" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-cart-flatbed"></i> 3. Módulo: Compras y Entradas (Paso a Paso)</div>
+      <p class="section-lead">Proceso para ingresar facturas de proveedores y entradas de mercancía de forma masiva mediante archivos en formato <strong>PDF oficial</strong>.</p>
+
+      <div class="callout callout-danger">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <div>
+          <strong>¡REGLA OPERATIVA CRÍTICA — SUBIDA DIARIA DE PDFs!</strong><br>
+          Es de vital importancia <strong>subir los archivos PDF de compras y entradas DIARIAMENTE</strong> (día a día).<br>
+          <strong>PROCURAR NO SUBIR VARIOS DÍAS JUNTOS EN UN MISMO PDF:</strong> Si se unifican facturas de diferentes fechas en un único documento, el motor de extracción puede generar confusiones o inconsistencias en la asignación de fechas contables. Subir los archivos diariamente garantiza que el inventario, los costos y el IVA se imputen con exactitud matemática al día real de la compra.
+        </div>
+      </div>
+
+      <h3 style="margin: 20px 0 12px 0; color: var(--primary);">Paso a Paso: Cómo Subir Archivos de Compras en PDF</h3>
+      <div class="steps-flow">
+        <div class="step-box">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <h4>Preparar el Documento PDF Diario</h4>
+            <p>Ten a la mano el archivo en formato <strong>PDF</strong> (<code>.pdf</code>) correspondiente a las facturas recibidas en el día por parte de los proveedores.</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <h4>Hacer Clic en "Cargar Facturas Masivas (PDF)"</h4>
+            <p>En la parte superior derecha de la tabla de compras, presiona el botón azul de carga. Se abrirá la ventana de importación de archivos PDF.</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <h4>Seleccionar Archivo PDF y Previsualizar</h4>
+            <p>El motor de extracción procesará automáticamente el documento PDF. Podrás revisar el subtotal, el IVA descontable y la bodega de destino (Principal o Secundaria).</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <h4>Confirmar e Impactar Inventario</h4>
+            <p>Al hacer clic en <strong>"Guardar en Base de Datos"</strong>, las unidades compradas se sumarán al stock disponible y el costo promedio del insumo se actualizará automáticamente.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── 4. CARGA DE VENTAS (POS & REMISIÓN) ─── -->
+    <section id="ventas" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-receipt"></i> 4. Módulo: Ventas y Salidas Comerciales</div>
+      <p class="section-lead">Registro de operaciones comerciales a partir de archivos en formato <strong>PDF</strong> con soporte para dos modalidades de facturación con comportamientos contables diferenciados.</p>
+
+      <div class="callout callout-danger">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <div>
+          <strong>¡REGLA OPERATIVA CRÍTICA — SUBIDA DIARIA DE PDFs DE VENTAS!</strong><br>
+          Es indispensable <strong>subir las ventas en PDF DÍA A DÍA</strong> al finalizar la jornada comercial.<br>
+          <strong>NO ACUMULAR VARIOS DÍAS EN UN SOLO PDF:</strong> Para evitar errores de fechas en el formato PDF y garantizar que el gráfico de barras del Dashboard, el cumplimiento de la meta diaria y las facturas de Cartera queden asignados con absoluta precisión en el día exacto de la venta.
+        </div>
+      </div>
+
+      <h3 style="margin: 20px 0 14px 0; color: var(--primary);">Descripción de los 2 Tipos de Documentos de Venta</h3>
+      <table class="data-table-doc">
+        <thead>
+          <tr>
+            <th>Tipo de Documento</th>
+            <th>Naturaleza Comercial</th>
+            <th>Flujo Financiero & Cartera</th>
+            <th>Comportamiento en Sistema</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Factura POS</strong><br><span class="badge badge-blue">Venta de Contado</span></td>
+            <td>Tirilla o factura POS emitida en caja por ventas directas de mostrador a clientes de contado.</td>
+            <td>Se cobra de inmediato en el punto de venta. <strong>No genera cuenta por cobrar en Cartera.</strong></td>
+            <td>Resta unidades del inventario, suma a los ingresos del día e incrementa el recaudo POS y el IVA generado.</td>
+          </tr>
+          <tr>
+            <td><strong>Remisión</strong><br><span class="badge badge-purple">Venta a Crédito / Despacho</span></td>
+            <td>Documento de entrega de mercancía a clientes institucionales, restaurantes y distribuidores a crédito o contraentrega.</td>
+            <td><strong>Crea automáticamente una factura pendiente en el Módulo de Cartera</strong> asociada al cliente.</td>
+            <td>Resta unidades de bodega, registra el valor total facturado y queda a la espera de pagos o abonos en Cartera.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 style="margin: 28px 0 12px 0; color: var(--primary);">Paso a Paso: Cómo Subir Archivos de Ventas en PDF</h3>
+      <div class="steps-flow">
+        <div class="step-box">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <h4>Elegir el Archivo de Ventas del Día en PDF</h4>
+            <p>Haz clic en el botón <strong>"Subir Ventas Masivas"</strong>. Selecciona el archivo en formato <strong>PDF</strong> (<code>.pdf</code>) que contiene las tirillas POS o el lote de remisiones del día.</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <h4>Especificar Tipo de Documento</h4>
+            <p>Selecciona si el lote en PDF corresponde a <code>FACTURA POS</code> o <code>REMISIÓN</code> (el sistema también puede auto-detectarlo por el formato del número de documento).</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <h4>Validación de Insumos y Precios</h4>
+            <p>El sistema analiza el PDF y valida que todos los códigos existan en el catálogo. Si un producto es nuevo, te sugerirá crearlo o vincularlo con uno similar.</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <h4>Confirmar Importación</h4>
+            <p>Al procesar, se descontarán las unidades del inventario, se calculará el cumplimiento de la meta diaria y, si son remisiones, se creará el saldo en Cartera.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── 5. GESTIÓN DE CARTERA ─── -->
+    <section id="cartera" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-hand-holding-dollar"></i> 5. Módulo: Gestión de Cartera y Recaudos</div>
+      <p class="section-lead">Control de cuentas por cobrar, seguimiento a vendedores/encargados y conciliación de pagos con aplicación inteligente FIFO.</p>
+
+      <div class="callout callout-purple">
+        <i class="fa-solid fa-calculator"></i>
+        <div>
+          <strong>Regla de Pago FIFO (First In, First Out):</strong> Cuando un cliente abona dinero sin especificar factura, el sistema amortiza automáticamente la deuda de las facturas más antiguas a las más recientes hasta agotar el monto recibido.
+        </div>
+      </div>
+
+      <h3 style="margin: 24px 0 12px 0; color: var(--primary);">Filtros Específicos del Módulo de Cartera</h3>
+      <p style="margin-bottom: 14px; color: var(--text-muted);">El módulo de Cartera incorpora herramientas avanzadas de segmentación para optimizar el cobro y la rendición de cuentas:</p>
+
+      <table class="data-table-doc">
+        <thead>
+          <tr>
+            <th>Filtro / Control</th>
+            <th>Opciones Disponibles</th>
+            <th>Propósito y Cómo Usarlo</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Vendedor / Encargado</strong></td>
+            <td><code>Todos</code>, <code>Mary</code>, Vendedores individuales</td>
+            <td>Permite filtrar la lista para ver únicamente los clientes y facturas asignadas a un vendedor o cobrador específico, ideal para reuniones de cobranza.</td>
+          </tr>
+          <tr>
+            <td><strong>Estado de Deuda</strong></td>
+            <td><code>Con Saldo Pendiente</code>, <code>Al Día / Pagadas</code>, <code>Todos</code></td>
+            <td>Aísla a los clientes morosos (ocultando los que están a paz y salvo) para agilizar las llamadas y cobros del día.</td>
+          </tr>
+          <tr>
+            <td><strong>Buscador Predictivo</strong></td>
+            <td>Texto libre (Nombre, NIT/Cédula, Teléfono)</td>
+            <td>Filtra de manera instantánea mientras se escribe, localizando al cliente por cualquier coincidencia de nombre o identificación.</td>
+          </tr>
+          <tr>
+            <td><strong>Criterio de Ordenamiento</strong></td>
+            <td><code>Mayor Saldo</code>, <code>Menor Saldo</code>, <code>Nombre (A-Z)</code>, <code>Antigüedad</code></td>
+            <td>Organiza las tarjetas de clientes priorizando las deudas más elevadas o las cuentas por cobrar más antiguas.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 style="margin: 28px 0 12px 0; color: var(--primary);">Paso a Paso: Cómo Registrar Pagos y Abonos</h3>
+      <div class="steps-flow">
+        <div class="step-box">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <h4>Localizar al Cliente</h4>
+            <p>Busca por nombre o filtra por el <strong>Vendedor Encargado</strong> para ver su saldo vencido y sus facturas pendientes.</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <h4>Pulsar "Registrar Pago / Abono"</h4>
+            <p>Indica el método (Efectivo o Transferencia Bancaria), banco de origen, número de comprobante y monto recibido.</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <h4>Aplicación y Paz y Salvo</h4>
+            <p>El sistema actualiza el saldo del cliente, marca las facturas como <code>PAGADA</code> o <code>PARCIAL</code> y registra el recibo en el historial.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── 6. AJUSTES CON INTELIGENCIA ARTIFICIAL & PLANTILLA FÍSICA ─── -->
+    <section id="ajustes" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-wand-magic-sparkles"></i> 6. Módulo: Ajustes de Inventario con IA y Plantilla Física</div>
+      <p class="section-lead">Registro de mermas, averías, autoconsumos, muestras o sobrantes con capacidad de escanear y transcribir notas manuscritas o fotos mediante Inteligencia Artificial.</p>
+
+      <h3 style="margin: 20px 0 12px 0; color: var(--primary);">Uso y Llenado de la Plantilla Física Oficial de Bodega</h3>
+      <p style="margin-bottom: 14px; color: var(--text-muted);">Para capturar las novedades diarias en bodega antes de subirlas al sistema, se utiliza el formato impreso oficial titulado <strong>"ABARROTES Y DESECHABLES DE DOÑA MARY SAS — NOVEDADES / AJUSTES / CORTESIAS"</strong>. A continuación se explica cómo diligenciar correctamente cada columna:</p>
+
+      <table class="data-table-doc">
+        <thead>
+          <tr>
+            <th>Columna en Formato</th>
+            <th>¿Qué se debe registrar?</th>
+            <th>Formato Sugerido / Ejemplo</th>
+            <th>Recomendación para Lectura por IA</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>FECHA</code></td>
+            <td>Día exacto en que ocurrió la novedad, rotura o consumo en bodega.</td>
+            <td><code>2026-09-01</code> o <code>01/09/2026</code></td>
+            <td>Escribir números claros y legibles para que la IA extraiga el día exacto de imputación contable.</td>
+          </tr>
+          <tr>
+            <td><code>CODIGO</code></td>
+            <td>Código del insumo asignado en el catálogo maestro del sistema.</td>
+            <td><code>0578</code>, <code>0094</code>, <code>1639</code></td>
+            <td>Si el bodeguero no conoce el código, puede dejarlo en blanco; la IA lo vinculará automáticamente por el nombre.</td>
+          </tr>
+          <tr>
+            <td><code>NOMBRE</code></td>
+            <td>Nombre descriptivo o referencia comercial del producto.</td>
+            <td><code>PORTACOMIDA DARNEL P 3 X 200</code></td>
+            <td>Escribir en mayúsculas imprenta procurando no usar abreviaturas ambiguas.</td>
+          </tr>
+          <tr>
+            <td><code>CANT</code></td>
+            <td>Cantidad física exacta de unidades afectadas.</td>
+            <td><code>15</code>, <code>2.5</code>, <code>100</code></td>
+            <td>Registrar siempre la cantidad en positivo; el motivo determinará si suma o resta del stock.</td>
+          </tr>
+          <tr>
+            <td><code>MOTIVO</code></td>
+            <td>Causa operativa de la novedad o merma en bodega.</td>
+            <td><code>Merma por rotura</code>, <code>Vencimiento</code>, <code>Cortesía a cliente</code>, <code>Autoconsumo</code>, <code>Sobrante conteo</code></td>
+            <td>Utilizar palabras clave estándar. Esto permite al sistema clasificar el impacto automáticamente en el Dashboard.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 style="margin: 28px 0 12px 0; color: var(--primary);">Paso a Paso: Cómo Subir Foto o PDF con Análisis por IA</h3>
+      <div class="steps-flow">
+        <div class="step-box">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <h4>Tomar Foto Nítida o Escanear la Plantilla Diligenciada</h4>
+            <p>Captura una fotografía clara con buena iluminación o escanea en PDF la plantilla física manuscrita de novedades.</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <h4>Clic en "Analizar Documento con IA"</h4>
+            <p>En el módulo de Ajustes, presiona el botón con el ícono de IA y selecciona la imagen (<code>.png</code>, <code>.jpg</code>) o el PDF escaneado.</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <h4>Extracción Automática por Visión Artificial (Gemini Vision)</h4>
+            <p>El modelo de IA lee la letra manuscrita, identifica los códigos, nombres de insumos, cantidades y motivos anotados.</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <h4>Confirmación y Congelamiento de Costos</h4>
+            <p>Revisa la tabla generada por la IA, ajusta cualquier detalle si es necesario y haz clic en <strong>"Aplicar Ajustes"</strong>. El sistema congelará el costo del momento e impactará el stock.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── 7. CIERRE DE INVENTARIO Y CONCILIACIÓN ─── -->
+    <section id="cierres" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-clipboard-check"></i> 7. Módulo: Cierre de Período y Auditoría</div>
+      <p class="section-lead">Procedimiento mensual para conciliar el saldo teórico del sistema frente al conteo físico real de bodega.</p>
+
+      <h3 style="margin: 20px 0 12px 0; color: var(--primary);">¿Qué debe hacer el usuario para Aprobar o Ajustar Diferencias?</h3>
+      
+      <div class="steps-flow">
+        <div class="step-box">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <h4>Recolectar el Conteo Físico</h4>
+            <p>Los bodegueros capturan las cantidades físicas mediante la <strong>App Web Móvil</strong> o se digitan en la tabla de conteo.</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <h4>Generar Snapshot Comparativo</h4>
+            <p>El sistema genera una vista comparativa: <code>Cantidad Sistema vs Cantidad Física = Diferencia (Descuadre)</code> y su valorización en dinero.</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <h4>Paso para Ajustar: Clic en "Ajustar Diferencias Automáticamente"</h4>
+            <p>Si existen descuadres justificados (por mermas o sobrantes), este botón crea automáticamente los registros en el módulo de Ajustes para igualar el stock del sistema con el físico real.</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <h4>Paso para Aprobar: Clic en "Aprobar y Cerrar Período"</h4>
+            <p>El administrador firma el cierre con su usuario. El estado cambia a <code>CERRADO</code>, bloqueando modificaciones y transfiriendo el stock final como inventario inicial del mes siguiente.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── 8. APP WEB MÓVIL ─── -->
+    <section id="mobile" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-mobile-screen-button"></i> 8. Portal Web Móvil para Conteo en Bodega</div>
+      <p class="section-lead">Módulo web responsivo diseñado para que los operarios realicen inventarios físicos directamente desde sus teléfonos inteligentes sin cables ni papeles.</p>
+
+      <div class="callout callout-info">
+        <i class="fa-solid fa-wifi"></i>
+        <div>
+          <strong>¿Cómo Acceder al Módulo Web Móvil?</strong><br>
+          1. <strong>Vía Red Local Wi-Fi:</strong> Abre el navegador de tu celular (Chrome, Safari) e ingresa a <code>http://&lt;IP_DEL_SERVIDOR&gt;:8550</code>.<br>
+          2. <strong>Vía Código QR:</strong> En la aplicación de escritorio (en Cierres o Conteo Inicial), presiona el botón <strong>"Generar QR Móvil"</strong> y escanéalo con la cámara del teléfono.<br>
+          3. <strong>Vía Túnel Remoto:</strong> Si el operario está fuera de la tienda, la app genera un enlace seguro de acceso público.
+        </div>
+      </div>
+
+      <h3 style="margin: 20px 0 12px 0; color: var(--primary);">Funcionalidades de la App Web Móvil</h3>
+      <table class="data-table-doc">
+        <thead>
+          <tr>
+            <th>Característica</th>
+            <th>Descripción de Operación</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Inicio de Sesión con Roles</strong></td>
+            <td>Ingreso con usuarios <code>bod1</code> a <code>bod5</code> (Modo Ciego sin ver existencias para evitar sesgos) o <code>aux1</code> a <code>aux3</code> (Modo Supervisor).</td>
+          </tr>
+          <tr>
+            <td><strong>Búsqueda Instantánea & Código de Barras</strong></td>
+            <td>Busca por nombre, categoría o escanea códigos de barras con la cámara del celular.</td>
+          </tr>
+          <tr>
+            <td><strong>Modo Sumar vs Reemplazar</strong></td>
+            <td>Permite sumar bultos de diferentes estantes acumulativamente (ej. 10 + 5 + 20) o reemplazar la cantidad total contada.</td>
+          </tr>
+          <tr>
+            <td><strong>Sincronización en Tiempo Real</strong></td>
+            <td>Cada guardado se transmite instantáneamente al servidor central de Supabase, consolidando el conteo de múltiples bodegueros a la vez.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ─── CATÁLOGO DE INFORMES ─── -->
+    <section id="reportes" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-file-invoice-dollar"></i> Catálogo de Informes y Exportaciones</div>
+      <p class="section-lead">Resumen de todos los informes ejecutivos y operativos que la aplicación genera para contabilidad y gerencia.</p>
+
+      <table class="data-table-doc">
+        <thead>
+          <tr>
+            <th>Nombre del Informe</th>
+            <th>Formato</th>
+            <th>Filtro de Período</th>
+            <th>Descripción y Contenido</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Consolidado Maestro Excel</strong></td>
+            <td>Excel (<code>.xlsx</code>)</td>
+            <td>Histórico Total</td>
+            <td>Libro ultrarrápido (6 seg) de 6 pestañas formuladas (Compras, Ventas, Ajustes, Inventario con <code>SUMIF</code>, Cartera y Pagos) con el 100% de datos.</td>
+          </tr>
+          <tr>
+            <td><strong>Informe de Ventas</strong></td>
+            <td>PDF Membretado</td>
+            <td>Por Período (Mes/Día)</td>
+            <td>Ventas agrupadas por POS vs Remisión o Categorías, cantidades exactas y total facturado.</td>
+          </tr>
+          <tr>
+            <td><strong>Informe de Compras</strong></td>
+            <td>PDF Membretado</td>
+            <td>Por Período (Mes/Día)</td>
+            <td>Relación de facturas de proveedores, discriminación de IVA descontable y total de entradas.</td>
+          </tr>
+          <tr>
+            <td><strong>Valorización de Inventario</strong></td>
+            <td>PDF Membretado</td>
+            <td>Por Fecha de Corte</td>
+            <td>Existencias físicas valorizadas al costo unitario maestro clasificadas por categoría (\$90.68M).</td>
+          </tr>
+          <tr>
+            <td><strong>Informe de Impuestos (IVA)</strong></td>
+            <td>PDF Membretado</td>
+            <td>Por Período (Mes/Día)</td>
+            <td>Balance fiscal mensual: IVA Generado (Ventas) vs IVA Descontable (Compras) = Balance Neto.</td>
+          </tr>
+          <tr>
+            <td><strong>Informe de Recaudos</strong></td>
+            <td>PDF Membretado</td>
+            <td>Por Período (Mes/Día)</td>
+            <td>Detalle de pagos de cartera clasificados por cliente, vendedor encargado, banco y comprobante.</td>
+          </tr>
+          <tr>
+            <td><strong>Resumen de KPIs</strong></td>
+            <td>PDF Membretado</td>
+            <td>Por Período (Mes/Día)</td>
+            <td>Informe ejecutivo para junta directiva con rentabilidad bruta, rotación y efectividad de recaudo.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ─── PREGUNTAS FRECUENTES ─── -->
+    <section id="faq" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-circle-question"></i> Preguntas Frecuentes (FAQ)</div>
+      
+      <div class="faq-item">
+        <div class="faq-question">¿Por qué el informe de Excel contiene todos los meses y el PDF solo el período seleccionado? <i class="fa-solid fa-chevron-down"></i></div>
+        <div class="faq-answer">Porque el archivo Excel actúa como la base de datos financiera consolidada de auditoría maestra con fórmulas vinculadas entre todas las hojas, mientras que los informes PDF están diseñados como reportes ejecutivos oficiales de un mes o día específico para impresión o envío contable.</div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-question">¿Por qué es obligatorio subir los PDFs de ventas y compras a diario? <i class="fa-solid fa-chevron-down"></i></div>
+        <div class="faq-answer">Subir los archivos diariamente evita ambigüedades en la lectura de fechas del formato PDF y asegura que el gráfico de ventas vs compras, las metas de ventas por día y los saldos de clientes se imputen exactamente al día correspondiente.</div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-question">¿Qué ocurre si se elimina o anula una factura en el sistema? <i class="fa-solid fa-chevron-down"></i></div>
+        <div class="faq-answer">El sistema aplica borrado lógico (cambia el estado a <code>ANULADO</code>). Las unidades vendidas o compradas se revierten automáticamente del inventario y el monto se descuenta de los KPIs del Dashboard sin alterar los consecutivos contables.</div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-question">¿Cómo se garantiza que el valor del inventario sea idéntico en todos los módulos? <i class="fa-solid fa-chevron-down"></i></div>
+        <div class="faq-answer">Todos los componentes (Dashboard, Catálogo, RPC de Supabase e Informes) se calculan bajo la misma regla maestra: <code>Stock Disponible Positivo × Costo Unitario de Catálogo</code>, asegurando total coherencia monetaria.</div>
+      </div>
+    </section>
+
+    <!-- ─── ALCANCE Y LIMITACIONES ─── -->
+    <section id="limitaciones" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-triangle-exclamation"></i> Alcance, Arquitectura y Limitaciones</div>
+      <p class="section-lead">Aspectos técnicos y delimitación del alcance operativo del software:</p>
+
+      <table class="data-table-doc">
+        <thead>
+          <tr>
+            <th>Aspecto</th>
+            <th>Comportamiento del Software</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Conectividad</strong></td>
+            <td>Requiere conexión a Internet para sincronizar con PostgreSQL en la nube de Supabase. Posee reintentos automáticos y caché local de seguridad.</td>
+          </tr>
+          <tr>
+            <td><strong>Moneda y Fiscalidad</strong></td>
+            <td>Opera de forma nativa en Pesos Colombianos (<code>COP</code>) con soporte para tarifas de IVA vigentes (19%, 5% y Exento).</td>
+          </tr>
+          <tr>
+            <td><strong>Facturación Electrónica DIAN</strong></td>
+            <td>El sistema es un software de control interno y gestión de inventario/cartera; no reemplaza el proveedor tecnológico de firma electrónica DIAN.</td>
+          </tr>
+          <tr>
+            <td><strong>Trazabilidad y Auditoría</strong></td>
+            <td>Todos los movimientos (creación, edición de precios, anulaciones y cierres) quedan registrados con usuario y marca de tiempo.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ─── DESCARGO DE RESPONSABILIDAD Y DERECHOS DE AUTOR ─── -->
+    <section id="disclaimer" class="doc-section" style="border-left: 4px solid var(--primary-accent);">
+      <div class="section-title"><i class="fa-solid fa-scale-balanced"></i> Descargo de Responsabilidad (Disclaimer) & Derechos de Autor</div>
+      <p class="section-lead">Términos de uso, alcance legal y titularidad de derechos de autor de la obra de software y su documentación técnica.</p>
+
+      <div class="callout callout-warning" style="margin-bottom: 20px;">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <div>
+          <strong>Descargo de Responsabilidad (Legal Disclaimer):</strong> La presente aplicación y su manual han sido diseñados con fines exclusivos de gestión operativa, control interno de inventarios, auditoría de existencias y administración de cartera comercial para <em>Desechables y Abarrotes Doña Mary S.A.S.</em> La veracidad, integridad y exactitud de los datos financieros, fiscales y contables derivados del uso del software dependen estrictamente de la información suministrada e ingresada por los usuarios y operadores autorizados. El software no presta asesoría tributaria, legal ni contable vinculante ante la Dirección de Impuestos y Aduanas Nacionales (DIAN) u otros entes de control.
+        </div>
+      </div>
+
+      <div class="callout callout-purple">
+        <i class="fa-solid fa-copyright"></i>
+        <div>
+          <strong>Reserva de Derechos de Autor (Copyright © 2026):</strong> Todos los derechos de autor, diseño de software, código fuente, algoritmos de cálculo, diseño de interfaz y material documental contenidos en este sistema son propiedad intelectual exclusiva de <strong>Eliana Garcés (2026)</strong>. Queda prohibida la reproducción total o parcial, ingeniería inversa, distribución comercial, licenciamiento no autorizado o modificación no consentida por su titular.
+        </div>
+      </div>
+    </section>
+
+    <footer class="doc-footer">
+      <p style="font-weight: 700; color: var(--primary); font-size: 13.5px; margin-bottom: 4px;">
+        © 2026 Eliana Garcés. Todos los derechos reservados.
+      </p>
+      <p style="font-size: 11.5px; color: var(--text-muted);">
+        Software desarrollado exclusivamente para <strong>Desechables y Abarrotes Doña Mary S.A.S.</strong> • Desarrollado con Flet, FastAPI & PostgreSQL / Supabase
+      </p>
+    </footer>
+  </main>
+
+  <script>
+    // Resaltado de navegación activa
+    const links = document.querySelectorAll('.nav-item a');
+    const sections = document.querySelectorAll('section');
+
+    window.addEventListener('scroll', () => {
+      let current = '';
+      sections.forEach(section => {
+        const sectionTop = section.offsetTop;
+        if (pageYOffset >= sectionTop - 60) {
+          current = section.getAttribute('id');
+        }
+      });
+
+      links.forEach(link => {
+        link.classList.remove('active');
+        if (link.getAttribute('href') === `#${current}`) {
+          link.classList.add('active');
+        }
+      });
+    });
+  </script>
+</body>
+</html>

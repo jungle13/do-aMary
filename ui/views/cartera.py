@@ -9,6 +9,7 @@ from config import Config
 from core.database import BaseDatabase
 from core.logger import get_logger, log_error
 from core.supabase_client import get_client
+from ui.components.periodo_selector import PeriodoSelectorWidget
 
 logger = get_logger("CarteraView")
 
@@ -38,6 +39,8 @@ class CarteraView(ft.Container):
         self.busqueda_actual = ""
         self.fecha_filtro = ""
         self.filtros_expandidos = True
+        self.panel_cliente_expandido = False
+        self.mostrar_plan_cuotas = False  # Alternar a True cuando se desee habilitar el módulo de cuotas
         self.tab_activo = 0
         self._is_loading = False
         self._is_loading_subdatos = False
@@ -88,6 +91,7 @@ class CarteraView(ft.Container):
             ],
             height=32,
             expand=True,
+            show_selected_icon=False,
             on_change=self._on_modo_vista_change
         )
 
@@ -276,10 +280,12 @@ class CarteraView(ft.Container):
         )
 
         # 4. Ensamble Principal
+        self.periodo_selector = PeriodoSelectorWidget(on_change_callback=self.on_periodo_change, page=self.page)
         self.content = ft.Column([
             ft.Row([
                 ft.Column([self.lbl_titulo, self.lbl_subtitulo], spacing=2),
                 ft.Container(expand=True),
+                self.periodo_selector,
                 self.btn_cuotas_global,
                 self.btn_pagar_global,
                 self.btn_refrescar
@@ -324,7 +330,7 @@ class CarteraView(ft.Container):
             content=ft.Column([
                 ft.Icon(ft.icons.ACCOUNT_BALANCE_WALLET_OUTLINED, size=48, color=Config.COLOR_TEXT_LIGHT),
                 ft.Text("Selecciona un cliente de la lista", size=15, weight="bold", color=Config.COLOR_PRIMARY),
-                ft.Text("Consulta sus facturas pendientes, historial de abonos, registra pagos y acuerdos de cuotas.", size=11, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.CENTER)
+                ft.Text("Consulta sus facturas pendientes, historial de abonos y asignación de vendedor.", size=11, color=Config.COLOR_TEXT_MUTED, text_align=ft.TextAlign.CENTER)
             ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
             alignment=ft.alignment.center,
             expand=True
@@ -356,6 +362,9 @@ class CarteraView(ft.Container):
         except Exception:
             pass
 
+    def on_periodo_change(self, nuevo_periodo: str):
+        self.load_data()
+
     def load_data(self):
         """Carga en segundo plano los KPIs, la lista de clientes y la lista de documentos."""
         if self._is_loading:
@@ -365,11 +374,13 @@ class CarteraView(ft.Container):
         def worker():
             try:
                 # Una sola llamada que descarga ventas una vez y calcula KPIs + clientes + documentos
+                periodo_activo = self.periodo_selector.get_periodo_actual() if hasattr(self, "periodo_selector") else None
                 kpis, clientes, documentos = self.cartera_repo.get_resumen_cartera(
                     search=self.busqueda_actual,
                     filtro_saldo=self.filtro_saldo_actual,
                     fecha_filtro=self.fecha_filtro,
-                    filtro_tipo_doc=self.filtro_tipo_doc_actual
+                    filtro_tipo_doc=self.filtro_tipo_doc_actual,
+                    mes_periodo=periodo_activo
                 )
                 self.kpis_data = kpis
                 self.clientes_lista = clientes
@@ -457,6 +468,23 @@ class CarteraView(ft.Container):
                 badge_fg = "#16A34A"
                 badge_txt = "Al Día"
 
+            vend_nom = cli.get("vendedor_encargado") or ""
+            row_sub = [
+                ft.Text(f"{facturas_cant} facturas • Últ. venta: {u_fecha}", size=9.5, color=Config.COLOR_TEXT_MUTED, expand=True)
+            ]
+            if vend_nom:
+                row_sub.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.icons.BADGE_OUTLINED, size=10, color="purple700"),
+                            ft.Text(vend_nom, size=9, weight="w600", color="purple800", overflow=ft.TextOverflow.ELLIPSIS)
+                        ], spacing=2, tight=True),
+                        bgcolor="#F5F3FF",
+                        padding=ft.padding.symmetric(horizontal=4, vertical=1),
+                        border_radius=4
+                    )
+                )
+
             item_card = ft.Container(
                 content=ft.Column([
                     ft.Row([
@@ -468,9 +496,7 @@ class CarteraView(ft.Container):
                             border_radius=6
                         )
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                    ft.Row([
-                        ft.Text(f"{facturas_cant} facturas • Últ. venta: {u_fecha}", size=9.5, color=Config.COLOR_TEXT_MUTED),
-                    ], alignment=ft.MainAxisAlignment.START)
+                    ft.Row(row_sub, alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
                 ], spacing=2),
                 padding=ft.padding.symmetric(horizontal=10, vertical=8),
                 bgcolor="#EFF6FF" if is_selected else Config.COLOR_SURFACE,
@@ -581,8 +607,13 @@ class CarteraView(ft.Container):
 
     def _abrir_date_picker(self, e):
         if self.page:
-            self.date_picker.open = True
-            self.page.update()
+            if self.date_picker not in self.page.overlay:
+                self.page.overlay.append(self.date_picker)
+            try:
+                self.date_picker.open = True
+                self.page.update()
+            except Exception:
+                pass
 
     def _on_date_picked(self, e):
         if e.control.value:
@@ -617,6 +648,23 @@ class CarteraView(ft.Container):
         self._render_lista_izquierda()
         self._cargar_detalle_cliente(cli, recargar_datos=True)
 
+    def _toggle_expandir_panel_cliente(self, e=None):
+        self.panel_cliente_expandido = not self.panel_cliente_expandido
+        
+        # Ocultar o mostrar elementos externos
+        self.kpis_row.visible = not self.panel_cliente_expandido
+        self.col_izquierda.visible = not self.panel_cliente_expandido
+        self.lbl_titulo.visible = not self.panel_cliente_expandido
+        self.lbl_subtitulo.visible = not self.panel_cliente_expandido
+        self.btn_refrescar.visible = not self.panel_cliente_expandido
+        self.btn_pagar_global.visible = bool(self.cliente_seleccionado)
+        self.btn_cuotas_global.visible = self.mostrar_plan_cuotas and bool(self.cliente_seleccionado)
+
+        if self.cliente_seleccionado:
+            self._cargar_detalle_cliente(self.cliente_seleccionado, recargar_datos=False)
+        else:
+            self.safe_update()
+
     def _on_cliente_click(self, cli: dict):
         self.documento_preseleccionado = None
         self.cliente_seleccionado = cli
@@ -628,10 +676,52 @@ class CarteraView(ft.Container):
         saldo = cli.get("saldo_pendiente", 0.0)
         tot_fac = cli.get("total_facturado", 0.0)
         tot_ab = cli.get("total_abonado", 0.0)
+        vend = (cli.get("vendedor_encargado") or "").strip()
+        com = float(cli.get("porcentaje_comision") or 0.0)
+        com_str = f"{com:g}%" if com > 0 else ""
 
         # Mostrar botones de acción en el top bar
         self.btn_pagar_global.visible = True
-        self.btn_cuotas_global.visible = True
+        self.btn_cuotas_global.visible = self.mostrar_plan_cuotas
+
+        # Chip visual interactivo del vendedor en la cabecera
+        if vend:
+            chip_vendedor = ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.BADGE_OUTLINED, size=13, color="purple800"),
+                    ft.Text(f"Vendedor: {vend}" + (f" ({com_str})" if com_str else ""), size=9.5, weight="bold", color="purple900"),
+                ], spacing=4, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                bgcolor="#F5F3FF",
+                border=ft.border.all(1, "#DDD6FE"),
+                padding=ft.padding.symmetric(horizontal=7, vertical=2),
+                border_radius=6,
+                tooltip="Clic para cambiar vendedor encargado o porcentaje de comisión",
+                on_click=lambda e, c=cli: self._abrir_modal_asignar_vendedor(c),
+                ink=True
+            )
+        else:
+            chip_vendedor = ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.PERSON_ADD_ALT_1_ROUNDED, size=12, color="grey700"),
+                    ft.Text("Sin Vendedor (+ Asignar)", size=9.5, weight="w500", color="grey700"),
+                ], spacing=3, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                bgcolor="#F8FAFC",
+                border=ft.border.all(1, "#E2E8F0"),
+                padding=ft.padding.symmetric(horizontal=7, vertical=2),
+                border_radius=6,
+                tooltip="Clic para asignar un vendedor/encargado a este cliente",
+                on_click=lambda e, c=cli: self._abrir_modal_asignar_vendedor(c),
+                ink=True
+            )
+
+        # Botón de Expandir / Restaurar Panel a Pantalla Completa
+        btn_expandir_panel = ft.IconButton(
+            icon=ft.icons.FULLSCREEN_EXIT_ROUNDED if self.panel_cliente_expandido else ft.icons.FULLSCREEN_ROUNDED,
+            icon_color=Config.COLOR_PRIMARY,
+            icon_size=21,
+            tooltip="Restaurar vista normal" if self.panel_cliente_expandido else "Expandir a pantalla completa (Ocultar panel lateral y KPIs)",
+            on_click=self._toggle_expandir_panel_cliente
+        )
 
         # Header informativo del cliente con métricas compactas
         header_cliente = ft.Container(
@@ -645,13 +735,15 @@ class CarteraView(ft.Container):
                 ft.Column([
                     ft.Row([
                         ft.Text(nom, size=14, weight="bold", color=Config.COLOR_PRIMARY, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
+                        chip_vendedor,
                         ft.Container(
                             content=ft.Text(f"Saldo Total: ${saldo:,.0f}", size=10.5, weight="bold", color="white"),
                             bgcolor="#DC2626" if saldo > 0.01 else "#16A34A",
                             padding=ft.padding.symmetric(horizontal=8, vertical=3),
                             border_radius=6
-                        )
-                    ], spacing=8),
+                        ),
+                        btn_expandir_panel
+                    ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     ft.Row([
                         ft.Container(
                             content=ft.Text(f"Facturado: ${tot_fac:,.0f}", size=9.5, color=Config.COLOR_TEXT, weight="w500"),
@@ -680,17 +772,20 @@ class CarteraView(ft.Container):
             border_radius=10
         )
 
-
         # Tab Bar Compacto
+        tabs_list = [
+            ft.Tab(text="Facturas", icon=ft.icons.RECEIPT_LONG_ROUNDED),
+            ft.Tab(text="Pagos", icon=ft.icons.HISTORY_ROUNDED),
+        ]
+        if self.mostrar_plan_cuotas:
+            tabs_list.append(ft.Tab(text="Cuotas", icon=ft.icons.EVENT_NOTE_ROUNDED))
+        tabs_list.append(ft.Tab(text="Encargado", icon=ft.icons.BADGE_OUTLINED))
+
         self.tabs_detalle = ft.Tabs(
-            selected_index=self.tab_activo,
+            selected_index=min(self.tab_activo, len(tabs_list) - 1),
             animation_duration=150,
             height=40,
-            tabs=[
-                ft.Tab(text="Facturas (Remisiones & POS)", icon=ft.icons.RECEIPT_LONG_ROUNDED),
-                ft.Tab(text="Historial de Pagos", icon=ft.icons.HISTORY_ROUNDED),
-                ft.Tab(text="Plan de Cuotas", icon=ft.icons.EVENT_NOTE_ROUNDED)
-            ],
+            tabs=tabs_list,
             on_change=self._on_tab_change
         )
 
@@ -729,7 +824,8 @@ class CarteraView(ft.Container):
             try:
                 self.facturas_cliente = self.cartera_repo.get_facturas_cliente(nombre_cliente)
                 self.historial_pagos = self.cartera_repo.get_historial_pagos_cliente(nombre_cliente)
-                self.cuotas_cliente = self.cartera_repo.get_cuotas_cliente(nombre_cliente, saldo_actual_cliente=saldo_actual)
+                if self.mostrar_plan_cuotas:
+                    self.cuotas_cliente = self.cartera_repo.get_cuotas_cliente(nombre_cliente, saldo_actual_cliente=saldo_actual)
             except Exception as ex:
                 log_error("CarteraView._recargar_subdatos_cliente", ex)
             finally:
@@ -750,8 +846,10 @@ class CarteraView(ft.Container):
             self._render_tab_facturas()
         elif self.tab_activo == 1:
             self._render_tab_historial_pagos()
-        elif self.tab_activo == 2:
+        elif self.mostrar_plan_cuotas and self.tab_activo == 2:
             self._render_tab_cuotas()
+        else:
+            self._render_tab_vendedor()
 
     def _render_tab_facturas(self):
         if not self.facturas_cliente:
@@ -967,6 +1065,454 @@ class CarteraView(ft.Container):
         )
 
     # ==========================================
+    # TAB 4: VENDEDOR & COMISIÓN
+    # ==========================================
+    def _render_tab_vendedor(self):
+        if not self.cliente_seleccionado:
+            return
+
+        nom = self.cliente_seleccionado.get("nombre", "")
+        vend_actual = (self.cliente_seleccionado.get("vendedor_encargado") or "").strip()
+        com_pct = float(self.cliente_seleccionado.get("porcentaje_comision") or 0.0)
+        tot_recaudado = float(self.cliente_seleccionado.get("total_abonado") or 0.0)
+        saldo_pend = float(self.cliente_seleccionado.get("saldo_pendiente") or 0.0)
+        tot_facturado = float(self.cliente_seleccionado.get("total_facturado") or 0.0)
+
+        comision_ganada = tot_recaudado * (com_pct / 100.0)
+        comision_potencial = saldo_pend * (com_pct / 100.0)
+
+        vendedores_disponibles = self.clientes_repo.get_vendedores_disponibles()
+        vend_com_map = {c.get("vendedor_encargado"): float(c.get("porcentaje_comision") or 0.0) for c in self.clientes_lista if c.get("vendedor_encargado")}
+
+        # 1. Tarjeta de Asignación / Edición
+        txt_vendedor = ft.TextField(
+            label="Encargado",
+            value=vend_actual,
+            hint_text="Escribe o selecciona un encargado...",
+            dense=True,
+            height=38,
+            text_size=12,
+            expand=True
+        )
+        txt_comision = ft.TextField(
+            label="% Comisión",
+            value=f"{com_pct:g}" if com_pct > 0 else "0",
+            suffix_text="%",
+            dense=True,
+            height=38,
+            text_size=12,
+            width=110,
+            keyboard_type=ft.KeyboardType.NUMBER
+        )
+
+        row_sugerencias_tab = ft.Row(wrap=True, spacing=4)
+
+        def _actualizar_sug_tab(filtro=""):
+            f_up = filtro.strip().upper()
+            row_sugerencias_tab.controls.clear()
+            coincidencias = [v for v in vendedores_disponibles if not f_up or f_up in v.upper()]
+            for v in coincidencias[:6]:
+                def _selec_tab(e, v_nom=v):
+                    txt_vendedor.value = v_nom
+                    if v_nom in vend_com_map and float(vend_com_map[v_nom]) > 0 and (not txt_comision.value or txt_comision.value == "0"):
+                        txt_comision.value = f"{vend_com_map[v_nom]:g}"
+                    _actualizar_sug_tab(v_nom)
+                    self.safe_update()
+
+                row_sugerencias_tab.controls.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.icons.PERSON_PIN_ROUNDED, size=11, color="purple800"),
+                            ft.Text(v, size=10, weight="bold", color="purple950")
+                        ], spacing=3, tight=True),
+                        bgcolor="#F5F3FF",
+                        border=ft.border.all(1, "#DDD6FE"),
+                        padding=ft.padding.symmetric(horizontal=7, vertical=2),
+                        border_radius=4,
+                        ink=True,
+                        tooltip=f"Seleccionar a {v}",
+                        on_click=_selec_tab
+                    )
+                )
+            row_sugerencias_tab.visible = bool(row_sugerencias_tab.controls)
+            self.safe_update()
+
+        txt_vendedor.on_change = lambda e: _actualizar_sug_tab(txt_vendedor.value)
+        _actualizar_sug_tab(vend_actual)
+
+        def _guardar_desde_tab(e):
+            nuevo_v = (txt_vendedor.value or "").strip()
+            try:
+                nuevo_pct = float(str(txt_comision.value or "0").replace(",", "."))
+            except ValueError:
+                nuevo_pct = 0.0
+
+            if self.clientes_repo.asignar_vendedor_cliente(nom, nuevo_v, nuevo_pct):
+                self.cliente_seleccionado["vendedor_encargado"] = nuevo_v
+                self.cliente_seleccionado["porcentaje_comision"] = nuevo_pct
+
+                # Actualizar en la lista general de clientes en memoria
+                for c in self.clientes_lista:
+                    if c.get("nombre") == nom:
+                        c["vendedor_encargado"] = nuevo_v
+                        c["porcentaje_comision"] = nuevo_pct
+
+                if self.page:
+                    self.page.snack_bar = ft.SnackBar(
+                        ft.Text(f"Encargado '{nuevo_v or 'Sin asignar'}' guardado correctamente para {nom}."),
+                        bgcolor="green"
+                    )
+                    self.page.snack_bar.open = True
+
+                self._render_lista_izquierda()
+                self._cargar_detalle_cliente(self.cliente_seleccionado, recargar_datos=False)
+                self.safe_update()
+            else:
+                if self.page:
+                    self.page.snack_bar = ft.SnackBar(
+                        ft.Text("Error al actualizar el encargado en la base de datos."),
+                        bgcolor="red"
+                    )
+                    self.page.snack_bar.open = True
+                    self.safe_update()
+
+        def _desasignar_desde_tab(e):
+            if self.clientes_repo.asignar_vendedor_cliente(nom, "", 0.0):
+                self.cliente_seleccionado["vendedor_encargado"] = ""
+                self.cliente_seleccionado["porcentaje_comision"] = 0.0
+
+                for c in self.clientes_lista:
+                    if c.get("nombre") == nom:
+                        c["vendedor_encargado"] = ""
+                        c["porcentaje_comision"] = 0.0
+
+                if self.page:
+                    self.page.snack_bar = ft.SnackBar(
+                        ft.Text(f"Encargado desasignado correctamente para {nom}."),
+                        bgcolor="green"
+                    )
+                    self.page.snack_bar.open = True
+
+                self._render_lista_izquierda()
+                self._cargar_detalle_cliente(self.cliente_seleccionado, recargar_datos=False)
+                self.safe_update()
+
+        btn_guardar_tab = ft.ElevatedButton(
+            "Guardar",
+            icon=ft.icons.SAVE_ROUNDED,
+            bgcolor=Config.COLOR_PRIMARY,
+            color="white",
+            height=38,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=_guardar_desde_tab
+        )
+        btn_desasignar_tab = ft.OutlinedButton(
+            "Desasignar",
+            icon=ft.icons.PERSON_REMOVE_ROUNDED,
+            height=38,
+            visible=bool(vend_actual),
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), color="red700"),
+            on_click=_desasignar_desde_tab
+        )
+
+        card_formulario = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Icon(ft.icons.BADGE_OUTLINED, color=Config.COLOR_PRIMARY, size=16),
+                    ft.Text("Encargado", size=12, weight="bold", color=Config.COLOR_PRIMARY),
+                ], spacing=6),
+                ft.Row([
+                    txt_vendedor,
+                    txt_comision,
+                    btn_desasignar_tab,
+                    btn_guardar_tab
+                ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Column([
+                    ft.Text("Sugerencias de encargados existentes:", size=9.5, color=Config.COLOR_TEXT_MUTED, italic=True),
+                    row_sugerencias_tab
+                ], spacing=2, visible=bool(vendedores_disponibles))
+            ], spacing=6),
+            padding=10,
+            bgcolor="#F8FAFC",
+            border=ft.border.all(1, Config.COLOR_BORDER),
+            border_radius=8
+        )
+
+        # 2. Tarjetas de KPIs Comerciales
+        kpi_recaudo = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Icon(ft.icons.SAVINGS_ROUNDED, color=Config.COLOR_SUCCESS, size=15),
+                    ft.Text("TOTAL RECAUDADO", size=9.5, weight="bold", color="grey700")
+                ], spacing=4),
+                ft.Text(f"${tot_recaudado:,.0f}", size=14, weight="bold", color=Config.COLOR_SUCCESS),
+                ft.Text(f"De ${tot_facturado:,.0f} facturado", size=9, color=Config.COLOR_TEXT_MUTED)
+            ], spacing=2),
+            bgcolor=Config.COLOR_SURFACE,
+            padding=8,
+            border_radius=8,
+            border=ft.border.all(1, Config.COLOR_BORDER),
+            expand=True
+        )
+
+        kpi_comision_ganada = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Icon(ft.icons.PAID_ROUNDED, color="purple700", size=15),
+                    ft.Text("COMISIÓN POR RECAUDO", size=9.5, weight="bold", color="purple900")
+                ], spacing=4),
+                ft.Text(f"${comision_ganada:,.0f}", size=14, weight="bold", color="purple800"),
+                ft.Text(f"{com_pct:g}% sobre ${tot_recaudado:,.0f}" if com_pct > 0 else "Sin % configurado", size=9, color=Config.COLOR_TEXT_MUTED)
+            ], spacing=2),
+            bgcolor="#FAF5FF",
+            padding=8,
+            border_radius=8,
+            border=ft.border.all(1, "#E9D5FF"),
+            expand=True
+        )
+
+        kpi_comision_potencial = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Icon(ft.icons.ACCOUNT_BALANCE_WALLET_ROUNDED, color="#D97706", size=15),
+                    ft.Text("SALDO POR COBRAR", size=9.5, weight="bold", color="grey700")
+                ], spacing=4),
+                ft.Text(f"${saldo_pend:,.0f}", size=14, weight="bold", color="#B45309" if saldo_pend > 0.01 else "grey600"),
+                ft.Text(f"Comisión potencial: ${comision_potencial:,.0f}" if com_pct > 0 else "Sin saldo", size=9, color=Config.COLOR_TEXT_MUTED)
+            ], spacing=2),
+            bgcolor="#FFFBEB" if saldo_pend > 0.01 else Config.COLOR_SURFACE,
+            padding=8,
+            border_radius=8,
+            border=ft.border.all(1, "#FDE68A" if saldo_pend > 0.01 else Config.COLOR_BORDER),
+            expand=True
+        )
+
+        row_kpis_vendedor = ft.Row([kpi_recaudo, kpi_comision_ganada, kpi_comision_potencial], spacing=8)
+
+        # 3. Tabla de Pagos y Comisión Individual
+        dt_pagos_comision = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Fecha de Pago", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Monto Recaudado", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Método", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Facturas Afectadas", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("% Comisión", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Comisión Sugerida", size=11, weight="bold")),
+            ],
+            rows=[],
+            heading_row_height=30,
+            data_row_min_height=28,
+            data_row_max_height=32,
+            column_spacing=12,
+            heading_row_color=Config.COLOR_MUTED
+        )
+
+        for p in self.historial_pagos:
+            monto_p = float(p.get("monto_total") or 0.0)
+            com_p = monto_p * (com_pct / 100.0)
+            f_afectadas = p.get("facturas_afectadas", [])
+            facs_str = ", ".join([f"#{d.get('factura_no')}" for d in f_afectadas]) if f_afectadas else "Global (FIFO)"
+            metodo = p.get("metodo_pago", "EFECTIVO")
+
+            dt_pagos_comision.rows.append(
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Text(p.get("fecha_formateada", ""), size=11)),
+                    ft.DataCell(ft.Text(f"${monto_p:,.0f}", size=11, weight="bold", color=Config.COLOR_SUCCESS)),
+                    ft.DataCell(ft.Text(metodo, size=11)),
+                    ft.DataCell(ft.Text(facs_str[:35], size=10, tooltip=facs_str)),
+                    ft.DataCell(ft.Text(f"{com_pct:g}%", size=11, color="purple700")),
+                    ft.DataCell(ft.Text(f"${com_p:,.2f}", size=11, weight="bold", color="purple800")),
+                ])
+            )
+
+        tabla_scroll = ft.Container(
+            content=ft.ListView(controls=[dt_pagos_comision], expand=True),
+            expand=True,
+            border=ft.border.all(1, Config.COLOR_BORDER),
+            border_radius=8,
+            padding=0
+        ) if self.historial_pagos else ft.Container(
+            content=ft.Text("No hay pagos registrados para calcular comisión en este cliente.", size=11, color=Config.COLOR_TEXT_MUTED, italic=True),
+            alignment=ft.alignment.center,
+            padding=20
+        )
+
+        self.tab_content_container.content = ft.Column([
+            card_formulario,
+            row_kpis_vendedor,
+            ft.Text("Desglose de Comisiones por Pago Recaudado:", size=11, weight="bold", color=Config.COLOR_PRIMARY),
+            tabla_scroll
+        ], expand=True, spacing=8)
+
+    # ==========================================
+    # MODAL: ASIGNAR VENDEDOR RÁPIDO
+    # ==========================================
+    def _abrir_modal_asignar_vendedor(self, cli: dict):
+        if not cli:
+            return
+
+        nom = cli.get("nombre", "")
+        vend_actual = (cli.get("vendedor_encargado") or "").strip()
+        com_pct = float(cli.get("porcentaje_comision") or 0.0)
+
+        vendedores_disponibles = self.clientes_repo.get_vendedores_disponibles()
+        vend_com_map = {c.get("vendedor_encargado"): float(c.get("porcentaje_comision") or 0.0) for c in self.clientes_lista if c.get("vendedor_encargado")}
+
+        txt_vendedor_modal = ft.TextField(
+            label="Encargado",
+            value=vend_actual,
+            hint_text="Escribe o selecciona un encargado...",
+            dense=True,
+            autofocus=True
+        )
+        txt_comision_modal = ft.TextField(
+            label="% Comisión",
+            value=f"{com_pct:g}" if com_pct > 0 else "0",
+            suffix_text="%",
+            dense=True,
+            keyboard_type=ft.KeyboardType.NUMBER
+        )
+
+        row_sugerencias_modal = ft.Row(wrap=True, spacing=4)
+
+        def _actualizar_sug_modal(filtro=""):
+            f_up = filtro.strip().upper()
+            row_sugerencias_modal.controls.clear()
+            coincidencias = [v for v in vendedores_disponibles if not f_up or f_up in v.upper()]
+            for v in coincidencias[:6]:
+                def _selec_modal(e, v_nom=v):
+                    txt_vendedor_modal.value = v_nom
+                    if v_nom in vend_com_map and float(vend_com_map[v_nom]) > 0 and (not txt_comision_modal.value or txt_comision_modal.value == "0"):
+                        txt_comision_modal.value = f"{vend_com_map[v_nom]:g}"
+                    _actualizar_sug_modal(v_nom)
+                    self.safe_update()
+
+                row_sugerencias_modal.controls.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.icons.PERSON_PIN_ROUNDED, size=11, color="purple800"),
+                            ft.Text(v, size=10, weight="bold", color="purple950")
+                        ], spacing=3, tight=True),
+                        bgcolor="#F5F3FF",
+                        border=ft.border.all(1, "#DDD6FE"),
+                        padding=ft.padding.symmetric(horizontal=7, vertical=2.5),
+                        border_radius=4,
+                        ink=True,
+                        tooltip=f"Seleccionar a {v}",
+                        on_click=_selec_modal
+                    )
+                )
+            row_sugerencias_modal.visible = bool(row_sugerencias_modal.controls)
+            self.safe_update()
+
+        txt_vendedor_modal.on_change = lambda e: _actualizar_sug_modal(txt_vendedor_modal.value)
+        _actualizar_sug_modal(vend_actual)
+
+        def _do_guardar(e):
+            nuevo_v = (txt_vendedor_modal.value or "").strip()
+            try:
+                nuevo_pct = float(str(txt_comision_modal.value or "0").replace(",", "."))
+            except ValueError:
+                nuevo_pct = 0.0
+
+            dlg.open = False
+            self.safe_update()
+
+            if self.clientes_repo.asignar_vendedor_cliente(nom, nuevo_v, nuevo_pct):
+                cli["vendedor_encargado"] = nuevo_v
+                cli["porcentaje_comision"] = nuevo_pct
+
+                # Actualizar en la lista general de clientes en memoria
+                for c in self.clientes_lista:
+                    if c.get("nombre") == nom:
+                        c["vendedor_encargado"] = nuevo_v
+                        c["porcentaje_comision"] = nuevo_pct
+
+                if self.page:
+                    self.page.snack_bar = ft.SnackBar(
+                        ft.Text(f"Encargado '{nuevo_v or 'Sin asignar'}' guardado correctamente para {nom}."),
+                        bgcolor="green"
+                    )
+                    self.page.snack_bar.open = True
+
+                self._render_lista_izquierda()
+                self._cargar_detalle_cliente(cli, recargar_datos=False)
+                self.safe_update()
+            else:
+                if self.page:
+                    self.page.snack_bar = ft.SnackBar(
+                        ft.Text("Error al actualizar el encargado en la base de datos."),
+                        bgcolor="red"
+                    )
+                    self.page.snack_bar.open = True
+                    self.safe_update()
+
+        def _do_desasignar(e):
+            dlg.open = False
+            self.safe_update()
+
+            if self.clientes_repo.asignar_vendedor_cliente(nom, "", 0.0):
+                cli["vendedor_encargado"] = ""
+                cli["porcentaje_comision"] = 0.0
+
+                for c in self.clientes_lista:
+                    if c.get("nombre") == nom:
+                        c["vendedor_encargado"] = ""
+                        c["porcentaje_comision"] = 0.0
+
+                if self.page:
+                    self.page.snack_bar = ft.SnackBar(
+                        ft.Text(f"Encargado desasignado correctamente para {nom}."),
+                        bgcolor="green"
+                    )
+                    self.page.snack_bar.open = True
+
+                self._render_lista_izquierda()
+                self._cargar_detalle_cliente(cli, recargar_datos=False)
+                self.safe_update()
+            else:
+                if self.page:
+                    self.page.snack_bar = ft.SnackBar(
+                        ft.Text("Error al desasignar el encargado."),
+                        bgcolor="red"
+                    )
+                    self.page.snack_bar.open = True
+                    self.safe_update()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([
+                ft.Icon(ft.icons.BADGE_OUTLINED, color=Config.COLOR_PRIMARY, size=18),
+                ft.Text(f"Encargado - {nom}", size=14, weight="bold", color=Config.COLOR_PRIMARY),
+            ], spacing=6),
+            content=ft.Container(
+                width=420,
+                content=ft.Column([
+                    ft.Text(
+                        "Asigna la persona encargada de la gestión de este cliente.",
+                        size=11,
+                        color=Config.COLOR_TEXT_MUTED
+                    ),
+                    txt_vendedor_modal,
+                    ft.Column([
+                        ft.Text("Sugerencias de encargados existentes:", size=9.5, color=Config.COLOR_TEXT_MUTED, italic=True),
+                        row_sugerencias_modal
+                    ], spacing=2, visible=bool(vendedores_disponibles)),
+                    txt_comision_modal,
+                ], tight=True, spacing=10)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: (setattr(dlg, 'open', False), self.safe_update())),
+                ft.OutlinedButton("Desasignar", icon=ft.icons.PERSON_REMOVE_ROUNDED, style=ft.ButtonStyle(color="red700"), visible=bool(vend_actual), on_click=_do_desasignar),
+                ft.ElevatedButton("Guardar", bgcolor=Config.COLOR_PRIMARY, color="white", on_click=_do_guardar)
+            ]
+        )
+
+        self.page.overlay.append(dlg)
+        dlg.open = True
+        self.safe_update()
+
+    # ==========================================
     # MODAL: REGISTRAR PAGO / ABONO
     # ==========================================
     def _abrir_modal_pago(self, cli: dict, doc_preseleccionado: str | None = None):
@@ -1015,12 +1561,66 @@ class CarteraView(ft.Container):
             keyboard_type=ft.KeyboardType.NUMBER
         )
 
+        txt_monto_efectivo = ft.TextField(
+            label="💵 Monto Efectivo (COP)",
+            value="",
+            text_size=12,
+            dense=True,
+            expand=True,
+            keyboard_type=ft.KeyboardType.NUMBER
+        )
+
+        txt_monto_transferencia = ft.TextField(
+            label="🏦 Monto Transferencia (COP)",
+            value="",
+            text_size=12,
+            dense=True,
+            expand=True,
+            keyboard_type=ft.KeyboardType.NUMBER
+        )
+
+        lbl_total_mixto = ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.icons.CALCULATE_ROUNDED, size=15, color=Config.COLOR_PRIMARY),
+                ft.Text("Total Combinado: $0 COP", size=11.5, weight="bold", color=Config.COLOR_PRIMARY),
+            ], spacing=5),
+            bgcolor="#EFF6FF",
+            border=ft.border.all(1, "#BFDBFE"),
+            padding=ft.padding.symmetric(horizontal=10, vertical=6),
+            border_radius=6,
+            visible=False
+        )
+
+        def actualizar_suma_mixta(e=None):
+            try:
+                e_val = float(str(txt_monto_efectivo.value or "0").replace("$", "").replace(".", "").replace(",", ".").strip())
+            except ValueError:
+                e_val = 0.0
+            try:
+                t_val = float(str(txt_monto_transferencia.value or "0").replace("$", "").replace(".", "").replace(",", ".").strip())
+            except ValueError:
+                t_val = 0.0
+            tot = e_val + t_val
+            lbl_total_mixto.content.controls[1].value = f"Total Combinado: ${tot:,.0f} COP"
+            if self.page:
+                self.page.update()
+
+        txt_monto_efectivo.on_change = actualizar_suma_mixta
+        txt_monto_transferencia.on_change = actualizar_suma_mixta
+
+        row_mixto_montos = ft.Row([
+            txt_monto_efectivo,
+            txt_monto_transferencia
+        ], spacing=8, visible=False)
+
         def on_doc_change(e):
             val = dd_documento.value
-            if val == "TODAS":
-                txt_monto.value = f"{int(saldo_cliente)}" if saldo_cliente > 0 else ""
-            elif val in doc_saldo_map:
-                txt_monto.value = f"{int(doc_saldo_map[val])}"
+            nuevo_s = saldo_cliente if val == "TODAS" else doc_saldo_map.get(val, saldo_cliente)
+            txt_monto.value = f"{int(nuevo_s)}" if nuevo_s > 0 else ""
+            if dd_metodo.value == "MIXTO" and nuevo_s > 0:
+                txt_monto_efectivo.value = f"{int(nuevo_s / 2)}"
+                txt_monto_transferencia.value = f"{int(nuevo_s - int(nuevo_s / 2))}"
+                actualizar_suma_mixta()
             if self.page:
                 self.page.update()
 
@@ -1039,13 +1639,14 @@ class CarteraView(ft.Container):
             options=[
                 ft.dropdown.Option("EFECTIVO", "Efectivo"),
                 ft.dropdown.Option("TRANSFERENCIA", "Transferencia Bancaria"),
+                ft.dropdown.Option("MIXTO", "Pago Mixto (Efectivo + Transferencia)"),
             ],
             dense=True,
             text_size=12
         )
 
         dd_banco = ft.Dropdown(
-            label="Banco / Entidad (Colombia)",
+            label="Banco / Entidad (Transferencia)",
             value="Bancolombia",
             options=[
                 ft.dropdown.Option("Bancolombia", "Bancolombia"),
@@ -1064,8 +1665,8 @@ class CarteraView(ft.Container):
         )
 
         txt_ref = ft.TextField(
-            label="Comprobante / Referencia",
-            hint_text="No. transacción o recibo",
+            label="Comprobante / Referencia (Transferencia)",
+            hint_text="No. transacción o comprobante",
             text_size=12,
             dense=True,
             visible=False
@@ -1079,32 +1680,71 @@ class CarteraView(ft.Container):
         )
 
         def on_metodo_change(e):
-            is_transf = (dd_metodo.value == "TRANSFERENCIA")
-            dd_banco.visible = is_transf
-            txt_ref.visible = is_transf
+            m = dd_metodo.value
+            is_mixto = (m == "MIXTO")
+            is_transf = (m == "TRANSFERENCIA")
+
+            txt_monto.visible = not is_mixto
+            row_mixto_montos.visible = is_mixto
+            lbl_total_mixto.visible = is_mixto
+            dd_banco.visible = (is_transf or is_mixto)
+            txt_ref.visible = (is_transf or is_mixto)
+
+            if is_mixto and not txt_monto_efectivo.value and not txt_monto_transferencia.value:
+                try:
+                    curr_monto = float(str(txt_monto.value or "0").replace("$", "").replace(".", "").replace(",", ".").strip())
+                except ValueError:
+                    curr_monto = 0.0
+                if curr_monto > 0:
+                    txt_monto_efectivo.value = f"{int(curr_monto / 2)}"
+                    txt_monto_transferencia.value = f"{int(curr_monto - int(curr_monto / 2))}"
+                actualizar_suma_mixta()
+
             if self.page:
                 self.page.update()
 
         dd_metodo.on_change = on_metodo_change
 
+        is_submitting_pago = False
+
         def guardar_pago(e):
-            try:
-                monto_val = float(str(txt_monto.value or "").replace("$", "").replace(".", "").replace(",", ".").strip())
-                if monto_val <= 0:
-                    self._mostrar_snackbar("El monto debe ser mayor a 0", "red")
+            nonlocal is_submitting_pago
+            if is_submitting_pago:
+                return
+
+            metodo = dd_metodo.value
+            doc_sel = dd_documento.value
+
+            if metodo == "MIXTO":
+                try:
+                    m_efectivo = float(str(txt_monto_efectivo.value or "0").replace("$", "").replace(".", "").replace(",", ".").strip())
+                except ValueError:
+                    m_efectivo = 0.0
+                try:
+                    m_transf = float(str(txt_monto_transferencia.value or "0").replace("$", "").replace(".", "").replace(",", ".").strip())
+                except ValueError:
+                    m_transf = 0.0
+
+                monto_total = m_efectivo + m_transf
+                if monto_total <= 0:
+                    self._mostrar_snackbar("Debes ingresar un monto mayor a 0 en efectivo o transferencia.", "red")
                     return
 
-                # Si seleccionó un documento específico, imputar a ese documento
-                facturas_seleccionadas = None
-                if dd_documento.value and dd_documento.value != "TODAS":
-                    facturas_seleccionadas = {dd_documento.value: monto_val}
+                is_submitting_pago = True
+                btn_confirmar_pago.disabled = True
+                dlg.open = False
+                self.safe_update()
 
-                ok = self.cartera_repo.registrar_pago_cartera(
+                facturas_seleccionadas = None
+                if doc_sel and doc_sel != "TODAS":
+                    facturas_seleccionadas = {doc_sel: monto_total}
+
+                ok = self.cartera_repo.registrar_pago_mixto_cartera(
                     id_cliente=cli.get("id_cliente"),
                     nombre_cliente=nom,
-                    monto_total=monto_val,
-                    metodo_pago=dd_metodo.value,
-                    banco_origen=dd_banco.value if dd_metodo.value == "TRANSFERENCIA" else None,
+                    monto_efectivo=m_efectivo,
+                    monto_transferencia=m_transf,
+                    banco_origen=dd_banco.value if m_transf > 0 else None,
                     referencia=txt_ref.value or "",
                     observaciones=txt_obs.value or "",
                     facturas_seleccionadas=facturas_seleccionadas,
@@ -1112,14 +1752,54 @@ class CarteraView(ft.Container):
                 )
 
                 if ok:
-                    dlg.open = False
-                    doc_msg = f" a {dd_documento.value}" if (dd_documento.value and dd_documento.value != "TODAS") else ""
+                    doc_msg = f" a {doc_sel}" if (doc_sel and doc_sel != "TODAS") else ""
+                    self._mostrar_snackbar(
+                        f"✓ Pago mixto (${monto_total:,.0f}{doc_msg}) registrado con éxito (💵 ${m_efectivo:,.0f} + 🏦 ${m_transf:,.0f}).",
+                        "green"
+                    )
+                    self.load_data()
+                else:
+                    self._mostrar_snackbar("Error registrando pago mixto en base de datos.", "red")
+
+            else:
+                try:
+                    monto_val = float(str(txt_monto.value or "").replace("$", "").replace(".", "").replace(",", ".").strip())
+                except ValueError:
+                    monto_val = 0.0
+
+                if monto_val <= 0:
+                    self._mostrar_snackbar("El monto debe ser mayor a 0", "red")
+                    return
+
+                is_submitting_pago = True
+                btn_confirmar_pago.disabled = True
+                dlg.open = False
+                self.safe_update()
+
+                facturas_seleccionadas = None
+                if doc_sel and doc_sel != "TODAS":
+                    facturas_seleccionadas = {doc_sel: monto_val}
+
+                ok = self.cartera_repo.registrar_pago_cartera(
+                    id_cliente=cli.get("id_cliente"),
+                    nombre_cliente=nom,
+                    monto_total=monto_val,
+                    metodo_pago=metodo,
+                    banco_origen=dd_banco.value if metodo == "TRANSFERENCIA" else None,
+                    referencia=txt_ref.value or "",
+                    observaciones=txt_obs.value or "",
+                    facturas_seleccionadas=facturas_seleccionadas,
+                    usuario="admin"
+                )
+
+                if ok:
+                    doc_msg = f" a {doc_sel}" if (doc_sel and doc_sel != "TODAS") else ""
                     self._mostrar_snackbar(f"✓ Recaudo de ${monto_val:,.0f}{doc_msg} registrado con éxito.", "green")
                     self.load_data()
                 else:
                     self._mostrar_snackbar("Error registrando pago en base de datos.", "red")
-            except Exception as ex:
-                self._mostrar_snackbar(f"Error: {ex}", "red")
+
+        btn_confirmar_pago = ft.ElevatedButton("Confirmar Recaudo", bgcolor=Config.COLOR_SUCCESS, color="white", on_click=guardar_pago)
 
         dlg = ft.AlertDialog(
             title=ft.Text(f"Registrar Recaudo: {nom}", size=15, weight="bold", color=Config.COLOR_PRIMARY),
@@ -1128,16 +1808,18 @@ class CarteraView(ft.Container):
                     ft.Text(f"Saldo Pendiente Total: ${saldo_cliente:,.0f}", size=11.5, weight="bold", color="#DC2626" if saldo_cliente > 0 else "grey"),
                     dd_documento,
                     txt_monto,
+                    row_mixto_montos,
+                    lbl_total_mixto,
                     dd_metodo,
                     dd_banco,
                     txt_ref,
                     txt_obs
                 ], spacing=10, tight=True),
-                width=420
+                width=440
             ),
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda e: self._cerrar_modal(dlg)),
-                ft.ElevatedButton("Confirmar Recaudo", bgcolor=Config.COLOR_SUCCESS, color="white", on_click=guardar_pago)
+                btn_confirmar_pago
             ]
         )
 
@@ -1251,8 +1933,17 @@ class CarteraView(ft.Container):
             self.page.update()
 
     def _confirmar_anular_pago(self, id_pago: str):
+        is_submitting = False
+
         def anular(e):
+            nonlocal is_submitting
+            if is_submitting:
+                return
+            is_submitting = True
+            btn_anular_confirm.disabled = True
             dlg.open = False
+            self.safe_update()
+
             ok = self.cartera_repo.anular_pago_cartera(id_pago)
             if ok:
                 self._mostrar_snackbar("✓ Recaudo anulado exitosamente.", "orange800")
@@ -1260,12 +1951,14 @@ class CarteraView(ft.Container):
             else:
                 self._mostrar_snackbar("Error anulando recaudo.", "red")
 
+        btn_anular_confirm = ft.ElevatedButton("Sí, Anular Pago", bgcolor="red800", color="white", on_click=anular)
+
         dlg = ft.AlertDialog(
             title=ft.Text("¿Anular Recaudo?", size=15, weight="bold", color="red800"),
             content=ft.Text("Esta acción revertirá el pago y restaurará los saldos adeudados en las facturas.", size=12),
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda e: self._cerrar_modal(dlg)),
-                ft.ElevatedButton("Sí, Anular Pago", bgcolor="red800", color="white", on_click=anular)
+                btn_anular_confirm
             ]
         )
 

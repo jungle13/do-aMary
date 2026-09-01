@@ -16,14 +16,20 @@ def crear_copia_seguridad(nombre_sufijo: str = "pre_pruebas"):
     db = SupabaseClient()
     
     tables = [
+        "usuarios",
+        "clientes",
         "catalogo_insumos",
+        "periodos_inventario",
         "registro_compras",
         "registro_ventas",
+        "cuotas_cartera",
+        "pagos_cartera",
+        "detalle_pagos_cartera",
         "registro_ajustes_inventario",
-        "periodos_inventario",
         "registro_auditorias_cierres",
         "conteo_fisico_relacionado",
-        "historial_acciones_usuario"
+        "historial_acciones_usuario",
+        "registro_errores_sistema"
     ]
     
     backup_data = {}

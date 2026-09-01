@@ -7,11 +7,11 @@ import datetime
 from pypdf import PdfReader, PdfWriter
 from config import Config
 from core.supabase_client import SupabaseClient
-from core.gemini_parser import GeminiParser
 from core.pdf_native_parser import detectar_y_parsear_pdf
 from ui.components.cargas_consolidada import CargasConsolidadaView
 import math
 from ui.components.autocomplete import CustomAutoComplete
+from ui.components.periodo_selector import PeriodoSelectorWidget
 
 class ComprasView(ft.Container):
     def safe_update(self):
@@ -33,11 +33,11 @@ class ComprasView(ft.Container):
         self.expand = True
         
         self.db = SupabaseClient()
-        self.ai_parser = GeminiParser()
         self.page_size = 15
         self.current_page = 1
         self.total_pages = 1
         self.total_records = 0
+        self._crud_on_saved_callback = None
         
         self.parsed_data = None # Para guardar temporalmente los datos extraídos
         
@@ -205,6 +205,7 @@ class ComprasView(ft.Container):
             selected={"FACTURA"},
             on_change=self.on_modo_vista_change,
             height=36,
+            show_selected_icon=False,
         )
 
         # Botón para desplegar/contraer panel de filtros
@@ -309,12 +310,41 @@ class ComprasView(ft.Container):
             horizontal_lines=ft.border.BorderSide(1, "#e2e8f0"),
         )
         
-        # Controles Paginación
+        # Controles Paginación y Totales Filtrados
         self.lbl_page_info = ft.Text("Página 1 de 1")
         self.lbl_total = ft.Text("0 registros en total", color="grey")
         self.btn_prev = ft.IconButton(ft.icons.CHEVRON_LEFT, tooltip="Página Anterior", on_click=self.on_prev_page, disabled=True)
         self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, tooltip="Página Siguiente", on_click=self.on_next_page, disabled=True)
         self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
+
+        # Totales Filtrados
+        self.lbl_totales_cantidad = ft.Text("0 unds", size=11, weight="bold", color="black87")
+        self.lbl_totales_iva = ft.Text("$0", size=11, weight="bold", color="purple700")
+        self.lbl_totales_costo = ft.Text("$0", size=12, weight="bold", color="teal800")
+
+        self.panel_totales_footer = ft.Container(
+            content=ft.Row([
+                ft.Row([
+                    ft.Text("Cant. Total:", size=11, color="grey600", weight="w500"),
+                    self.lbl_totales_cantidad
+                ], spacing=4),
+                ft.Container(width=1, height=14, bgcolor="#cbd5e1"),
+                ft.Row([
+                    ft.Text("IVA Total:", size=11, color="grey600", weight="w500"),
+                    self.lbl_totales_iva
+                ], spacing=4),
+                ft.Container(width=1, height=14, bgcolor="#cbd5e1"),
+                ft.Row([
+                    ft.Text("Costo Total:", size=11, color="grey600", weight="w500"),
+                    self.lbl_totales_costo
+                ], spacing=4),
+            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            bgcolor="#f8fafc",
+            border=ft.border.all(1, "#e2e8f0"),
+            border_radius=8,
+            padding=ft.padding.symmetric(horizontal=10, vertical=4),
+            visible=True
+        )
         
         # --- TAB 2: GESTIÓN DE CARGAS ---
         self.cargas_file = "cargas_compras_locales.json"
@@ -383,7 +413,14 @@ class ComprasView(ft.Container):
         )
         
         footer_paginacion = ft.Container(
-            content=ft.Row([self.lbl_total, ft.Container(expand=True), self.btn_prev, self.lbl_page_info, self.btn_next], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            content=ft.Row([
+                self.lbl_total,
+                self.panel_totales_footer,
+                ft.Container(expand=True),
+                self.btn_prev,
+                self.lbl_page_info,
+                self.btn_next
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             padding=ft.padding.only(top=10)
         )
         
@@ -460,7 +497,7 @@ class ComprasView(ft.Container):
             icon=ft.icons.CALENDAR_TODAY,
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), padding=4),
             height=30,
-            on_click=lambda e: self.date_picker_compras_timeline.pick_date()
+            on_click=self.open_date_picker_timeline
         )
 
         self.btn_ver_todo_panel = ft.TextButton(
@@ -538,10 +575,11 @@ class ComprasView(ft.Container):
             bgcolor="teal700", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=12, visible=False
         )
 
+        self.periodo_selector = PeriodoSelectorWidget(on_change_callback=self.on_periodo_change, page=self.page)
         self.lbl_titulo = ft.Text("Módulo de Compras", size=24, weight="bold", color=Config.COLOR_PRIMARY)
         main_column = ft.Column([
             self.progress_bar,
-            ft.Row([self.lbl_titulo, self.filtro_badge_compras, ft.Container(expand=True), self.btn_fullscreen]),
+            ft.Row([self.lbl_titulo, self.filtro_badge_compras, ft.Container(expand=True), self.periodo_selector, self.btn_fullscreen], vertical_alignment=ft.CrossAxisAlignment.CENTER),
             self.summary_container,
             self.tabs
         ], expand=True, spacing=10)
@@ -1162,12 +1200,17 @@ class ComprasView(ft.Container):
         self.load_data()
         self.safe_update()
 
+    def on_periodo_change(self, nuevo_periodo: str):
+        self.current_page = 1
+        self.load_data()
+        self.load_summary()
+
     def on_filtro_proveedor_change(self, e):
         self.current_page = 1
         self.load_data()
 
     def load_summary(self):
-        f_corte = getattr(self, "fecha_corte", None)
+        f_corte = getattr(self, "fecha_corte", None) or (self.periodo_selector.get_fecha_corte() if hasattr(self, "periodo_selector") else None)
         res = self.db.get_compras_summary(fecha_corte=f_corte)
         self.lbl_compras_mes.value = f"${res.get('total_mes', 0):,.2f}"
         self.lbl_compras_hoy.value = f"${res.get('total_hoy', 0):,.2f}"
@@ -1193,8 +1236,41 @@ class ComprasView(ft.Container):
             except Exception:
                 pass
             
-    def open_date_picker(self, e):
-        self.date_picker.pick_date()
+    def open_date_picker(self, e=None):
+        if not self.page:
+            return
+        if self.date_picker not in self.page.overlay:
+            self.page.overlay.append(self.date_picker)
+            try:
+                self.page.update()
+            except Exception:
+                pass
+        try:
+            self.date_picker.pick_date()
+        except AssertionError:
+            try:
+                self.page.update()
+                self.date_picker.pick_date()
+            except Exception:
+                pass
+
+    def open_date_picker_timeline(self, e=None):
+        if not self.page:
+            return
+        if self.date_picker_compras_timeline not in self.page.overlay:
+            self.page.overlay.append(self.date_picker_compras_timeline)
+            try:
+                self.page.update()
+            except Exception:
+                pass
+        try:
+            self.date_picker_compras_timeline.pick_date()
+        except AssertionError:
+            try:
+                self.page.update()
+                self.date_picker_compras_timeline.pick_date()
+            except Exception:
+                pass
         
     def on_date_change(self, e):
         if self.date_picker.value:
@@ -1876,7 +1952,7 @@ class ComprasView(ft.Container):
         prov_filtro = getattr(self, 'filtro_proveedor_activo', None)
         if prov_tabla and prov_tabla != "TODOS":
             prov_filtro = prov_tabla
-        f_corte = getattr(self, 'fecha_corte', None)
+        f_corte = getattr(self, 'fecha_corte', None) or (self.periodo_selector.get_fecha_corte() if hasattr(self, 'periodo_selector') else None)
 
         if self.modo_vista_tabla == "FACTURA":
             # 1. Configurar columnas de la tabla para Modo Factura / Documento
@@ -2075,6 +2151,24 @@ class ComprasView(ft.Container):
                     ]
                 )
                 self.data_table.rows.append(row)
+
+        # 3. Obtener Totales Acumulados para los filtros activos
+        try:
+            totales = self.db.get_compras_totales_filtrados(
+                search=search_val,
+                fecha_corte=f_corte,
+                factura_filtro=fact_filtro,
+                proveedor_filtro=prov_filtro
+            )
+            tot_cant = float(totales.get("total_cantidad") or 0.0)
+            tot_iva = float(totales.get("total_iva") or 0.0)
+            tot_costo = float(totales.get("total_costo") or 0.0)
+
+            self.lbl_totales_cantidad.value = f"{int(tot_cant):,} unds" if tot_cant.is_integer() else f"{tot_cant:,.2f} unds"
+            self.lbl_totales_iva.value = f"${tot_iva:,.2f}"
+            self.lbl_totales_costo.value = f"${tot_costo:,.2f}"
+        except Exception:
+            pass
 
         self.update_pagination_ui()
         

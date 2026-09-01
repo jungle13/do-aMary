@@ -62,13 +62,14 @@ class CarteraRepository:
         search: str = "",
         filtro_saldo: str = "TODOS",
         fecha_filtro: str = "",
-        filtro_tipo_doc: str = "TODOS"
+        filtro_tipo_doc: str = "TODOS",
+        mes_periodo: str | None = None
     ) -> tuple[dict, list[dict], list[dict]]:
         """
         Descarga registro_ventas paginado con get_all y calcula en una pasada:
-        - KPIs globales de cartera (total_ventas, total_recaudado, saldo, etc.)
-        - Lista de clientes con saldos individuales para el panel izquierdo.
-        - Lista de documentos (Remisiones & POS) con saldos individuales calculados FIFO.
+        - KPIs del período seleccionado (o globales históricos si no se especifica mes).
+        - Lista completa de clientes con saldos individuales (cuentas por cobrar vigentes).
+        - Lista completa de documentos (Remisiones & POS) con saldos FIFO.
 
         Retorna: (kpis_dict, clientes_list, documentos_list)
         """
@@ -83,7 +84,9 @@ class CarteraRepository:
         try:
             # ─── 1. Descarga completa de ventas paginada ────────────────────
             ventas_data = self.db.get_all(
-                "registro_ventas?select=cliente,factura_no,fecha,total,tipo_documento"
+                "registro_ventas?select=cliente,factura_no,fecha,total,tipo_documento&estado_registro=neq.ANULADO",
+                page_size=2000,
+                timeout=25
             )
 
             # Filtrar por Tipo de Documento si aplica
@@ -103,7 +106,7 @@ class CarteraRepository:
                 abonos_directos_doc[f_no] = abonos_directos_doc.get(f_no, 0.0) + float(d.get("monto_aplicado") or 0.0)
 
             # ─── 3. Catálogo de clientes ────────────────────────────────────
-            res_c = self.db.get("clientes?select=id_cliente,nombre,telefono,direccion", timeout=8)
+            res_c = self.db.get("clientes?select=id_cliente,nombre,telefono,direccion,vendedor_encargado,porcentaje_comision", timeout=8)
             clientes_catalogo = {}
             if res_c and res_c.status_code == 200 and res_c.json():
                 for c in res_c.json():
@@ -113,7 +116,6 @@ class CarteraRepository:
             # ─── 4. Consolidar ventas por cliente y por documento ────────────
             clientes_map: dict[str, dict] = {}
             documentos_map: dict[str, dict] = {}
-
 
             total_ventas = 0.0
 
@@ -219,6 +221,13 @@ class CarteraRepository:
                     f_no = d["factura_no"]
                     tot_f = round(d["total_factura"], 2)
                     d["total_factura"] = tot_f
+                    
+                    if "POS" in str(d.get("tipo_documento") or "").upper():
+                        d["total_abonado"] = tot_f
+                        d["saldo_pendiente"] = 0.0
+                        d["estado"] = "PAGADA"
+                        continue
+
                     ab_dir = abonos_directos_doc.get(f_no, 0.0)
                     saldo_prev = max(0.0, tot_f - ab_dir)
                     ab_fifo = 0.0
@@ -236,19 +245,65 @@ class CarteraRepository:
                     else:
                         d["estado"] = "PENDIENTE"
 
-            # ─── 7. KPIs globales ────────────────────────────────────────────
+            # ─── 7. KPIs (Período Seleccionado vs Histórico) ──────────────────
             clientes_con_deuda = sum(
                 1 for nom, c in clientes_map.items()
-                if (c["total_facturado"] - pagos_por_cliente.get(nom, 0.0)) > 1.0
+                if (c["total_facturado"] - c["total_abonado"]) > 1.0
             )
-            kpis = {
-                "total_ventas": round(total_ventas, 2),
-                "total_recaudado": round(total_recaudado, 2),
-                "total_efectivo": round(total_efectivo, 2),
-                "total_transferencias": round(total_transferencias, 2),
-                "total_saldo_pendiente": round(max(0.0, total_ventas - total_recaudado), 2),
-                "clientes_con_deuda": clientes_con_deuda
-            }
+            total_saldo_acumulado = sum(max(0.0, c["total_facturado"] - c["total_abonado"]) for c in clientes_map.values())
+
+            if mes_periodo:
+                ventas_per = [v for v in ventas_data if str(v.get("fecha") or "")[:7] == mes_periodo]
+                tot_v_per = sum(float(v.get("total") or 0.0) for v in ventas_per)
+                fac_pos_per = sum(float(v.get("total") or 0.0) for v in ventas_per if "POS" in str(v.get("tipo_documento") or "").upper())
+                fac_rem_per = sum(float(v.get("total") or 0.0) for v in ventas_per if "POS" not in str(v.get("tipo_documento") or "").upper())
+
+                pagos_per = [p for p in pagos_data if str(p.get("fecha_pago") or "")[:7] == mes_periodo]
+                rec_rem_per = sum(float(p.get("monto_total") or 0.0) for p in pagos_per)
+                tot_efec_per = fac_pos_per + sum(float(p.get("monto_total") or 0.0) for p in pagos_per if "TRANSFERENCIA" not in str(p.get("metodo_pago") or "").upper())
+                tot_trans_per = sum(float(p.get("monto_total") or 0.0) for p in pagos_per if "TRANSFERENCIA" in str(p.get("metodo_pago") or "").upper())
+
+                tot_rec_per = fac_pos_per + rec_rem_per
+                pct_pos_per = 100.0 if fac_pos_per > 0 else 0.0
+                pct_rem_per = round((rec_rem_per / fac_rem_per * 100.0), 1) if fac_rem_per > 0 else 0.0
+
+                kpis = {
+                    "total_ventas": round(tot_v_per, 2),
+                    "total_recaudado": round(tot_rec_per, 2),
+                    "total_efectivo": round(tot_efec_per, 2),
+                    "total_transferencias": round(tot_trans_per, 2),
+                    "total_saldo_pendiente": round(total_saldo_acumulado, 2),
+                    "clientes_con_deuda": clientes_con_deuda,
+                    "facturado_pos": round(fac_pos_per, 2),
+                    "recaudado_pos": round(fac_pos_per, 2),
+                    "pct_recaudo_pos": pct_pos_per,
+                    "facturado_remision": round(fac_rem_per, 2),
+                    "recaudado_remision": round(rec_rem_per, 2),
+                    "pct_recaudo_remision": pct_rem_per,
+                }
+            else:
+                facturado_pos = sum(float(d.get("total_factura") or 0.0) for d in documentos_map.values() if "POS" in (d.get("tipo_documento") or "").upper())
+                recaudado_pos = sum(float(d.get("total_abonado") or 0.0) for d in documentos_map.values() if "POS" in (d.get("tipo_documento") or "").upper())
+                pct_recaudo_pos = round((recaudado_pos / facturado_pos * 100.0), 1) if facturado_pos > 0 else 0.0
+
+                facturado_remision = sum(float(d.get("total_factura") or 0.0) for d in documentos_map.values() if "POS" not in (d.get("tipo_documento") or "").upper())
+                recaudado_remision = sum(float(d.get("total_abonado") or 0.0) for d in documentos_map.values() if "POS" not in (d.get("tipo_documento") or "").upper())
+                pct_recaudo_remision = round((recaudado_remision / facturado_remision * 100.0), 1) if facturado_remision > 0 else 0.0
+
+                kpis = {
+                    "total_ventas": round(total_ventas, 2),
+                    "total_recaudado": round(total_recaudado, 2),
+                    "total_efectivo": round(total_efectivo, 2),
+                    "total_transferencias": round(total_transferencias, 2),
+                    "total_saldo_pendiente": round(total_saldo_acumulado, 2),
+                    "clientes_con_deuda": clientes_con_deuda,
+                    "facturado_pos": round(facturado_pos, 2),
+                    "recaudado_pos": round(recaudado_pos, 2),
+                    "pct_recaudo_pos": pct_recaudo_pos,
+                    "facturado_remision": round(facturado_remision, 2),
+                    "recaudado_remision": round(recaudado_remision, 2),
+                    "pct_recaudo_remision": pct_recaudo_remision,
+                }
 
             # ─── 8. Filtrar y ordenar lista de Clientes ──────────────────────
             s_upper = search.strip().upper()
@@ -258,6 +313,12 @@ class CarteraRepository:
                 if nom in clientes_catalogo:
                     c_obj["id_cliente"] = clientes_catalogo[nom].get("id_cliente") or c_obj.get("id_cliente")
                     c_obj["telefono"] = clientes_catalogo[nom].get("telefono") or c_obj.get("telefono") or ""
+                    c_obj["vendedor_encargado"] = clientes_catalogo[nom].get("vendedor_encargado") or ""
+                    c_obj["porcentaje_comision"] = float(clientes_catalogo[nom].get("porcentaje_comision") or 0.0)
+                else:
+                    c_obj["vendedor_encargado"] = ""
+                    c_obj["porcentaje_comision"] = 0.0
+
                 facturas_list = list(c_obj.pop("facturas_set", set()))
                 c_obj["facturas_list"] = facturas_list
                 c_obj["cantidad_facturas"] = len(facturas_list)
@@ -274,12 +335,13 @@ class CarteraRepository:
                     if not any(d["fecha"] == fecha_filtro for d in docs_del_cliente):
                         continue
 
-                # Búsqueda: nombre, teléfono o número de factura
+                # Búsqueda: nombre, teléfono, número de factura o vendedor encargado
                 if s_upper:
                     coincide_nombre = s_upper in nom
                     coincide_tel = s_upper in c_obj.get("telefono", "").upper()
                     coincide_fac = any(s_upper in str(f).upper() for f in facturas_list)
-                    if not (coincide_nombre or coincide_tel or coincide_fac):
+                    coincide_vend = s_upper in c_obj.get("vendedor_encargado", "").upper()
+                    if not (coincide_nombre or coincide_tel or coincide_fac or coincide_vend):
                         continue
 
                 # Filtrar por estado
@@ -412,6 +474,13 @@ class CarteraRepository:
             for f_obj in lista_facturas:
                 f_no = f_obj["factura_no"]
                 f_obj["total_factura"] = round(f_obj["total_factura"], 2)
+                
+                if "POS" in str(f_obj.get("tipo_documento") or "").upper():
+                    f_obj["total_abonado"] = f_obj["total_factura"]
+                    f_obj["saldo_pendiente"] = 0.0
+                    f_obj["estado_factura"] = "PAGADA"
+                    continue
+
                 abono_directo = abonos_directos_por_factura.get(f_no, 0.0)
 
                 # Saldo pendiente antes de FIFO
@@ -576,6 +645,75 @@ class CarteraRepository:
         except Exception as ex:
             log_error(f"registrar_pago_cartera({nom_clean})", ex)
             return False
+
+    def registrar_pago_mixto_cartera(
+        self,
+        id_cliente: str | None,
+        nombre_cliente: str,
+        monto_efectivo: float,
+        monto_transferencia: float,
+        banco_origen: str | None = None,
+        referencia: str | None = None,
+        observaciones: str | None = None,
+        facturas_seleccionadas: dict[str, float] | None = None,
+        usuario: str = "admin"
+    ) -> bool:
+        """
+        Registra un pago combinado (efectivo + transferencia) para un cliente/documento
+        en una sola operación atómica sin requerir confirmaciones dobles.
+        """
+        m_efectivo = round(float(monto_efectivo or 0.0), 2)
+        m_transf = round(float(monto_transferencia or 0.0), 2)
+
+        if m_efectivo <= 0 and m_transf <= 0:
+            return False
+
+        obs_base = (observaciones or "").strip()
+        obs_efectivo = f"{obs_base} (Parte Efectivo)".strip() if obs_base else "Pago Mixto (Efectivo)"
+        obs_transf = f"{obs_base} (Parte Transferencia)".strip() if obs_base else "Pago Mixto (Transferencia)"
+
+        fac_efectivo = None
+        fac_transferencia = None
+
+        if facturas_seleccionadas:
+            fac_efectivo = {}
+            fac_transferencia = {}
+            for f_no in facturas_seleccionadas.keys():
+                if m_efectivo > 0:
+                    fac_efectivo[f_no] = m_efectivo
+                if m_transf > 0:
+                    fac_transferencia[f_no] = m_transf
+
+        ok_efectivo = True
+        ok_transferencia = True
+
+        if m_efectivo > 0:
+            ok_efectivo = self.registrar_pago_cartera(
+                id_cliente=id_cliente,
+                nombre_cliente=nombre_cliente,
+                monto_total=m_efectivo,
+                metodo_pago="EFECTIVO",
+                banco_origen=None,
+                referencia=None,
+                observaciones=obs_efectivo,
+                facturas_seleccionadas=fac_efectivo,
+                usuario=usuario
+            )
+
+        if m_transf > 0:
+            ok_transferencia = self.registrar_pago_cartera(
+                id_cliente=id_cliente,
+                nombre_cliente=nombre_cliente,
+                monto_total=m_transf,
+                metodo_pago="TRANSFERENCIA",
+                banco_origen=banco_origen,
+                referencia=referencia,
+                observaciones=obs_transf,
+                facturas_seleccionadas=fac_transferencia,
+                usuario=usuario
+            )
+
+        return ok_efectivo and ok_transferencia
 
     def anular_pago_cartera(self, id_pago: str) -> bool:
         """Marca un pago como ANULADO en Supabase revirtiendo su impacto en la cartera."""

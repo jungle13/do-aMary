@@ -6,11 +6,12 @@ import flet as ft
 from config import Config
 
 class Sidebar(ft.Container):
-    def __init__(self, on_route_change, usuario_data=None, on_logout=None):
+    def __init__(self, on_route_change, usuario_data=None, on_logout=None, on_reset=None):
         super().__init__()
         self.on_route_change = on_route_change
         self.usuario_data = usuario_data or {}
         self.on_logout = on_logout
+        self.on_reset = on_reset
         self.is_expanded = True
         
         self.width = 250
@@ -73,18 +74,32 @@ class Sidebar(ft.Container):
             alignment=ft.alignment.center
         )
 
-        self.lbl_saludo = ft.Text(f"{primer_nombre}", color="white", size=12, weight="w600", no_wrap=True)
-        self.lbl_rol = ft.Text(rol_txt, color="white54", size=10, no_wrap=True)
+        self.lbl_saludo = ft.Text(f"{primer_nombre}", color="white", size=12, weight="w600", no_wrap=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
+        self.lbl_rol = ft.Text(rol_txt, color="white54", size=10, no_wrap=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
 
         self.user_info_col = ft.Column([
             self.lbl_saludo,
             self.lbl_rol
-        ], spacing=0, alignment=ft.MainAxisAlignment.CENTER)
+        ], spacing=0, alignment=ft.MainAxisAlignment.CENTER, expand=True)
+
+        self.btn_reset = ft.IconButton(
+            icon=ft.icons.REFRESH_ROUNDED,
+            icon_color="white70",
+            icon_size=16,
+            width=28,
+            height=28,
+            style=ft.ButtonStyle(padding=0),
+            tooltip="Restaurar estado y limpiar caché",
+            on_click=lambda e: self.on_reset() if self.on_reset else None
+        )
 
         self.btn_logout = ft.IconButton(
             icon=ft.icons.LOGOUT_ROUNDED,
             icon_color="white54",
-            icon_size=18,
+            icon_size=16,
+            width=28,
+            height=28,
+            style=ft.ButtonStyle(padding=0),
             tooltip="Cerrar Sesión",
             on_click=lambda e: self.on_logout() if self.on_logout else None
         )
@@ -93,9 +108,8 @@ class Sidebar(ft.Container):
             content=ft.Row([
                 self.user_avatar,
                 self.user_info_col,
-                ft.Container(expand=True),
-                self.btn_logout
-            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Row([self.btn_reset, self.btn_logout], spacing=2, tight=True)
+            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=6),
             padding=ft.padding.symmetric(horizontal=8, vertical=6),
             bgcolor=ft.colors.with_opacity(0.08, "white"),
             border=ft.border.all(1, ft.colors.with_opacity(0.12, "white")),
@@ -177,6 +191,7 @@ class Sidebar(ft.Container):
 
         self.brand_text_col.visible = self.is_expanded
         self.user_info_col.visible = self.is_expanded
+        self.btn_reset.visible = self.is_expanded
         self.btn_logout.visible = self.is_expanded
         self.footer_text.visible = self.is_expanded
 

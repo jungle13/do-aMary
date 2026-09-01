@@ -45,7 +45,8 @@ class InsumosRepository:
         fecha_corte: str | None = None,
         sort_col: str = "Insumo",
         sort_asc: bool = True,
-        codigos_filtro: list | None = None
+        codigos_filtro: list | None = None,
+        estado_filtro: str = "Habilitados"
     ) -> tuple[list, int]:
         """Obtiene insumos con paginación, filtros y ordenamiento sanitizado."""
         endpoint = "rpc/obtener_inventario_por_fecha?select=*" if fecha_corte else "vista_inventario_completo?select=*"
@@ -61,6 +62,11 @@ class InsumosRepository:
         if categoria and categoria != "Todas":
             cat_enc = urllib.parse.quote(str(categoria).strip())
             filtros.append(f"categoria=eq.{cat_enc}")
+
+        if estado_filtro == "Habilitados":
+            filtros.append("estado=eq.true")
+        elif estado_filtro == "Inhabilitados":
+            filtros.append("estado=eq.false")
 
         if search and search.strip():
             s_enc = urllib.parse.quote(search.strip())
@@ -410,6 +416,24 @@ class InsumosRepository:
             return False
         except Exception as ex:
             log_error("anular_ajuste", ex, {"id_ajuste": id_ajuste})
+            return False
+
+    def actualizar_ajuste(self, id_ajuste: str, datos: dict) -> bool:
+        """Actualiza los campos de un ajuste de inventario existente."""
+        try:
+            endpoint = f"registro_ajustes_inventario?id_ajuste=eq.{id_ajuste}"
+            res = self.db.patch(endpoint, json_data=datos, timeout=10)
+            if res and res.status_code in (200, 204):
+                from core.audit_logger import registrar_accion
+                registrar_accion(
+                    accion=f"Edición de ajuste de inventario ID {id_ajuste}",
+                    modulo="AJUSTES",
+                    detalles={"id_ajuste": id_ajuste, "cambios": datos}
+                )
+                return True
+            return False
+        except Exception as ex:
+            log_error("actualizar_ajuste", ex, {"id_ajuste": id_ajuste, "datos": datos})
             return False
 
     def insert_ajustes_masivo(self, ajustes: list[dict]) -> bool:

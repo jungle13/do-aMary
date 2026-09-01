@@ -55,8 +55,8 @@ class SupabaseClient:
     def get_categorias(self):
         return self.insumos_repo.get_categorias()
 
-    def get_insumos(self, page=1, page_size=20, search="", categoria="", fecha_corte=None, sort_col="Insumo", sort_asc=True, codigos_filtro=None):
-        return self.insumos_repo.get_insumos(page, page_size, search, categoria, fecha_corte, sort_col, sort_asc, codigos_filtro)
+    def get_insumos(self, page=1, page_size=20, search="", categoria="", fecha_corte=None, sort_col="Insumo", sort_asc=True, codigos_filtro=None, estado_filtro="Habilitados"):
+        return self.insumos_repo.get_insumos(page, page_size, search, categoria, fecha_corte, sort_col, sort_asc, codigos_filtro, estado_filtro)
 
     def insert_insumo(self, data: dict):
         return self.insumos_repo.insert_insumo(data)
@@ -94,8 +94,14 @@ class SupabaseClient:
     def insert_ajuste_individual(self, datos: dict) -> bool:
         return self.insumos_repo.insert_ajuste_individual(datos)
 
+    def insert_ajustes_masivo(self, ajustes: list[dict]) -> bool:
+        return self.insumos_repo.insert_ajustes_masivo(ajustes)
+
     def anular_ajuste(self, id_ajuste: str) -> bool:
         return self.insumos_repo.anular_ajuste(id_ajuste)
+
+    def actualizar_ajuste(self, id_ajuste: str, datos: dict) -> bool:
+        return self.insumos_repo.actualizar_ajuste(id_ajuste, datos)
 
     # --- COMPRAS ---
     def get_compras(self, page=1, page_size=15, search="", fecha_corte=None, factura_filtro=None, proveedor_filtro=None):
@@ -134,12 +140,18 @@ class SupabaseClient:
     def get_insumos_de_documento(self, numero_entrada=None, numero_factura=None, proveedor=None):
         return self.compras_repo.get_insumos_de_documento(numero_entrada, numero_factura, proveedor)
 
+    def get_compras_totales_filtrados(self, search="", fecha_corte=None, factura_filtro=None, proveedor_filtro=None):
+        return self.compras_repo.get_compras_totales_filtrados(search, fecha_corte, factura_filtro, proveedor_filtro)
+
     def eliminar_documento_compras_completo(self, numero_entrada=None, numero_factura=None, proveedor=None):
         return self.compras_repo.eliminar_documento_compras_completo(numero_entrada, numero_factura, proveedor)
 
     # --- VENTAS ---
     def get_ventas(self, page=1, page_size=20, search="", fecha_corte=None, categoria_filtro=None, factura_filtro=None, tipo_documento_filtro=None):
         return self.ventas_repo.get_ventas(page, page_size, search, fecha_corte, categoria_filtro, factura_filtro, tipo_documento_filtro)
+
+    def get_ventas_totales_filtrados(self, search="", fecha_corte=None, categoria_filtro=None, factura_filtro=None, tipo_documento_filtro=None, fecha_dia=None):
+        return self.ventas_repo.get_ventas_totales_filtrados(search, fecha_corte, categoria_filtro, factura_filtro, tipo_documento_filtro, fecha_dia)
 
     def get_ventas_documentos(self, page=1, page_size=15, search="", fecha_corte=None, tipo_documento_filtro=None):
         return self.ventas_repo.get_ventas_documentos(page, page_size, search, fecha_corte, tipo_documento_filtro)
@@ -213,7 +225,7 @@ class SupabaseClient:
                 stock = float(item.get("stock_actual") or item.get("stock_real") or 0)
                 cod_insumo = str(item.get("codigo_insumo") or "").strip()
 
-                costo_u_real = costos_compras.get(cod_insumo, float(item.get("costo_unitario") or 0))
+                costo_u_real = float(item.get("costo_unitario") or 0)
                 precio_v = float(item.get("precio_venta") or 0)
 
                 # Solo stock positivo suma al costo de inventario actual y proyecciones

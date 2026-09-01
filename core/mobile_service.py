@@ -44,6 +44,16 @@ class MobileCountingService:
         except Exception:
             return "127.0.0.1"
 
+    def get_mes_activo(self) -> str:
+        """Obtiene dinámicamente el mes del periodo activo o el mes calendario actual."""
+        try:
+            res = self.db.get("periodos_inventario?estado=in.(ABIERTO,PRELIMINAR,EN_AUDITORIA)&order=mes_periodo.desc&limit=1", timeout=5)
+            if res and res.status_code == 200 and res.json():
+                return res.json()[0].get("mes_periodo") or datetime.datetime.now().strftime("%Y-%m")
+        except Exception:
+            pass
+        return datetime.datetime.now().strftime("%Y-%m")
+
     def get_server_url(self, port: int = 8550) -> str:
         return f"http://{self.get_local_ip()}:{port}"
 
@@ -300,6 +310,90 @@ class MobileCountingService:
             log_error(f"guardar_conteo_movil({codigo_insumo})", ex)
             return {"exito": False, "error": str(ex)}
 
+    def eliminar_conteo(
+        self,
+        codigo_insumo: str,
+        mes_periodo: str = "2026-08",
+        usuario: str = "Escritorio",
+        rol: str = "ADMINISTRADOR",
+        observacion: str = ""
+    ) -> dict:
+        """
+        Elimina/limpia el conteo físico de un insumo para el periodo indicado.
+        Actualiza registro_auditorias_cierres (fijando cantidad_fisica=NULL y estado='PENDIENTE')
+        y registra el evento en el historial de auditoría.
+        """
+        try:
+            codigo = str(codigo_insumo).strip()
+            
+            # 1. Obtener datos del insumo
+            nombre_insumo = ""
+            for item in self.catalogo_cache:
+                if str(item.get("codigo_insumo")) == codigo:
+                    nombre_insumo = item.get("nombre") or ""
+                    item["cantidad_fisica"] = None
+                    break
+
+            # 2. Obtener periodo
+            endpoint_per = f"periodos_inventario?mes_periodo=eq.{mes_periodo}&select=id_periodo"
+            res_p = self.db.get(endpoint_per, timeout=10)
+            id_periodo = res_p.json()[0]["id_periodo"] if res_p and res_p.status_code == 200 and res_p.json() else None
+
+            # 3. Consultar conteo actual previo
+            endpoint_aud = f"registro_auditorias_cierres?codigo_insumo=eq.{codigo}&select=id_auditoria,cantidad_fisica"
+            if id_periodo:
+                endpoint_aud += f"&id_periodo=eq.{id_periodo}"
+            
+            res_aud = self.db.get(endpoint_aud, timeout=10)
+            cant_previa = None
+            id_aud = None
+            if res_aud and res_aud.status_code == 200 and res_aud.json():
+                aud_row = res_aud.json()[0]
+                id_aud = aud_row.get("id_auditoria")
+                cant_previa = aud_row.get("cantidad_fisica")
+
+            from core.fecha_utils import get_ahora_iso
+            ahora_iso = get_ahora_iso()
+            cant_previa_str = f"{cant_previa:g}" if cant_previa is not None else "0"
+            detalle_accion = f"Conteo físico eliminado/limpiado (Valor previo: {cant_previa_str} unds)"
+            if observacion:
+                detalle_accion += f" - {observacion}"
+
+            payload = {
+                "cantidad_fisica": None,
+                "estado": "PENDIENTE",
+                "fecha_cierre": ahora_iso,
+                "observacion": f"[{usuario} ({rol})] {detalle_accion}"
+            }
+
+            if id_aud:
+                self.db.patch(f"registro_auditorias_cierres?id_auditoria=eq.{id_aud}", json_data=payload, timeout=10)
+
+            # 4. Registrar en Historial de Auditoría (Traza completa)
+            from core.audit_logger import registrar_accion
+            registrar_accion(
+                accion=f"Eliminación de conteo físico para [{codigo}] {nombre_insumo}: {detalle_accion}",
+                modulo="CONTEO",
+                usuario=usuario,
+                detalles={
+                    "codigo_insumo": codigo,
+                    "nombre_insumo": nombre_insumo,
+                    "cantidad_ingresada": 0,
+                    "cantidad_total": None,
+                    "modo": "ELIMINAR_CONTEO",
+                    "rol": rol,
+                    "dispositivo": "ESCRITORIO",
+                    "observacion": detalle_accion,
+                    "timestamp": ahora_iso
+                }
+            )
+
+            logger.info(f"[AUDITORIA] Conteo eliminado: [{codigo}] {nombre_insumo} ({usuario})")
+            return {"exito": True, "codigo_insumo": codigo, "mensaje": "Conteo físico eliminado correctamente."}
+        except Exception as ex:
+            log_error(f"eliminar_conteo({codigo_insumo})", ex)
+            return {"exito": False, "error": str(ex)}
+
     def obtener_historial_insumo(self, codigo_insumo: str) -> list:
         """Obtiene la traza histórica de conteos y ediciones de un insumo."""
         try:
@@ -322,17 +416,18 @@ class MobileCountingService:
                 # Solo procesar si pertenece a este insumo y es una acción de conteo real
                 es_mismo_insumo = str(det.get("codigo_insumo")) == str(codigo_insumo) or f"[{codigo_insumo}]" in a.get("accion", "")
                 cant = det.get("cantidad_ingresada") if det.get("cantidad_ingresada") is not None else det.get("cantidad")
+                modo_act = det.get("modo") or "REEMPLAZAR"
                 
-                if es_mismo_insumo and cant is not None:
+                if es_mismo_insumo and (cant is not None or modo_act == "ELIMINAR_CONTEO"):
                     filtradas.append({
                         "fecha": a.get("fecha"),
                         "hora": a.get("hora"),
                         "usuario": a.get("nombre_usuario") or a.get("usuario") or "Operario",
                         "rol": det.get("rol") or "OPERADOR",
                         "dispositivo": det.get("dispositivo") or ("WEB_MOVIL" if a.get("modulo") == "CONTEO_MOVIL" else "ESCRITORIO"),
-                        "cantidad_ingresada": cant,
-                        "cantidad_total": det.get("cantidad_total") if det.get("cantidad_total") is not None else cant,
-                        "modo": det.get("modo") or "REEMPLAZAR",
+                        "cantidad_ingresada": cant if cant is not None else 0,
+                        "cantidad_total": det.get("cantidad_total"),
+                        "modo": modo_act,
                         "observacion": det.get("observacion") or a.get("accion")
                     })
 

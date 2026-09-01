@@ -23,6 +23,9 @@ def restaurar_base_datos(archivo_backup: str = "backups/backup_estado_actual.jso
     
     # 1. Mapeo de tablas y llaves primarias
     table_pks = {
+        "detalle_pagos_cartera": "id_detalle",
+        "cuotas_cartera": "id_cuota",
+        "pagos_cartera": "id_pago",
         "registro_auditorias_cierres": "id_auditoria",
         "registro_ajustes_inventario": "id_ajuste",
         "registro_ventas": "id_venta",
@@ -30,31 +33,46 @@ def restaurar_base_datos(archivo_backup: str = "backups/backup_estado_actual.jso
         "periodos_inventario": "id_periodo",
         "conteo_fisico_relacionado": "id_conteo",
         "historial_acciones_usuario": "id_accion",
-        "catalogo_insumos": "id_insumo"
+        "registro_errores_sistema": "id_error",
+        "catalogo_insumos": "id_insumo",
+        "clientes": "id_cliente",
+        "usuarios": "id_usuario"
     }
 
     # Orden de eliminación (hijos primero para respetar llaves foráneas)
     delete_order = [
+        "detalle_pagos_cartera",
+        "cuotas_cartera",
+        "pagos_cartera",
         "registro_auditorias_cierres",
         "registro_ajustes_inventario",
         "registro_ventas",
         "registro_compras",
-        "periodos_inventario",
         "conteo_fisico_relacionado",
+        "periodos_inventario",
+        "catalogo_insumos",
+        "clientes",
         "historial_acciones_usuario",
-        "catalogo_insumos"
+        "registro_errores_sistema",
+        "usuarios"
     ]
     
     # 2. Orden de inserción (padres primero)
     insert_order = [
+        "usuarios",
+        "clientes",
         "catalogo_insumos",
         "periodos_inventario",
         "registro_compras",
         "registro_ventas",
+        "pagos_cartera",
+        "cuotas_cartera",
+        "detalle_pagos_cartera",
         "registro_ajustes_inventario",
         "registro_auditorias_cierres",
         "conteo_fisico_relacionado",
-        "historial_acciones_usuario"
+        "historial_acciones_usuario",
+        "registro_errores_sistema"
     ]
     
     print("=" * 60)

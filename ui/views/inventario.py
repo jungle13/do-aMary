@@ -5,6 +5,7 @@ from core.supabase_client import SupabaseClient
 import math
 from datetime import datetime
 from ui.components.autocomplete import CustomAutoComplete
+from ui.components.periodo_selector import PeriodoSelectorWidget
 from core.fecha_utils import get_ahora_local, get_hoy_local_str, parsear_a_fecha_local, formatear_fecha_hora_local
 
 class InventarioView(ft.Container):
@@ -23,16 +24,18 @@ class InventarioView(ft.Container):
         self.current_page = 1
         self.total_pages = 1
         self.total_records = 0
+        self.current_data = []
         
         # Variables de Ordenamiento por Servidor
         self.sort_col_name = "Insumo"
         self.sort_is_asc = True
         
-        self.view_mode = "cards"
-        self.btn_toggle_view = ft.IconButton(
-            icon=ft.icons.TABLE_ROWS,
-            tooltip="Cambiar a vista de Tabla",
-            on_click=self.toggle_view
+        # Control de Desglose de Métricas (Inicial, Compras, Ventas, Ajustes) - Oculto por defecto
+        self.mostrar_detalle_kpis = False
+        self.btn_toggle_detalle = ft.IconButton(
+            icon=ft.icons.VIEW_AGENDA_OUTLINED,
+            tooltip="Mostrar desglose de métricas (Inicial, Compras, Ventas, Ajustes)",
+            on_click=self.toggle_detalle_kpis
         )
         
         # Controles de Búsqueda
@@ -55,17 +58,44 @@ class InventarioView(ft.Container):
             text_size=12,
             expand=True
         )
+
+        # Panel de Filtros Unificado (Colapsable)
+        self.panel_filtros_abierto = False
+        self.btn_toggle_filtros = ft.IconButton(
+            icon=ft.icons.TUNE_ROUNDED,
+            tooltip="Filtros de Inventario",
+            on_click=self.toggle_panel_filtros
+        )
         
         self.category_dropdown = ft.Dropdown(
             options=[ft.dropdown.Option("Todas")],
             value="Todas",
-            hint_text="Categoría",
-            width=170,
+            label="Categoría",
+            width=200,
             dense=True,
             border_radius=8,
             bgcolor="white",
             text_size=12,
-            content_padding=ft.padding.symmetric(horizontal=12, vertical=8),
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+            border_color=ft.colors.with_opacity(0.15, "black"),
+            focused_border_color=Config.COLOR_PRIMARY,
+            on_change=self.on_search
+        )
+
+        self.drop_estado = ft.Dropdown(
+            options=[
+                ft.dropdown.Option("Habilitados"),
+                ft.dropdown.Option("Inhabilitados"),
+                ft.dropdown.Option("Todos")
+            ],
+            value="Habilitados",
+            label="Estado",
+            width=145,
+            dense=True,
+            border_radius=8,
+            bgcolor="white",
+            text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
             border_color=ft.colors.with_opacity(0.15, "black"),
             focused_border_color=Config.COLOR_PRIMARY,
             on_change=self.on_search
@@ -76,11 +106,49 @@ class InventarioView(ft.Container):
             on_change=self.on_date_change,
             on_dismiss=self.on_date_dismiss,
         )
-        
-        self.btn_date_icon = ft.IconButton(
-            icon=ft.icons.CALENDAR_MONTH_OUTLINED,
-            tooltip="Filtrar por Fecha de Corte",
+
+        self.btn_fecha_filtro = ft.OutlinedButton(
+            text="Filtrar por Fecha",
+            icon=ft.icons.CALENDAR_MONTH_ROUNDED,
+            height=38,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=8),
+                padding=ft.padding.symmetric(horizontal=12, vertical=4)
+            ),
             on_click=self.open_date_picker
+        )
+        
+        self.btn_clear_date = ft.IconButton(
+            icon=ft.icons.CLEAR,
+            tooltip="Limpiar Fecha",
+            on_click=self.clear_date,
+            visible=False,
+            icon_color="red"
+        )
+
+        self.btn_limpiar_todos_filtros = ft.TextButton(
+            text="Limpiar Filtros",
+            icon=ft.icons.CLEAR_ALL_ROUNDED,
+            icon_color="red600",
+            style=ft.ButtonStyle(color="red700"),
+            on_click=self.limpiar_todos_los_filtros
+        )
+
+        self.panel_filtros = ft.Container(
+            visible=False,
+            bgcolor="white",
+            border=ft.border.all(1, "#e2e8f0"),
+            border_radius=10,
+            padding=ft.padding.symmetric(horizontal=12, vertical=8),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.03, "black")),
+            content=ft.Row([
+                self.category_dropdown,
+                self.drop_estado,
+                self.btn_fecha_filtro,
+                self.btn_clear_date,
+                ft.Container(expand=True),
+                self.btn_limpiar_todos_filtros
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=10, wrap=False)
         )
 
         self.dlg_filtro_fecha_info = ft.AlertDialog(
@@ -100,73 +168,6 @@ class InventarioView(ft.Container):
                 ft.ElevatedButton("Seleccionar Fecha", icon=ft.icons.DATE_RANGE, bgcolor=Config.COLOR_PRIMARY, color="white", on_click=self.lanzar_date_picker)
             ]
         )
-        self.btn_clear_date = ft.IconButton(
-            icon=ft.icons.CLEAR,
-            tooltip="Limpiar Fecha",
-            on_click=self.clear_date,
-            visible=False,
-            icon_color="red"
-        )
-        
-        # Definición de la Tabla de Datos (Ajuste de espacios y ordenamiento)
-        self.data_table = ft.DataTable(
-            column_spacing=10, # Reduce el espacio entre columnas
-            horizontal_margin=10,
-            data_row_min_height=30, # Reduce la altura de las filas
-            data_row_max_height=30,
-            heading_row_height=40,
-            sort_column_index=0,
-            sort_ascending=True,
-            columns=[
-                ft.DataColumn(ft.Container(width=25)),
-                ft.DataColumn(ft.Text("Código", weight="bold", size=10), on_sort=self.on_sort_table),
-                ft.DataColumn(ft.Container(content=ft.Text("Insumo", weight="bold", size=10), width=250), on_sort=self.on_sort_table),
-                ft.DataColumn(ft.Text("Categoría", weight="bold", size=10), on_sort=self.on_sort_table),
-                ft.DataColumn(ft.Text("Ubicación", weight="bold", size=10)),
-                ft.DataColumn(ft.Container(content=ft.Text("Stock Ini.", weight="bold", size=10, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True),
-                ft.DataColumn(ft.Container(content=ft.Text("Stock Mín.", weight="bold", size=10, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True),
-                ft.DataColumn(ft.Container(content=ft.Text("Entradas", weight="bold", size=10, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True, on_sort=self.on_sort_table),
-                ft.DataColumn(ft.Container(content=ft.Text("Salidas", weight="bold", size=10, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True, on_sort=self.on_sort_table),
-                ft.DataColumn(ft.Container(content=ft.Text("Stock Real", weight="bold", size=10, no_wrap=True), width=60, alignment=ft.alignment.center), numeric=True, on_sort=self.on_sort_table),
-                ft.DataColumn(ft.Text("Costo Unit.", weight="bold", size=10), numeric=True),
-                ft.DataColumn(ft.Text("Costo Total", weight="bold", size=10), numeric=True),
-                ft.DataColumn(ft.Text("Precio Venta", weight="bold", size=10), numeric=True),
-                ft.DataColumn(ft.Text("Venta Total", weight="bold", size=10), numeric=True),
-            ],
-            rows=[],
-            heading_row_color=ft.colors.with_opacity(0.05, Config.COLOR_PRIMARY),
-            border=ft.border.all(1, ft.colors.with_opacity(0.1, "black")),
-            border_radius=8,
-            vertical_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
-            horizontal_lines=ft.border.BorderSide(1, ft.colors.with_opacity(0.1, "black")),
-        )
-        
-        self.table_container = ft.Container(
-            content=ft.Column(
-                [self.data_table],
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH
-            )
-        )
-        
-        self.table_wrapper = ft.Container(
-            content=ft.Row(
-                [
-                    ft.Column(
-                        [self.table_container],
-                        scroll=ft.ScrollMode.ALWAYS
-                    )
-                ],
-                scroll=ft.ScrollMode.ALWAYS,
-                expand=True,
-                vertical_alignment=ft.CrossAxisAlignment.START
-            ),
-            bgcolor="white",
-            padding=5,
-            border_radius=10,
-            expand=True,
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=ft.colors.with_opacity(0.05, "black")),
-            visible=False
-        )
         
         self.card_list_view = ft.ListView(expand=True, spacing=10, visible=True)
         
@@ -177,124 +178,6 @@ class InventarioView(ft.Container):
         self.btn_next = ft.IconButton(ft.icons.CHEVRON_RIGHT, on_click=self.on_next_page, disabled=True)
         
         self.current_edit_context = None
-        
-        self.edit_panel_title = ft.Text("Editando Insumo", color="white", weight="bold", size=16)
-        
-        input_style = {
-            "text_size": 13,
-            "height": 40,
-            "content_padding": ft.padding.symmetric(horizontal=10, vertical=8),
-            "bgcolor": "white",
-            "color": "black",
-            "border_color": Config.COLOR_BORDER,
-            "border_radius": 8,
-            "focused_bgcolor": "white",
-            "focused_border_color": Config.COLOR_ACCENT,
-            "text_style": ft.TextStyle(color="black", size=13, weight="w600"),
-        }
-        
-        self.edit_stock_minimo = ft.TextField(width=110, **input_style)
-        self.edit_costo = ft.TextField(width=115, **input_style)
-        self.edit_margen = ft.Dropdown(
-            width=105, 
-            options=[ft.dropdown.Option(f"{p}%") for p in [10, 15, 20, 25, 30, 35, 40, 50]],
-            **input_style
-        )
-        self.edit_precio = ft.TextField(width=120, **input_style)
-        
-        self.edit_categoria = ft.Dropdown(
-            width=220, 
-            **input_style
-        )
-        
-        def calcular_precio(e):
-            try:
-                costo = float(self.edit_costo.value.replace(',', '.') or 0)
-                if self.edit_margen.value:
-                    margen_str = self.edit_margen.value.replace('%', '')
-                    margen_dec = float(margen_str) / 100.0
-                    if margen_dec < 1 and costo > 0:
-                        # Fórmula financiera de margen sobre precio de venta
-                        precio_calculado = costo / (1 - margen_dec)
-                        self.edit_precio.value = f"{precio_calculado:.2f}"
-            except ValueError:
-                pass
-            verificar_cambios_panel(e)
-
-        def verificar_cambios_panel(e):
-            if not self.current_edit_context: return
-            item = self.current_edit_context['item']
-            cambiado = False
-            try:
-                if str(int(self.edit_stock_minimo.value)) != str(int(item.get('stock_minimo', 5) or 5)): cambiado = True
-                if str(float(self.edit_costo.value)) != str(float(item.get('costo_unitario') or 0)): cambiado = True
-                if str(float(self.edit_precio.value)) != str(float(item.get('precio_venta') or 0)): cambiado = True
-                if self.edit_categoria.value != str(item.get('categoria', '')): cambiado = True
-            except ValueError:
-                cambiado = False
-                
-            self.btn_guardar_edicion.disabled = not cambiado
-            self.action_bar.update()
-
-        self.edit_margen.on_change = calcular_precio
-        self.edit_costo.on_change = calcular_precio
-        self.edit_precio.on_change = verificar_cambios_panel
-        self.edit_stock_minimo.on_change = verificar_cambios_panel
-        self.edit_categoria.on_change = verificar_cambios_panel
-        
-        self.btn_guardar_edicion = ft.ElevatedButton(
-            "Guardar Cambios",
-            disabled=True,
-            on_click=self.on_guardar_global,
-            style=ft.ButtonStyle(
-                bgcolor={ft.MaterialState.DISABLED: "#495057", ft.MaterialState.DEFAULT: "green"},
-                color={ft.MaterialState.DISABLED: "white70", ft.MaterialState.DEFAULT: "white"},
-                shape=ft.RoundedRectangleBorder(radius=8)
-            )
-        )
-        
-        self.btn_gestionar_ajustes = ft.OutlinedButton(
-            "Gestionar Ajustes",
-            icon=ft.icons.TUNE,
-            style=ft.ButtonStyle(color="white"),
-            on_click=self.on_gestionar_ajustes
-        )
-        
-        self.action_bar = ft.Container(
-            content=ft.Column([
-                ft.Row([self.edit_panel_title, self.btn_gestionar_ajustes], alignment=ft.MainAxisAlignment.START, spacing=15),
-                ft.Row([
-                    ft.Column([
-                        ft.Text("Stock Mínimo", color="white70", size=11, weight="bold"),
-                        self.edit_stock_minimo
-                    ], spacing=4),
-                    ft.Column([
-                        ft.Text("Costo Unit.", color="white70", size=11, weight="bold"),
-                        self.edit_costo
-                    ], spacing=4),
-                    ft.Column([
-                        ft.Text("Ganancia", color="white70", size=11, weight="bold"),
-                        self.edit_margen
-                    ], spacing=4),
-                    ft.Column([
-                        ft.Text("Precio Venta", color="white70", size=11, weight="bold"),
-                        self.edit_precio
-                    ], spacing=4),
-                    ft.Column([
-                        ft.Text("Categoría", color="white70", size=11, weight="bold"),
-                        self.edit_categoria
-                    ], spacing=4),
-                    ft.Container(expand=True),
-                    ft.OutlinedButton("Cancelar", style=ft.ButtonStyle(color="white"), on_click=self.on_cancelar_global),
-                    self.btn_guardar_edicion
-                ], spacing=15, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-            ], spacing=10),
-            bgcolor=Config.COLOR_PRIMARY,
-            padding=15,
-            border_radius=10,
-            visible=False,
-            margin=ft.padding.only(top=10)
-        )
         
         # Dashboard Resumen Financiero Compacto de Inventario
         self.lbl_valor_inventario = ft.Text("$0", size=16, weight="bold", color=Config.COLOR_PRIMARY)
@@ -374,116 +257,29 @@ class InventarioView(ft.Container):
         )
         
         self.progress_bar = ft.ProgressBar(color=Config.COLOR_SECONDARY, bgcolor="#eeeeee", visible=False)
-        
-        self.panel_abierto = False
-        self.fecha_historial_activa = get_hoy_local_str()
-        self.filtro_tipo_timeline = "TODO" # "TODO", "COMPRAS", "VENTAS", "AJUSTES"
-        self.codigos_filtro_activos = None
 
-        self.date_picker_timeline = ft.DatePicker(on_change=self.on_date_timeline_change)
-
-        self.lbl_tot_compras_dia = ft.Text("$0", size=11, weight="bold", color="teal700")
-        self.lbl_tot_ventas_dia = ft.Text("$0", size=11, weight="bold", color="blue700")
-        self.lbl_tot_neto_dia = ft.Text("$0", size=11, weight="bold")
-
-        kpis_dia_row = ft.Container(
-            content=ft.Row([
-                ft.Column([ft.Text("Compras Día", size=9, color="grey"), self.lbl_tot_compras_dia], spacing=1),
-                ft.Container(width=1, height=20, bgcolor="#e0e0e0"),
-                ft.Column([ft.Text("Ventas Día", size=9, color="grey"), self.lbl_tot_ventas_dia], spacing=1),
-                ft.Container(width=1, height=20, bgcolor="#e0e0e0"),
-                ft.Column([ft.Text("Balance", size=9, color="grey"), self.lbl_tot_neto_dia], spacing=1),
-            ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
-            padding=8, bgcolor="#f8f9fa", border_radius=6, border=ft.border.all(1, "#e0e0e0")
-        )
-
-        self.chip_filtro_timeline = ft.SegmentedButton(
-            segments=[
-                ft.Segment(value="TODO", label=ft.Text("Todo", size=10)),
-                ft.Segment(value="COMPRAS", label=ft.Text("Compras", size=10)),
-                ft.Segment(value="VENTAS", label=ft.Text("Ventas", size=10)),
-                ft.Segment(value="AJUSTES", label=ft.Text("Ajustes", size=10)),
-            ],
-            selected={"TODO"},
-            on_change=self.on_tipo_timeline_change,
-            show_selected_icon=False
-        )
-
-        self.btn_fecha_timeline = ft.OutlinedButton(
-            self.fecha_historial_activa,
-            icon=ft.icons.CALENDAR_TODAY,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6), padding=5),
-            height=30,
-            on_click=self.abrir_date_picker_timeline
-        )
-
-        self.panel_timeline_list = ft.ListView(expand=True, spacing=6)
-
-        self.right_panel = ft.Container(
-            width=0, visible=False, bgcolor="white", border_radius=8,
-            border=ft.border.all(1, "#e0e0e0"),
-            shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color=ft.colors.with_opacity(0.05, "black")),
-            animate=ft.animation.Animation(250, ft.AnimationCurve.EASE_OUT),
-            content=ft.Column([
-                # Cabecera Panel
-                ft.Container(
-                    content=ft.Row([
-                        ft.Text("Historial Diario", weight="bold", size=13, color=Config.COLOR_PRIMARY, expand=True),
-                        self.btn_fecha_timeline,
-                        ft.IconButton(ft.icons.CLOSE, icon_size=16, on_click=self.toggle_right_panel)
-                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    padding=10, bgcolor="#f4f6f8", border_radius=ft.border_radius.only(top_left=8, top_right=8)
-                ),
-                ft.Container(content=kpis_dia_row, padding=ft.padding.symmetric(horizontal=10)),
-                ft.Container(content=self.chip_filtro_timeline, padding=ft.padding.symmetric(horizontal=10), alignment=ft.alignment.center),
-                ft.Divider(height=1, color="#e0e0e0"),
-                ft.Container(content=self.panel_timeline_list, expand=True, padding=10)
-            ], spacing=8)
-        )
-
-        self.btn_toggle_panel = ft.IconButton(
-            icon=ft.icons.HISTORY_TOGGLE_OFF,
-            tooltip="Ver Historial del Día",
-            on_click=self.toggle_right_panel
-        )
-
-        self.filtro_badge = ft.Container(
-            content=ft.Row([
-                ft.Icon(ft.icons.FILTER_ALT, size=16, color="white"),
-                ft.Text("", size=12, color="white", weight="bold"),
-                ft.IconButton(ft.icons.CLOSE, icon_size=14, icon_color="white", on_click=self.limpiar_filtro_factura, style=ft.ButtonStyle(padding=0), width=24, height=24)
-            ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor="blue700",
-            padding=ft.padding.symmetric(horizontal=10, vertical=4),
-            border_radius=15,
-            visible=False
-        )
-
+        self.periodo_selector = PeriodoSelectorWidget(on_change_callback=self.on_periodo_change, page=self.page)
         self.lbl_titulo = ft.Text("Catálogo de Insumos", size=24, weight="bold", color=Config.COLOR_PRIMARY)
         main_column = ft.Column([
             self.progress_bar,
-            ft.Row([self.lbl_titulo, self.filtro_badge], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Row([self.lbl_titulo, ft.Container(expand=True), self.periodo_selector, self.btn_fullscreen], vertical_alignment=ft.CrossAxisAlignment.CENTER),
             self.summary_container,
             
-            # Toolbar de Filtros
+            # Toolbar de Búsqueda y Filtros
             ft.Container(
                 content=ft.Row([
                     self.search_autocomplete,
-                    self.category_dropdown,
-                    self.btn_date_icon,
-                    self.btn_clear_date,
-                    self.btn_toggle_view,
-                    self.btn_toggle_panel,
+                    self.btn_toggle_filtros,
+                    self.btn_toggle_detalle,
                     self.btn_fullscreen
-                ]),
+                ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 bgcolor="white",
                 padding=10,
                 border_radius=8,
                 shadow=ft.BoxShadow(spread_radius=1, blur_radius=5, color=ft.colors.with_opacity(0.05, "black"))
             ),
             
-            # Contenedores de Vista Dual
-            self.table_wrapper,
+            self.panel_filtros,
             self.card_list_view,
             
             # Footer Paginación
@@ -496,14 +292,10 @@ class InventarioView(ft.Container):
                     self.btn_next,
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 padding=ft.padding.only(top=10)
-            ),
-            self.action_bar
+            )
         ], expand=True, spacing=10)
 
-        self.content = ft.Row([
-            main_column,
-            self.right_panel
-        ], expand=True, spacing=10)
+        self.content = main_column
         
         # No llamamos a los métodos aquí porque el control no está en la página todavía
         
@@ -530,32 +322,9 @@ class InventarioView(ft.Container):
         if self.page:
             if self.date_picker not in self.page.overlay:
                 self.page.overlay.append(self.date_picker)
-            if hasattr(self, "date_picker_timeline") and self.date_picker_timeline not in self.page.overlay:
-                self.page.overlay.append(self.date_picker_timeline)
             if hasattr(self, "dlg_filtro_fecha_info") and self.dlg_filtro_fecha_info not in self.page.overlay:
                 self.page.overlay.append(self.dlg_filtro_fecha_info)
                 
-            # Lógica responsiva para la tabla
-            def handle_resize(e):
-                if getattr(self, "page", None) and getattr(self, "table_container", None):
-                    available = self.page.width - 320
-                    self.table_container.width = max(1300, available)
-                    try:
-                        self.table_container.update()
-                    except Exception:
-                        pass
-                    
-            self.handle_resize = handle_resize
-            
-            # Suscribir de manera segura según la versión de Flet
-            if hasattr(self.page.on_resize, "subscribe"):
-                self.page.on_resize.subscribe(self.handle_resize)
-            else:
-                self.original_on_resize = self.page.on_resize
-                self.page.on_resize = self.handle_resize
-                
-            handle_resize(None) # Ejecutar una vez para inicializar tamaño
-            
         # Lanzar inicializaciones secundarias en hilos daemon para no bloquear la UI
         threading.Thread(target=self.load_categories, daemon=True).start()
         threading.Thread(target=self.cargar_sugerencias_buscador, daemon=True).start()
@@ -574,7 +343,6 @@ class InventarioView(ft.Container):
                 self.safe_update()
         except Exception:
             pass
-        
 
     def safe_update(self):
         """Actualiza la UI local solo si el control sigue montado en la página."""
@@ -609,10 +377,7 @@ class InventarioView(ft.Container):
             
     def will_unmount(self):
         """Se ejecuta cuando se destruye la vista."""
-        if hasattr(self.page, "on_resize") and hasattr(self.page.on_resize, "unsubscribe") and hasattr(self, "handle_resize"):
-            self.page.on_resize.unsubscribe(self.handle_resize)
-        elif hasattr(self, "original_on_resize"):
-            self.page.on_resize = self.original_on_resize
+        pass
         
     def load_categories(self):
         try:
@@ -624,22 +389,42 @@ class InventarioView(ft.Container):
             self.safe_update()
         except Exception:
             pass
-        
-    def toggle_view(self, e):
-        if self.view_mode == "table":
-            self.view_mode = "cards"
-            self.btn_toggle_view.icon = ft.icons.TABLE_ROWS
-            self.btn_toggle_view.tooltip = "Cambiar a vista de Tabla"
-            self.table_wrapper.visible = False
-            self.card_list_view.visible = True
-        else:
-            self.view_mode = "table"
-            self.btn_toggle_view.icon = ft.icons.GRID_VIEW
-            self.btn_toggle_view.tooltip = "Cambiar a vista de Tarjetas"
-            self.table_wrapper.visible = True
-            self.card_list_view.visible = False
+
+    def toggle_detalle_kpis(self, e=None):
+        self.mostrar_detalle_kpis = not self.mostrar_detalle_kpis
+        self.btn_toggle_detalle.icon = ft.icons.VIEW_AGENDA if self.mostrar_detalle_kpis else ft.icons.VIEW_AGENDA_OUTLINED
+        self.btn_toggle_detalle.tooltip = "Ocultar desglose de métricas" if self.mostrar_detalle_kpis else "Mostrar desglose de métricas (Inicial, Compras, Ventas, Ajustes)"
+        self._render_cards_local()
+
+    def toggle_panel_filtros(self, e=None):
+        self.panel_filtros_abierto = not self.panel_filtros_abierto
+        self.panel_filtros.visible = self.panel_filtros_abierto
+        self.btn_toggle_filtros.icon = ft.icons.FILTER_ALT_OFF_ROUNDED if self.panel_filtros_abierto else ft.icons.TUNE_ROUNDED
         self.safe_update()
+
+    def limpiar_todos_los_filtros(self, e=None):
+        self.category_dropdown.value = "Todas"
+        self.drop_estado.value = "Habilitados"
+        self.fecha_corte = None
+        self.btn_fecha_filtro.text = "Filtrar por Fecha"
+        self.btn_clear_date.visible = False
+        self.date_picker.value = None
+        self.search_autocomplete.value = ""
+        self.search_input_text.value = ""
+        self.current_page = 1
+        self.load_data()
+
+    def _render_cards_local(self):
+        if hasattr(self, "current_data") and self.current_data:
+            self.card_list_view.controls.clear()
+            for item in self.current_data:
+                self.card_list_view.controls.append(self._crear_tarjeta_inventario(item))
+            self.safe_update()
         
+    def on_periodo_change(self, nuevo_periodo: str):
+        self.current_page = 1
+        self.load_data()
+
     def load_data(self):
         """Enciende la interfaz de carga y lanza el hilo en segundo plano con control de concurrencia."""
         if getattr(self, "_is_loading_data", False):
@@ -665,30 +450,34 @@ class InventarioView(ft.Container):
             else:
                 search_val = self.search_input_text.value or raw_auto
             cat_val = self.category_dropdown.value or "Todas"
+            estado_val = self.drop_estado.value or "Habilitados"
             
+            corte_efectivo = self.fecha_corte or self.periodo_selector.get_fecha_corte()
+
             data, total = self.db.get_insumos(
                 page=self.current_page, 
                 page_size=self.page_size, 
                 search=search_val, 
                 categoria=cat_val,
-                fecha_corte=self.fecha_corte,
+                fecha_corte=corte_efectivo,
                 sort_col=self.sort_col_name,
                 sort_asc=self.sort_is_asc,
-                codigos_filtro=self.codigos_filtro_activos
+                codigos_filtro=None,
+                estado_filtro=estado_val
             )
             
             self.total_records = total
             self.total_pages = math.ceil(total / self.page_size) if total > 0 else 1
             
             # 1. Obtener Valorización de Inventario vía RPC nativo
-            kpis = self.db.get_inventario_kpis(fecha_corte=self.fecha_corte)
+            kpis = self.db.get_inventario_kpis(fecha_corte=corte_efectivo)
             self.valor_total_inventario = float(kpis.get("valor_inventario") or 0.0)
 
             # 2. Obtener Proyección Global de Ventas
-            proyeccion_global = float(self.db.get_proyeccion_ventas(fecha_corte=self.fecha_corte) or 0.0)
+            proyeccion_global = float(self.db.get_proyeccion_ventas(fecha_corte=corte_efectivo) or 0.0)
 
             # 3. Obtener ventas mes y hoy para calcular cumplimiento
-            res_v = self.db.get_ventas_summary(fecha_corte=self.fecha_corte)
+            res_v = self.db.get_ventas_summary(fecha_corte=corte_efectivo)
             ventas_mes = float(res_v.get("total_mes") or 0.0)
             ventas_hoy = float(res_v.get("total_hoy") or 0.0)
 
@@ -720,14 +509,12 @@ class InventarioView(ft.Container):
             self.lbl_meta_diaria.value = f"${meta_diaria:,.0f} / día"
             self.lbl_cumplimiento_hoy.value = f"Hoy: ${ventas_hoy:,.0f} • {cumpl_hoy:.1f}% meta"
 
-            # Limpiar filas previas y renderizar página actual
-            self.data_table.rows.clear()
+            # Guardar datos en memoria y renderizar tarjetas
+            self.current_data = data
             self.card_list_view.controls.clear()
             
             for item in data:
-                row = self._crear_fila_inventario(item)
-                self.data_table.rows.append(row)
-                self.card_list_view.controls.append(self._crear_tarjeta_inventario(item, row))
+                self.card_list_view.controls.append(self._crear_tarjeta_inventario(item))
 
         except Exception as ex:
             import traceback
@@ -735,209 +522,43 @@ class InventarioView(ft.Container):
         finally:
             self.update_pagination_ui()
 
-
-    def crear_celdas_fila(self, item, row_ref, edit_mode=False):
-        stock_inicial = int(item.get('stock_inicial', 0) or 0)
-        stock_minimo = int(item.get('stock_minimo', 5) or 5)
-        entradas = int(item.get('entradas', 0) or 0)
-        salidas = int(item.get('salidas', 0) or 0)
+    def confirmar_cambio_estado_insumo(self, item, nuevo_estado: bool):
+        codigo = str(item.get('codigo_insumo') or '')
+        nombre = str(item.get('nombre') or '')
         
-        stock_final = int(item.get('stock_real', item.get('stock_actual', 0)) or 0)
+        accion_str = "Habilitar" if nuevo_estado else "Inhabilitar"
+        color_btn = "green700" if nuevo_estado else "red700"
         
-        costo_unit = float(item.get('costo_unitario') or 0)
-        precio_venta = float(item.get('precio_venta') or 0)
-        costo_total = float(item.get('costo_total_insumo') or 0)
-        venta_total = float(item.get('venta_total_insumo') or 0)
-        
-        str_costo_unit = f"${costo_unit:,.2f}"
-        str_precio_venta = f"${precio_venta:,.2f}"
-        str_costo_total = f"${costo_total:,.2f}"
-        str_venta_total = f"${venta_total:,.2f}"
-        
-        color_entradas = "green" if entradas > 0 else "black"
-        color_salidas = "red" if salidas > 0 else "black"
-        color_stock = "blue" if stock_final > 0 else "red"
-        
-        codigo = str(item.get('codigo_insumo', ''))
-        nombre = str(item.get('nombre', ''))
-        categoria = str(item.get('categoria', ''))
-        ubicacion = str(item.get('ubicacion') or 'N/A')
-
-        checkbox = ft.Checkbox(value=False, on_change=lambda e, i=item, r=row_ref: self.toggle_edit(e, i, r))
-        
-        cells_data = [
-            ft.DataCell(ft.Container(content=checkbox, width=25, alignment=ft.alignment.center)),
-            ft.DataCell(ft.Text(codigo, size=10)),
-            ft.DataCell(ft.Container(content=ft.Text(nombre, size=10, no_wrap=True, tooltip=nombre), width=250)),
-            ft.DataCell(ft.Text(categoria, size=10)),
-            ft.DataCell(ft.Text(ubicacion, size=10)),
-            ft.DataCell(ft.Container(content=ft.Text(str(stock_inicial), size=10), width=60, alignment=ft.alignment.center_right)),
-            ft.DataCell(ft.Container(content=ft.Text(str(stock_minimo), size=10), width=60, alignment=ft.alignment.center_right)),
-            ft.DataCell(ft.Container(content=ft.Text(str(entradas), color=color_entradas, weight="bold", size=10), width=60, alignment=ft.alignment.center_right)),
-            ft.DataCell(ft.Container(content=ft.Text(str(salidas), color=color_salidas, weight="bold", size=10), width=60, alignment=ft.alignment.center_right)),
-            ft.DataCell(ft.Container(content=ft.Text(str(stock_final), color=color_stock, weight="bold", size=10), width=60, alignment=ft.alignment.center_right)),
-            ft.DataCell(ft.Text(str_costo_unit, size=10)),
-            ft.DataCell(ft.Text(str_costo_total, color="blue", size=10)),
-            ft.DataCell(ft.Text(str_precio_venta, size=10)),
-            ft.DataCell(ft.Text(str_venta_total, color="green", size=10)),
-        ]
-            
-        return cells_data
-
-    def abrir_edicion_desde_tarjeta(self, item, row_ref):
-        # Simular que se marcó el checkbox de la tabla para mantener sincronía
-        if len(row_ref.cells) > 0:
-            cb = row_ref.cells[0].content.content
-            if isinstance(cb, ft.Checkbox):
-                cb.value = True
-                self.safe_update()
-                    
-        class DummyEvent:
-            class DummyControl:
-                value = True
-            control = DummyControl()
-            
-        self.toggle_edit(DummyEvent(), item, row_ref)
-
-    def toggle_edit(self, e, item, row_ref):
-        if not e.control.value:
-            self.cancelar_edicion()
-            return
-            
-        if self.current_edit_context and self.current_edit_context['row'] != row_ref:
-            prev_row = self.current_edit_context['row']
-            if prev_row and len(prev_row.cells) > 0:
-                cb = prev_row.cells[0].content.content
-                if isinstance(cb, ft.Checkbox):
-                    cb.value = False
-                    
-        self.current_edit_context = {
-            'item': item,
-            'row': row_ref
-        }
-        
-        codigo = item.get('codigo_insumo')
-        nombre = item.get('nombre')
-        
-        self.edit_panel_title.value = f"Editando: [{codigo}] {nombre}"
-        self.edit_stock_minimo.value = str(int(item.get('stock_minimo', 5) or 5))
-        self.edit_costo.value = str(float(item.get('costo_unitario') or 0))
-        self.edit_precio.value = str(float(item.get('precio_venta') or 0))
-        
-        # Recargar opciones frescas de categoría
-        categorias_bd = self.db.get_categorias() if hasattr(self.db, 'get_categorias') else []
-        opts = [ft.dropdown.Option(c) for c in categorias_bd if c]
-
-        # Asignar categoría exacta asegurando que exista en la lista
-        cat_val = str(item.get('categoria') or '').strip()
-        if cat_val and not any(o.key == cat_val for o in opts):
-            opts.insert(0, ft.dropdown.Option(cat_val))
-        self.edit_categoria.options = opts
-        self.edit_categoria.value = cat_val if cat_val else (opts[0].key if opts else None)
-
-        # Calcular margen porcentual financiero actual
-        costo_u = float(item.get('costo_unitario') or 0)
-        precio_v = float(item.get('precio_venta') or 0)
-        if costo_u > 0 and precio_v > costo_u:
-            margen_calc = round((1 - (costo_u / precio_v)) * 100)
-            margen_str = f"{margen_calc}%"
-            if not any(o.key == margen_str for o in self.edit_margen.options):
-                self.edit_margen.options.append(ft.dropdown.Option(margen_str))
-            self.edit_margen.value = margen_str
+        if nuevo_estado:
+            mensaje = f"¿Deseas volver a habilitar el insumo [{codigo}] {nombre}?\n\nVolverá a aparecer en el catálogo habitual y en las búsquedas activas de compras y ventas."
         else:
-            self.edit_margen.value = "20%"
-        
-        self.btn_guardar_edicion.disabled = True
-        self.action_bar.visible = True
-        self.safe_update()
+            mensaje = f"¿Deseas inhabilitar el insumo [{codigo}] {nombre}?\n\nNo se mostrará más en el catálogo estándar ni en búsquedas habituales, pero SE PRESERVARÁ toda su información y su historial completo de compras, ventas y ajustes."
 
-    def cancelar_edicion(self, e=None):
-        if self.current_edit_context:
-            row_ref = self.current_edit_context['row']
-            if row_ref and len(row_ref.cells) > 0:
-                cb = row_ref.cells[0].content.content
-                if isinstance(cb, ft.Checkbox):
-                    cb.value = False
-        self.current_edit_context = None
-        self.action_bar.visible = False
-        self.safe_update()
+        def on_confirmar(e):
+            dlg.open = False
+            self.safe_page_update()
+            
+            exito = self.db.update_insumo(codigo, {"estado": nuevo_estado})
+            if exito:
+                self.mostrar_alerta(f"✓ Insumo [{codigo}] {'habilitado' if nuevo_estado else 'inhabilitado'} exitosamente.", "green700")
+                self.load_data()
+            else:
+                self.mostrar_alerta("Error al cambiar el estado del insumo en la base de datos.", "red")
 
-    def abrir_dialogo_confirmacion(self):
-        if not self.current_edit_context:
-            self.mostrar_alerta("No hay ningún insumo en edición.", "orange")
-            return
-        item = self.current_edit_context['item']
-        
-        cambios = []
-        try:
-            nuevo_stock_min = int(float(self.edit_stock_minimo.value or 0))
-            if nuevo_stock_min != int(float(item.get('stock_minimo', 5) or 5)):
-                cambios.append(f"• Stock Mínimo: {int(item.get('stock_minimo', 5) or 5)} -> {nuevo_stock_min}")
-                
-            nuevo_costo = float(str(self.edit_costo.value or 0).replace(',', '.'))
-            if abs(nuevo_costo - float(item.get('costo_unitario') or 0)) > 0.001:
-                cambios.append(f"• Costo Unitario: ${float(item.get('costo_unitario') or 0):,.2f} -> ${nuevo_costo:,.2f}")
-                
-            nuevo_precio = float(str(self.edit_precio.value or 0).replace(',', '.'))
-            if abs(nuevo_precio - float(item.get('precio_venta') or 0)) > 0.001:
-                cambios.append(f"• Precio Venta: ${float(item.get('precio_venta') or 0):,.2f} -> ${nuevo_precio:,.2f}")
-                
-            nueva_cat = (self.edit_categoria.value or '').strip()
-            if nueva_cat != str(item.get('categoria', '')).strip():
-                cambios.append(f"• Categoría: {item.get('categoria', '')} -> {nueva_cat}")
-        except ValueError:
-            self.mostrar_alerta("Error: Asegúrate de ingresar números válidos.", "red")
-            return
-
-        if not cambios:
-            self.mostrar_alerta("No se detectaron cambios en los valores del insumo.", "orange")
-            self.cancelar_edicion()
-            return
-
-        resumen = "\n".join(cambios)
-        codigo = item.get('codigo_insumo')
-        nombre = item.get('nombre')
-        
         dlg = ft.AlertDialog(
             title=ft.Row([
-                ft.Icon(ft.icons.EDIT_NOTE_ROUNDED, color=Config.COLOR_PRIMARY, size=24),
-                ft.Text("Confirmar Actualización", weight="bold", size=16, color=Config.COLOR_PRIMARY)
-            ], spacing=8),
+                ft.Icon(ft.icons.CHECK_CIRCLE_OUTLINE if nuevo_estado else ft.icons.BLOCK_ROUNDED, color=color_btn, size=22),
+                ft.Text(f"{accion_str} Insumo", size=16, weight="bold", color=Config.COLOR_PRIMARY)
+            ], spacing=6),
             content=ft.Container(
                 width=450,
-                content=ft.Column([
-                    ft.Text("Estás a punto de modificar el insumo:", size=13),
-                    ft.Container(
-                        content=ft.Text(f"[{codigo}] {nombre}", weight="bold", size=13, color=Config.COLOR_PRIMARY),
-                        padding=8,
-                        bgcolor="#f1f5f9",
-                        border_radius=6
-                    ),
-                    ft.Text("Cambios detectados:", size=12, weight="bold", color="grey700"),
-                    ft.Container(
-                        content=ft.Text(resumen, size=12, color="black87"),
-                        padding=8,
-                        bgcolor="#f8fafc",
-                        border=ft.border.all(1, "#e2e8f0"),
-                        border_radius=6
-                    )
-                ], tight=True, spacing=8)
-            )
+                content=ft.Text(mensaje, size=12.5, color="grey800")
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: (setattr(dlg, 'open', False), self.safe_page_update())),
+                ft.ElevatedButton(f"Sí, {accion_str}", bgcolor=color_btn, color="white", on_click=on_confirmar)
+            ]
         )
-        
-        def on_cancel(e):
-            dlg.open = False
-            self.safe_page_update()
-            
-        def on_save(e):
-            dlg.open = False
-            self.safe_page_update()
-            self.ejecutar_guardado(dlg)
-            
-        dlg.actions = [
-            ft.TextButton("Cancelar", on_click=on_cancel),
-            ft.ElevatedButton("✓ Guardar Cambios", bgcolor="green700", color="white", on_click=on_save)
-        ]
         
         if self.page:
             if dlg not in self.page.overlay:
@@ -945,51 +566,254 @@ class InventarioView(ft.Container):
             dlg.open = True
             self.safe_page_update()
 
-    def ejecutar_guardado(self, dialog=None):
-        if dialog:
-            dialog.open = False
-            
-        if hasattr(self, 'progress_bar'):
-            self.progress_bar.visible = True
-            
-        self.safe_page_update()
-            
-        threading.Thread(target=self._ejecutar_guardado_worker, daemon=True).start()
+    def abrir_modal_editar_insumo(self, item):
+        codigo = str(item.get('codigo_insumo') or '')
+        nombre_actual = str(item.get('nombre') or '')
+        cat_actual = str(item.get('categoria') or 'GENERAL')
+        ubicacion_actual = str(item.get('ubicacion') or '')
+        zona_actual = str(item.get('zona') or '')
+        tipo_unidad_actual = str(item.get('tipo_unidad') or 'UND')
+        stock_min_actual = float(item.get('stock_minimo', 5) or 5)
+        costo_u_actual = float(item.get('costo_unitario') or 0.0)
+        p_venta_actual = float(item.get('precio_venta') or 0.0)
+        stock_actual = float(item.get('stock_actual') or item.get('stock_real') or 0.0)
+        estado_actual = item.get('estado', True) is not False
 
-    def _ejecutar_guardado_worker(self):
-        try:
-            if not self.current_edit_context: return
-            item = self.current_edit_context['item']
+        txt_nombre = ft.TextField(
+            label="Nombre del Insumo / Descripción",
+            value=nombre_actual,
+            dense=True,
+            expand=True,
+            border_radius=8,
+            text_size=13
+        )
+
+        categorias_bd = self.db.get_categorias() if hasattr(self.db, 'get_categorias') else []
+        opts_cat = [ft.dropdown.Option(c) for c in categorias_bd if c]
+        if cat_actual and not any(o.key == cat_actual for o in opts_cat):
+            opts_cat.insert(0, ft.dropdown.Option(cat_actual))
             
+        drop_categoria = ft.Dropdown(
+            label="Categoría",
+            options=opts_cat,
+            value=cat_actual if cat_actual in [o.key for o in opts_cat] else (opts_cat[0].key if opts_cat else None),
+            dense=True,
+            expand=True,
+            border_radius=8,
+            text_size=12
+        )
+
+        txt_ubicacion = ft.TextField(
+            label="Ubicación / Bodega",
+            value=ubicacion_actual,
+            dense=True,
+            expand=True,
+            border_radius=8,
+            text_size=12
+        )
+
+        txt_zona = ft.TextField(
+            label="Zona",
+            value=zona_actual,
+            dense=True,
+            width=130,
+            border_radius=8,
+            text_size=12
+        )
+
+        txt_costo = ft.TextField(
+            label="Costo Unitario ($)",
+            value=str(int(costo_u_actual) if costo_u_actual.is_integer() else costo_u_actual),
+            dense=True,
+            expand=True,
+            border_radius=8,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            text_size=12
+        )
+
+        txt_precio = ft.TextField(
+            label="Precio Venta ($)",
+            value=str(int(p_venta_actual) if p_venta_actual.is_integer() else p_venta_actual),
+            dense=True,
+            expand=True,
+            border_radius=8,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            text_size=12
+        )
+
+        txt_stock_min = ft.TextField(
+            label="Stock Mínimo (Alerta)",
+            value=str(int(stock_min_actual) if stock_min_actual.is_integer() else stock_min_actual),
+            dense=True,
+            expand=True,
+            border_radius=8,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            text_size=12
+        )
+
+        txt_tipo_unidad = ft.TextField(
+            label="Unidad Medida",
+            value=tipo_unidad_actual,
+            dense=True,
+            expand=True,
+            border_radius=8,
+            text_size=12
+        )
+
+        drop_estado_edit = ft.Dropdown(
+            label="Estado",
+            options=[ft.dropdown.Option("Habilitado"), ft.dropdown.Option("Inhabilitado")],
+            value="Habilitado" if estado_actual else "Inhabilitado",
+            dense=True,
+            expand=True,
+            border_radius=8,
+            text_size=12
+        )
+
+        # Labels de KPIs Financieros calculados
+        lbl_costo_sin_iva = ft.Text("$0", size=11, weight="bold")
+        lbl_margen_calc = ft.Text("0%", size=11, weight="bold", color="green700")
+        lbl_ganancia_unidad = ft.Text("$0", size=11, weight="bold", color="blue800")
+        lbl_val_stock = ft.Text(f"${costo_u_actual * stock_actual:,.0f}", size=11, weight="bold")
+        lbl_obj_venta = ft.Text(f"${p_venta_actual * stock_actual:,.0f}", size=11, weight="bold", color="purple700")
+
+        def _recalc_financiero(e=None):
             try:
-                datos_actualizados = {
-                    "stock_minimo": int(float(self.edit_stock_minimo.value or 0)),
-                    "costo_unitario": float(str(self.edit_costo.value or 0).replace(',', '.')),
-                    "precio_venta": float(str(self.edit_precio.value or 0).replace(',', '.')),
-                    "categoria": self.edit_categoria.value
-                }
-            except ValueError:
-                self.mostrar_alerta("Error numérico al guardar.", "red")
-                return
+                cu = float((txt_costo.value or "0").replace(',', '.'))
+                pv = float((txt_precio.value or "0").replace(',', '.'))
+                cu_sin_iva = (cu / 1.19) if cu > 0 else 0.0
+                lbl_costo_sin_iva.value = f"${cu_sin_iva:,.0f}"
                 
-            codigo = item.get('codigo_insumo')
-            exito = self.db.update_insumo(codigo, datos_actualizados)
-            
-            if exito:
-                self.cancelar_edicion()
-                self.mostrar_alerta(f"✓ Insumo [{codigo}] actualizado exitosamente.", "green700")
-                self.load_data()
-                self.load_summary()
-            else:
-                self.mostrar_alerta("Error al actualizar en Base de Datos.", "red")
-                
-            self.update_pagination_ui()
+                if pv > 0 and cu > 0 and pv > cu:
+                    margen = round((1 - (cu / pv)) * 100)
+                    ganancia = pv - cu
+                    lbl_margen_calc.value = f"{margen}%"
+                    lbl_margen_calc.color = "green700" if margen >= 15 else "orange800"
+                    lbl_ganancia_unidad.value = f"${ganancia:,.0f}"
+                else:
+                    lbl_margen_calc.value = "0%"
+                    lbl_ganancia_unidad.value = "$0"
 
-        except Exception as ex:
-            self.mostrar_alerta(f"Error interno: {str(ex)}", "red")
-        finally:
-            if hasattr(self, 'progress_bar'):
-                self.progress_bar.visible = False
+                lbl_val_stock.value = f"${cu * stock_actual:,.0f}"
+                lbl_obj_venta.value = f"${pv * stock_actual:,.0f}"
+            except ValueError:
+                pass
+            self.safe_page_update()
+
+        txt_costo.on_change = _recalc_financiero
+        txt_precio.on_change = _recalc_financiero
+        _recalc_financiero()
+
+        def _aplicar_margen_sugerido(pct):
+            try:
+                cu = float((txt_costo.value or "0").replace(',', '.'))
+                if cu > 0 and pct < 100:
+                    pv_calc = round(cu / (1 - (pct / 100)))
+                    txt_precio.value = str(int(pv_calc))
+                    _recalc_financiero()
+            except ValueError:
+                pass
+
+        btn_margen_15 = ft.OutlinedButton("15%", height=28, style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=8, vertical=0)), on_click=lambda _: _aplicar_margen_sugerido(15))
+        btn_margen_20 = ft.OutlinedButton("20%", height=28, style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=8, vertical=0)), on_click=lambda _: _aplicar_margen_sugerido(20))
+        btn_margen_25 = ft.OutlinedButton("25%", height=28, style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=8, vertical=0)), on_click=lambda _: _aplicar_margen_sugerido(25))
+        btn_margen_30 = ft.OutlinedButton("30%", height=28, style=ft.ButtonStyle(padding=ft.padding.symmetric(horizontal=8, vertical=0)), on_click=lambda _: _aplicar_margen_sugerido(30))
+
+        def _do_guardar_insumo(e):
+            nuevo_nom = (txt_nombre.value or "").strip()
+            if not nuevo_nom:
+                self.mostrar_alerta("El nombre del insumo no puede estar vacío.", "red")
+                return
+
+            try:
+                nuevo_costo = float((txt_costo.value or "0").replace(',', '.'))
+                nuevo_precio = float((txt_precio.value or "0").replace(',', '.'))
+                nuevo_stock_min = float((txt_stock_min.value or "0").replace(',', '.'))
+            except ValueError:
+                self.mostrar_alerta("Por favor ingresa valores numéricos válidos.", "red")
+                return
+
+            if nuevo_costo < 0 or nuevo_precio < 0 or nuevo_stock_min < 0:
+                self.mostrar_alerta("Los valores de costo, precio y stock mínimo no pueden ser negativos.", "red")
+                return
+
+            payload = {
+                "nombre": nuevo_nom,
+                "categoria": (drop_categoria.value or cat_actual).strip(),
+                "ubicacion": (txt_ubicacion.value or "").strip(),
+                "zona": (txt_zona.value or "").strip(),
+                "costo_unitario": nuevo_costo,
+                "precio_venta": nuevo_precio,
+                "stock_minimo": nuevo_stock_min,
+                "tipo_unidad": (txt_tipo_unidad.value or "UND").strip(),
+                "estado": (drop_estado_edit.value == "Habilitado")
+            }
+
+            dlg_editar.open = False
+            self.safe_page_update()
+
+            if self.db.update_insumo(codigo, payload):
+                self.mostrar_alerta(f"✓ Insumo [{codigo}] actualizado correctamente.", "green700")
+                self.load_data()
+            else:
+                self.mostrar_alerta(f"Error al actualizar el insumo [{codigo}] en la base de datos.", "red")
+
+        panel_kpis_financieros = ft.Container(
+            bgcolor="#f8fafc",
+            border=ft.border.all(1, "#e2e8f0"),
+            border_radius=8,
+            padding=ft.padding.symmetric(horizontal=12, vertical=8),
+            content=ft.Row([
+                ft.Column([ft.Text("Costo s/IVA:", size=10, color="grey600"), lbl_costo_sin_iva], spacing=1),
+                ft.VerticalDivider(width=1, color="#cbd5e1"),
+                ft.Column([ft.Text("Margen Bruto:", size=10, color="grey600"), lbl_margen_calc], spacing=1),
+                ft.VerticalDivider(width=1, color="#cbd5e1"),
+                ft.Column([ft.Text("Ganancia / Und:", size=10, color="grey600"), lbl_ganancia_unidad], spacing=1),
+                ft.VerticalDivider(width=1, color="#cbd5e1"),
+                ft.Column([ft.Text("Val. Stock Total:", size=10, color="grey600"), lbl_val_stock], spacing=1),
+                ft.VerticalDivider(width=1, color="#cbd5e1"),
+                ft.Column([ft.Text("Obj. Venta Total:", size=10, color="grey600"), lbl_obj_venta], spacing=1),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        )
+
+        dlg_editar = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.EDIT_NOTE_ROUNDED, color=Config.COLOR_PRIMARY, size=22),
+                ft.Text(f"Editar Insumo [{codigo}]", size=16, weight="bold", color=Config.COLOR_PRIMARY, expand=True),
+                ft.Container(
+                    content=ft.Text(f"Stock Actual: {stock_actual:g} unds", size=11, weight="bold", color="teal800"),
+                    bgcolor="#e6f4ea", padding=ft.padding.symmetric(horizontal=8, vertical=3), border_radius=6
+                )
+            ], spacing=6),
+            content=ft.Container(
+                width=620,
+                content=ft.Column([
+                    ft.Text("Información Básica", size=12, weight="bold", color="grey700"),
+                    ft.Row([txt_nombre]),
+                    ft.Row([drop_categoria, txt_ubicacion, txt_zona], spacing=8),
+                    ft.Divider(height=1, color="#f1f5f9"),
+                    ft.Row([
+                        ft.Text("Precios y Márgenes", size=12, weight="bold", color="grey700", expand=True),
+                        ft.Text("Fijar margen:", size=10.5, color="grey600"),
+                        btn_margen_15, btn_margen_20, btn_margen_25, btn_margen_30
+                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=4),
+                    ft.Row([txt_costo, txt_precio], spacing=8),
+                    panel_kpis_financieros,
+                    ft.Divider(height=1, color="#f1f5f9"),
+                    ft.Text("Control y Estado", size=12, weight="bold", color="grey700"),
+                    ft.Row([txt_stock_min, txt_tipo_unidad, drop_estado_edit], spacing=8),
+                ], tight=True, spacing=10)
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda e: (setattr(dlg_editar, 'open', False), self.safe_page_update())),
+                ft.ElevatedButton("Guardar Insumo", bgcolor=Config.COLOR_PRIMARY, color="white", on_click=_do_guardar_insumo)
+            ]
+        )
+
+        if self.page:
+            if dlg_editar not in self.page.overlay:
+                self.page.overlay.append(dlg_editar)
+            dlg_editar.open = True
             self.safe_page_update()
         
     def update_pagination_ui(self):
@@ -1039,30 +863,10 @@ class InventarioView(ft.Container):
             except Exception:
                 pass
 
-    def abrir_date_picker_timeline(self, e=None):
-        if not self.page:
-            return
-        if hasattr(self, "date_picker_timeline"):
-            if self.date_picker_timeline not in self.page.overlay:
-                self.page.overlay.append(self.date_picker_timeline)
-                try:
-                    self.page.update()
-                except Exception:
-                    pass
-            try:
-                self.date_picker_timeline.pick_date()
-            except AssertionError:
-                try:
-                    self.page.update()
-                    self.date_picker_timeline.pick_date()
-                except Exception:
-                    pass
-        
     def on_date_change(self, e):
         if self.date_picker.value:
             self.fecha_corte = self.date_picker.value.strftime("%Y-%m-%d")
-            self.btn_date_icon.tooltip = f"Fecha: {self.fecha_corte}"
-            self.btn_date_icon.icon_color = "blue"
+            self.btn_fecha_filtro.text = self.fecha_corte
             self.btn_clear_date.visible = True
             self.current_page = 1
             self.load_data()
@@ -1071,11 +875,10 @@ class InventarioView(ft.Container):
     def on_date_dismiss(self, e):
         pass
         
-    def clear_date(self, e):
+    def clear_date(self, e=None):
         self.fecha_corte = None
         self.date_picker.value = None
-        self.btn_date_icon.tooltip = "Filtrar por Fecha de Corte"
-        self.btn_date_icon.icon_color = None
+        self.btn_fecha_filtro.text = "Filtrar por Fecha"
         self.btn_clear_date.visible = False
         self.current_page = 1
         self.load_data()
@@ -1095,24 +898,6 @@ class InventarioView(ft.Container):
     def lanzar_date_picker(self, e=None):
         self.cerrar_modal_info_fecha()
         self.open_date_picker()
-
-    def on_sort_table(self, e: ft.DataColumnSortEvent):
-        """Delega el ordenamiento a la base de datos solicitando una nueva carga de datos."""
-        self.data_table.sort_column_index = e.column_index
-        self.data_table.sort_ascending = e.ascending
-        
-        # Identificar qué columna se hizo clic basándose en el diccionario
-        column_keys = list(self.columnas_def.keys())
-        
-        # Descontar las columnas que estén ocultas para encontrar el índice real
-        visible_keys = [k for k in column_keys if self.columnas_visibles.get(k, True)]
-        
-        if e.column_index < len(visible_keys):
-            self.sort_col_name = visible_keys[e.column_index]
-        
-        self.sort_is_asc = e.ascending
-        self.current_page = 1 # Volver a la primera página tras ordenar
-        self.load_data()
 
     def ordenar_por(self, col_name: str):
         """Permite ordenar directamente al hacer clic en cualquier badge o métrica de las tarjetas."""
@@ -1135,18 +920,11 @@ class InventarioView(ft.Container):
             self.page.update()
         self.load_data()
 
-    def on_guardar_global(self, e):
-        self.abrir_dialogo_confirmacion()
+    def on_guardar_global(self, e=None):
+        pass
 
-    def on_cancelar_global(self, e):
-        self.cancelar_edicion()
-
-    def on_gestionar_ajustes(self, e):
-        if self.current_edit_context and self.current_edit_context.get('item'):
-            item = self.current_edit_context['item']
-            self.abrir_modal_ajuste_insumo(item)
-        else:
-            self.mostrar_alerta("Selecciona un insumo en edición para gestionar su ajuste.", "orange")
+    def on_cancelar_global(self, e=None):
+        pass
 
     def _construir_modal_ajuste_inventario(self):
         self.mapa_motivos_inventario = {
@@ -1359,7 +1137,6 @@ class InventarioView(ft.Container):
             
             if self.db.insert_ajuste_individual(datos):
                 self._cerrar_modal_ajuste()
-                self.cancelar_edicion()
                 self.load_data()
                 self.load_summary()
                 self.mostrar_alerta(f"✓ Ajuste ({tipo_bd}) registrado exitosamente para [{cod}]", "green700")
@@ -1370,12 +1147,7 @@ class InventarioView(ft.Container):
         except Exception as ex:
             self.mostrar_alerta(f"Error al guardar ajuste: {str(ex)}", "red")
 
-    def _crear_fila_inventario(self, item):
-        row = ft.DataRow(cells=[])
-        row.cells = self.crear_celdas_fila(item, row, edit_mode=False)
-        return row
-
-    def _crear_tarjeta_inventario(self, item, row):
+    def _crear_tarjeta_inventario(self, item):
         codigo = str(item.get('codigo_insumo') or '')
         nombre = str(item.get('nombre') or '')
         categoria = str(item.get('categoria') or '')
@@ -1642,160 +1414,73 @@ class InventarioView(ft.Container):
             bgcolor="#fafafa",
             padding=ft.padding.symmetric(horizontal=8, vertical=6),
             border_radius=6,
-            border=ft.border.all(1, "#f0f0f0")
+            border=ft.border.all(1, "#f0f0f0"),
+            visible=self.mostrar_detalle_kpis
         )
 
+        esta_activo = item.get("estado", True) is not False
+        badge_inhabilitado = ft.Container(
+            content=ft.Text("INHABILITADO", size=9, weight="bold", color="red700"),
+            bgcolor="#fef2f2",
+            border=ft.border.all(1, "#fecaca"),
+            padding=ft.padding.symmetric(horizontal=6, vertical=2),
+            border_radius=4,
+            visible=not esta_activo
+        )
+
+        btn_ajustar_stock = ft.IconButton(
+            icon=ft.icons.TUNE,
+            icon_size=16,
+            icon_color=Config.COLOR_PRIMARY,
+            tooltip="Ajustar Stock",
+            on_click=lambda e, i=item: self.abrir_modal_ajuste_insumo(i)
+        )
+
+        btn_editar_insumo = ft.IconButton(
+            icon=ft.icons.EDIT_OUTLINED,
+            icon_size=16,
+            icon_color="blue700",
+            tooltip="Editar Insumo",
+            on_click=lambda e, i=item: self.abrir_modal_editar_insumo(i)
+        )
+
+        if esta_activo:
+            btn_estado_insumo = ft.IconButton(
+                icon=ft.icons.BLOCK_ROUNDED,
+                icon_size=16,
+                icon_color="red700",
+                tooltip="Inhabilitar Insumo",
+                on_click=lambda e, i=item: self.confirmar_cambio_estado_insumo(i, False)
+            )
+        else:
+            btn_estado_insumo = ft.IconButton(
+                icon=ft.icons.CHECK_CIRCLE_ROUNDED,
+                icon_size=18,
+                icon_color="green700",
+                tooltip="Habilitar / Reactivar Insumo",
+                on_click=lambda e, i=item: self.confirmar_cambio_estado_insumo(i, True)
+            )
+
         tarjeta = ft.Container(
-            bgcolor="white",
+            bgcolor="white" if esta_activo else "#fafafa",
             padding=10,
             border_radius=8,
-            border=ft.border.all(1, "#e0e0e0"),
+            border=ft.border.all(1, "#e0e0e0" if esta_activo else "#fecaca"),
             content=ft.Column([
                 ft.Row([
                     ft.Container(
                         content=ft.Text(f"{categoria} | {ubicacion}", size=10, weight="bold", color="grey700"),
                         bgcolor="#f5f5f5", padding=ft.padding.symmetric(horizontal=6, vertical=2), border_radius=4
                     ),
-                    ft.Text(f"[{codigo}] {nombre}", size=13, weight="bold", color="black87", expand=True),
-                    ft.IconButton(icon=ft.icons.TUNE, icon_size=16, icon_color=Config.COLOR_PRIMARY, tooltip="Ajustar Stock", on_click=lambda e, i=item: self.abrir_modal_ajuste_insumo(i)),
-                    ft.IconButton(icon=ft.icons.EDIT, icon_size=16, tooltip="Editar Insumo", on_click=lambda e, i=item, r=row: self.abrir_edicion_desde_tarjeta(i, r))
-                ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    badge_inhabilitado,
+                    ft.Text(f"[{codigo}] {nombre}", size=13, weight="bold", color="black87" if esta_activo else "grey700", expand=True),
+                    btn_ajustar_stock,
+                    btn_editar_insumo,
+                    btn_estado_insumo
+                ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=4),
                 contenedor_badges,
                 fila_resultados
             ], spacing=6)
         )
         return tarjeta
-
-    def toggle_right_panel(self, e):
-        self.panel_abierto = not self.panel_abierto
-        self.right_panel.width = 340 if self.panel_abierto else 0
-        self.right_panel.visible = self.panel_abierto
-        self.right_panel.padding = 0
-        self.btn_toggle_panel.icon = ft.icons.HISTORY if self.panel_abierto else ft.icons.HISTORY_TOGGLE_OFF
-        if self.panel_abierto:
-            self.cargar_historial_panel()
-        self.safe_update()
-
-    def on_date_timeline_change(self, e):
-        if self.date_picker_timeline.value:
-            self.fecha_historial_activa = self.date_picker_timeline.value.strftime("%Y-%m-%d")
-            self.btn_fecha_timeline.text = self.fecha_historial_activa
-            self.cargar_historial_panel()
-
-    def on_tipo_timeline_change(self, e):
-        if e.control.selected:
-            self.filtro_tipo_timeline = list(e.control.selected)[0]
-            self.cargar_historial_panel()
-
-    def cargar_historial_panel(self):
-        if not getattr(self, "page", None): return
-
-        def worker():
-            facturas = self.db.get_historial_facturas_dia(self.fecha_historial_activa)
-
-            tot_compras = sum([f["total"] for f in facturas if f["tipo"] == "COMPRA"])
-            tot_ventas = sum([f["total"] for f in facturas if f["tipo"].startswith("VENTA")])
-            neto = tot_ventas - tot_compras
-
-            self.lbl_tot_compras_dia.value = f"${tot_compras:,.0f}"
-            self.lbl_tot_ventas_dia.value = f"${tot_ventas:,.0f}"
-            self.lbl_tot_neto_dia.value = f"${neto:,.0f}"
-            self.lbl_tot_neto_dia.color = "green700" if neto >= 0 else "red700"
-
-            self.panel_timeline_list.controls.clear()
-
-            for f in facturas:
-                tipo = f["tipo"]
-                # Aplicar filtro de pestaña
-                if self.filtro_tipo_timeline == "COMPRAS" and tipo != "COMPRA": continue
-                if self.filtro_tipo_timeline == "VENTAS" and not tipo.startswith("VENTA"): continue
-                if self.filtro_tipo_timeline == "AJUSTES" and not tipo.startswith("AJUSTE"): continue
-
-                self.panel_timeline_list.controls.append(self._crear_card_factura_timeline(f))
-
-            if not self.panel_timeline_list.controls:
-                self.panel_timeline_list.controls.append(
-                    ft.Container(content=ft.Text("Sin movimientos registrados en esta fecha.", size=11, color="grey"), padding=20, alignment=ft.alignment.center)
-                )
-
-            self.safe_update()
-
-        import threading
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _crear_card_factura_timeline(self, f):
-        tipo = f["tipo"]
-
-        # Estilos por tipo
-        if tipo == "COMPRA":
-            badge_bg, badge_col, badge_txt = "#e6f4ea", "teal800", f"COMPRA | {f['proveedor']}"
-            icon_mat, icon_col = ft.icons.SHOPPING_CART, "teal"
-        elif "VENTA" in tipo:
-            subtipo = f.get("subtipo", "POS")
-            badge_bg, badge_col = ("#e8f0fe", "blue800") if "POS" in tipo else ("#f3e8fd", "purple800")
-            badge_txt = f"VENTA ({subtipo})"
-            icon_mat, icon_col = ft.icons.RECEIPT_LONG, "blue"
-        else:
-            is_ent = tipo == "AJUSTE_ENTRADA"
-            badge_bg, badge_col = ("#e6f4ea", "green800") if is_ent else ("#fce8e6", "red800")
-            badge_txt = f"AJUSTE {'ENTRADA' if is_ent else 'SALIDA'}"
-            icon_mat, icon_col = ft.icons.TUNE, "orange"
-
-        badge = ft.Container(
-            content=ft.Text(badge_txt, size=9, weight="bold", color=badge_col, no_wrap=True),
-            padding=ft.padding.symmetric(horizontal=6, vertical=2), bgcolor=badge_bg, border_radius=10
-        )
-
-        ref = f["ref"]
-        desc_fact = f"Fact/Doc: {f['factura']}"
-
-        card = ft.Container(
-            content=ft.Row([
-                ft.Icon(icon_mat, size=20, color=icon_col),
-                # Detalle Factura
-                ft.Column([
-                    badge,
-                    ft.Text(desc_fact, size=11, weight="bold", color="black87", no_wrap=True),
-                ], expand=True, spacing=2),
-
-                # Total Monetario
-                ft.Text(f"${f['total']:,.0f}", size=11, weight="bold", color="black87")
-            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
-            padding=8,
-            border_radius=6,
-            bgcolor="#ffffff",
-            border=ft.border.all(1, "#eeeeee"),
-            on_click=lambda e, t=tipo, r=ref, d=desc_fact: self.aplicar_filtro_factura(t, r, d),
-            ink=True
-        )
-        return card
-
-    def aplicar_filtro_factura(self, tipo, ref, desc):
-        self.progress_bar.visible = True
-        self.safe_update()
-
-        def worker():
-            codigos = self.db.get_codigos_factura_especifica(tipo, ref)
-            self.codigos_filtro_activos = codigos if codigos else []
-            self.current_page = 1
-
-            # Actualizar Badge superior
-            lbl = self.filtro_badge.content.controls[1]
-            lbl.value = f"Filtrado por: {desc}"
-            self.filtro_badge.visible = True
-
-            self._fetch_data_worker()
-
-        import threading
-        threading.Thread(target=worker, daemon=True).start()
-
-    def limpiar_filtro_factura(self, e=None):
-        self.codigos_filtro_activos = None
-        self.current_page = 1
-        self.filtro_badge.visible = False
-        self.progress_bar.visible = True
-        self.safe_update()
-        
-        import threading
-        threading.Thread(target=self._fetch_data_worker, daemon=True).start()
 

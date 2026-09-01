@@ -88,6 +88,38 @@ class ComprasRepository:
             log_error("get_compras", ex)
             return [], 0
 
+    def get_compras_totales_filtrados(
+        self,
+        search: str = "",
+        fecha_corte: str | None = None,
+        factura_filtro: str | None = None,
+        proveedor_filtro: str | None = None
+    ) -> dict:
+        """
+        Calcula los totales acumulados (cantidad, iva, costo_total) para los filtros aplicados vía RPC.
+        """
+        try:
+            payload = {
+                "p_search": search.strip() if search else None,
+                "p_fecha_corte": fecha_corte.strip() if fecha_corte else None,
+                "p_factura": factura_filtro.strip() if factura_filtro else None,
+                "p_proveedor": proveedor_filtro.strip() if (proveedor_filtro and proveedor_filtro != "TODOS") else None
+            }
+            res = self.db.post("rpc/fn_totales_compras", json_data=payload, timeout=8)
+            if res and res.status_code == 200:
+                data = res.json()
+                if isinstance(data, dict):
+                    return {
+                        "total_cantidad": float(data.get("total_cantidad") or 0.0),
+                        "total_iva": float(data.get("total_iva") or 0.0),
+                        "total_costo": float(data.get("total_costo") or 0.0),
+                        "total_registros": int(data.get("total_registros") or 0)
+                    }
+        except Exception as ex:
+            log_error("get_compras_totales_filtrados", ex)
+
+        return {"total_cantidad": 0.0, "total_iva": 0.0, "total_costo": 0.0, "total_registros": 0}
+
     def get_proveedores_unicos(self) -> list:
         try:
             res = self.db.get("registro_compras?select=proveedor&estado_registro=eq.VÁLIDO&limit=5000", timeout=10)
@@ -297,10 +329,21 @@ class ComprasRepository:
             return False
 
     def get_compras_summary(self, fecha_corte=None) -> dict:
-        """Calcula el resumen financiero de compras del mes y del día."""
+        """Calcula el resumen financiero de compras del mes y del día de corte."""
         try:
-            hoy = datetime.date.today().strftime("%Y-%m-%d")
-            mes_actual = hoy[:7]
+            payload = {"p_fecha_corte": fecha_corte} if fecha_corte else {}
+            res = self.db.post("rpc/get_compras_summary_rpc", json_data=payload, timeout=10)
+            if res and res.status_code == 200:
+                data = res.json()
+                if isinstance(data, dict):
+                    return data
+        except Exception as ex:
+            log_error("get_compras_summary RPC", ex)
+
+        # Fallback local
+        try:
+            corte_str = str(fecha_corte).strip()[:10] if fecha_corte else datetime.date.today().strftime("%Y-%m-%d")
+            mes_actual = corte_str[:7]
             
             data = []
             offset = 0
@@ -339,7 +382,7 @@ class ComprasRepository:
                 if f.startswith(mes_actual):
                     total_mes += monto
                     iva_mes += iva_val
-                if f == hoy:
+                if f == corte_str:
                     total_hoy += monto
                     iva_hoy += iva_val
                 cant_tot += cant
@@ -352,7 +395,7 @@ class ComprasRepository:
                 "iva_hoy": iva_hoy
             }
         except Exception as ex:
-            log_error("get_compras_summary", ex)
+            log_error("get_compras_summary fallback", ex)
             return {"total_mes": 0, "total_hoy": 0, "cantidad_total": 0, "iva_mes": 0, "iva_hoy": 0}
 
     def update_compra_individual(self, id_compra: str, datos: dict) -> bool:

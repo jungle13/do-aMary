@@ -38,7 +38,7 @@ class GuardarStockRequest(BaseModel):
     usuario: str = "Móvil Bodega"
     rol: str = "BODEGUERO"
     observacion: str = ""
-    mes_periodo: str = "2026-08"
+    mes_periodo: str | None = None
 
 # --- ENDPOINTS API ---
 
@@ -51,23 +51,26 @@ def login_movil(req: LoginRequest):
 
 @app.get("/api/status")
 def get_status():
+    mes_actual = service.get_mes_activo()
     return {
         "status": "online",
-        "mes_periodo": "2026-08",
+        "mes_periodo": mes_actual,
         "ip_local": service.get_local_ip(),
         "insumos_en_catalogo": len(service.catalogo_cache)
     }
 
 @app.get("/api/buscar")
-def buscar_insumos(q: str = "", mes: str = "2026-08"):
+def buscar_insumos(q: str = "", mes: str | None = None):
     try:
-        return service.buscar_insumos(q, mes_periodo=mes, limit=0)
+        mes_val = mes or service.get_mes_activo()
+        return service.buscar_insumos(q, mes_periodo=mes_val, limit=0)
     except Exception as ex:
         log_error("buscar_insumos endpoint", ex)
         return []
 
 @app.post("/api/guardar")
 def guardar_stock(req: GuardarStockRequest):
+    mes_val = req.mes_periodo or service.get_mes_activo()
     res = service.guardar_conteo_movil(
         codigo_insumo=req.codigo_insumo,
         cantidad=req.cantidad,
@@ -75,7 +78,7 @@ def guardar_stock(req: GuardarStockRequest):
         usuario=req.usuario,
         rol=req.rol,
         observacion=req.observacion,
-        mes_periodo=req.mes_periodo
+        mes_periodo=mes_val
     )
     return res
 
@@ -364,6 +367,7 @@ def index_mobile():
     <!-- SCRIPT JS -->
     <script>
         let currentUser = null;
+        let currentPeriodo = null;
         let catalogo = [];
         let itemSeleccionado = null;
         let modoConteoActual = 'REEMPLAZAR';
@@ -434,7 +438,16 @@ def index_mobile():
             const rc = document.getElementById('resultsCount');
             rc.innerText = "Cargando catálogo completo...";
             try {
-                const res = await fetch('/api/buscar');
+                // Consultar estado del servidor y periodo activo
+                try {
+                    const stRes = await fetch('/api/status');
+                    if (stRes.ok) {
+                        const stData = await stRes.json();
+                        if (stData && stData.mes_periodo) currentPeriodo = stData.mes_periodo;
+                    }
+                } catch(eSt) {}
+
+                const res = await fetch('/api/buscar' + (currentPeriodo ? `?mes=${encodeURIComponent(currentPeriodo)}` : ''));
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 if (Array.isArray(data)) {
@@ -679,7 +692,7 @@ def index_mobile():
                 usuario: currentUser.nombre_completo || currentUser.usuario || 'Operario',
                 rol: currentUser.rol || 'BODEGUERO',
                 observacion: obs,
-                mes_periodo: '2026-08'
+                mes_periodo: currentPeriodo || null
             };
 
             try {

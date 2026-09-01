@@ -85,6 +85,43 @@ class VentasRepository:
             log_error("get_ventas", ex)
             return [], 0
 
+    def get_ventas_totales_filtrados(
+        self,
+        search: str = "",
+        fecha_corte: str | None = None,
+        categoria_filtro: str | None = None,
+        factura_filtro: str | None = None,
+        tipo_documento_filtro: str | None = None,
+        fecha_dia: str | None = None
+    ) -> dict:
+        """
+        Calcula los totales acumulados (cantidad, subtotal, iva, total) para los filtros aplicados vía RPC.
+        """
+        try:
+            payload = {
+                "p_search": search.strip() if search else None,
+                "p_fecha_corte": fecha_corte.strip() if fecha_corte else None,
+                "p_categoria": categoria_filtro.strip() if categoria_filtro else None,
+                "p_factura": factura_filtro.strip() if factura_filtro else None,
+                "p_tipo_doc": tipo_documento_filtro.strip() if (tipo_documento_filtro and tipo_documento_filtro != "TODOS") else None,
+                "p_fecha_dia": fecha_dia.strip() if fecha_dia else None
+            }
+            res = self.db.post("rpc/fn_totales_ventas", json_data=payload, timeout=8)
+            if res and res.status_code == 200:
+                data = res.json()
+                if isinstance(data, dict):
+                    return {
+                        "total_cantidad": float(data.get("total_cantidad") or 0.0),
+                        "total_subtotal": float(data.get("total_subtotal") or 0.0),
+                        "total_iva": float(data.get("total_iva") or 0.0),
+                        "total_ventas": float(data.get("total_ventas") or 0.0),
+                        "total_registros": int(data.get("total_registros") or 0)
+                    }
+        except Exception as ex:
+            log_error("get_ventas_totales_filtrados", ex)
+
+        return {"total_cantidad": 0.0, "total_subtotal": 0.0, "total_iva": 0.0, "total_ventas": 0.0, "total_registros": 0}
+
     def get_historial_ventas_dia(
         self,
         fecha_dia: str | None = None,
@@ -402,17 +439,19 @@ class VentasRepository:
 
     def get_proyeccion_ventas(self, fecha_corte=None) -> float:
         try:
-            res = self.db.get("vista_inventario_completo?select=stock_actual,precio_venta&stock_actual=gt.0", timeout=10)
+            payload = {"p_fecha_corte": fecha_corte} if fecha_corte else {}
+            res = self.db.post("rpc/get_proyeccion_ventas_rpc", json_data=payload, timeout=10)
             if res and res.status_code == 200:
                 data = res.json()
-                total = sum(max(0.0, float(r.get("stock_actual") or 0)) * float(r.get("precio_venta") or 0) for r in data)
-                return total
-            # Fallback RPC
-            payload = {"fecha_corte": fecha_corte} if fecha_corte else {}
-            res = self.db.post("rpc/get_proyeccion_ventas_rpc", json_data=payload if payload else None, timeout=10)
-            if res and res.status_code == 200:
-                data = res.json()
-                return float(data) if data is not None else 0.0
+                if data is not None:
+                    return float(data)
+            
+            # Fallback a vista_inventario_completo si no hay fecha de corte
+            if not fecha_corte:
+                res_v = self.db.get("vista_inventario_completo?select=stock_actual,precio_venta&stock_actual=gt.0", timeout=10)
+                if res_v and res_v.status_code == 200:
+                    data_v = res_v.json()
+                    return sum(max(0.0, float(r.get("stock_actual") or 0)) * float(r.get("precio_venta") or 0) for r in data_v)
             return 0.0
         except Exception as ex:
             log_error("get_proyeccion_ventas", ex)

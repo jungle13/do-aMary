@@ -62,42 +62,6 @@
       "rol": "OPERADOR",
       "activo": true,
       "created_at": "2026-08-18T17:01:57.065812-05:00"
-    },
-    {
-      "id_usuario": "0dcbc16a-fb7c-47c0-b810-25fb1ee9b659",
-      "usuario": "bod2",
-      "clave": "bod2",
-      "nombre_completo": "Bodega 2",
-      "rol": "OPERADOR",
-      "activo": true,
-      "created_at": "2026-08-31T23:28:33.551455-05:00"
-    },
-    {
-      "id_usuario": "7727e039-10bd-41a1-b461-dd80b3cc5eb4",
-      "usuario": "bod3",
-      "clave": "bod3",
-      "nombre_completo": "Bodega 3",
-      "rol": "OPERADOR",
-      "activo": true,
-      "created_at": "2026-08-31T23:28:33.551455-05:00"
-    },
-    {
-      "id_usuario": "56d71b5e-83f3-4f0f-b7df-c302c364e570",
-      "usuario": "bod4",
-      "clave": "bod4",
-      "nombre_completo": "Bodega 4",
-      "rol": "OPERADOR",
-      "activo": true,
-      "created_at": "2026-08-31T23:28:33.551455-05:00"
-    },
-    {
-      "id_usuario": "d54fc275-9f3e-4436-97c6-689bf35ed6dc",
-      "usuario": "bod5",
-      "clave": "bod5",
-      "nombre_completo": "Bodega 5",
-      "rol": "OPERADOR",
-      "activo": true,
-      "created_at": "2026-08-31T23:28:33.551455-05:00"
     }
   ],
   "clientes": [
