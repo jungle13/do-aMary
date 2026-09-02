@@ -477,16 +477,6 @@ class CierreInventarioView(ft.Container):
         periodos = self.cierres_repo.get_periodos_inventario()
         meses_nombres = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
 
-        # 1. Total Costo de Inventario Global Actual (Stock real > 0 con costos de compras)
-        kpis_inv = self.db.get_inventario_kpis()
-        tot_costo_inv = float(kpis_inv.get("valor_inventario") or 0.0)
-
-        res_v = self.db.get_ventas_summary()
-        res_c = self.db.get_compras_summary()
-        tot_ventas = float(res_v.get("total_mes") or 0.0)
-        tot_compras = float(res_c.get("total_mes") or 0.0)
-        rentabilidad = ((tot_ventas - tot_compras) / tot_ventas * 100) if tot_ventas > 0 else 0.0
-
         filas = []
         for p in periodos:
             mes_periodo = p.get("mes_periodo", "")
@@ -496,6 +486,20 @@ class CierreInventarioView(ft.Container):
             year = parts[0]
             month_num = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
             month_nombre = meses_nombres[month_num - 1]
+
+            import calendar
+            last_day = calendar.monthrange(int(year), month_num)[1]
+            fecha_corte_mes = f"{mes_periodo}-{last_day:02d}"
+
+            # KPIs específicos para este periodo
+            kpis_inv = self.db.get_inventario_kpis(fecha_corte=fecha_corte_mes)
+            tot_costo_inv = float(kpis_inv.get("valor_inventario") or 0.0)
+
+            res_v = self.db.get_ventas_summary(fecha_corte=fecha_corte_mes)
+            res_c = self.db.get_compras_summary(fecha_corte=fecha_corte_mes)
+            tot_ventas = float(res_v.get("total_mes") or 0.0)
+            tot_compras = float(res_c.get("total_mes") or 0.0)
+            rentabilidad = ((tot_ventas - tot_compras) / tot_ventas * 100) if tot_ventas > 0 else 0.0
 
             estado = p.get("estado", "ABIERTO")
             color_est = {"ABIERTO": "green", "EN_AUDITORIA": "blue", "CERRADO": "red"}.get(estado, "black")
@@ -1393,6 +1397,7 @@ class CierreInventarioView(ft.Container):
     # ==========================================
 
     def abrir_modal_qr(self, e):
+        self.mobile_service.set_mes_activo(self.mes_seleccionado)
         iniciar_servidor_en_hilo(port=8550)
         url_local = self.mobile_service.get_server_url(port=8550)
         qr_local_b64 = self.mobile_service.get_qr_base64(port=8550)

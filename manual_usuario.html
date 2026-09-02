@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Manual Integral de Usuario • Doña Mary App v2.0</title>
+  <title>Manual Integral de Usuario y Lógica Financiera • Doña Mary App v2.0</title>
   
   <!-- Tipografía Google Fonts & FontAwesome -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -31,7 +31,7 @@
       --border-color: #E2E8F0;
       --text-main: #1E293B;
       --text-muted: #64748B;
-      --sidebar-width: 290px;
+      --sidebar-width: 295px;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -71,8 +71,8 @@
     }
 
     .brand-icon {
-      width: 40px;
-      height: 40px;
+      width: 42px;
+      height: 42px;
       background: linear-gradient(135deg, #2563EB, #0D9488);
       border-radius: 10px;
       display: flex;
@@ -179,7 +179,7 @@
     .doc-header p {
       font-size: 15px;
       color: var(--text-muted);
-      max-width: 820px;
+      max-width: 850px;
       line-height: 1.6;
     }
 
@@ -225,6 +225,65 @@
     .callout-warning { background: var(--warning-light); border-left: 4px solid var(--warning); color: #92400E; }
     .callout-purple { background: var(--purple-light); border-left: 4px solid var(--purple); color: #5B21B6; }
     .callout-danger { background: var(--danger-light); border-left: 4px solid var(--danger); color: #991B1B; }
+
+    /* ─── CARDS DE KPI DETALLADAS (FORMULA + EJEMPLO) ─── */
+    .kpi-detail-card {
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+      transition: all 0.2s ease;
+    }
+
+    .kpi-detail-card:hover {
+      background: white;
+      border-color: #CBD5E1;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+    }
+
+    .kpi-detail-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .kpi-detail-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .kpi-formula-box {
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      padding: 10px 14px;
+      border-radius: 8px;
+      margin: 10px 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      color: #0F172A;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .kpi-formula-box i { color: var(--primary-accent); }
+
+    .kpi-example-box {
+      background: #EFF6FF;
+      border-left: 4px solid #2563EB;
+      padding: 12px 16px;
+      border-radius: 0 8px 8px 0;
+      margin-top: 10px;
+      font-size: 13px;
+      color: #1E3A8A;
+      line-height: 1.5;
+    }
 
     /* ─── PASO A PASO (TIMELINE / STEPS) ─── */
     .steps-flow {
@@ -352,55 +411,6 @@
       line-height: 1.6;
     }
 
-    /* ─── GRID DE CARDS ─── */
-    .kpi-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 16px;
-      margin: 20px 0;
-    }
-
-    .kpi-card-explain {
-      background: #F8FAFC;
-      border: 1px solid #E2E8F0;
-      border-radius: 12px;
-      padding: 18px;
-      transition: all 0.2s ease;
-    }
-
-    .kpi-card-explain:hover {
-      border-color: #CBD5E1;
-      transform: translateY(-2px);
-      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.04);
-    }
-
-    .kpi-card-explain h4 {
-      font-size: 14.5px;
-      font-weight: 700;
-      color: var(--primary);
-      margin-bottom: 6px;
-    }
-
-    .kpi-card-explain p {
-      font-size: 13px;
-      color: var(--text-muted);
-      line-height: 1.5;
-    }
-
-    .kpi-tag {
-      font-size: 10px;
-      font-weight: 800;
-      text-transform: uppercase;
-      padding: 2px 7px;
-      border-radius: 4px;
-      display: inline-block;
-      margin-bottom: 8px;
-    }
-    .tag-blue { background: #DBEAFE; color: #1E40AF; }
-    .tag-green { background: #DCFCE7; color: #166534; }
-    .tag-purple { background: #F3E8FF; color: #6B21A8; }
-    .tag-amber { background: #FEF3C7; color: #92400E; }
-
     code {
       font-family: 'JetBrains Mono', monospace;
       font-size: 12px;
@@ -446,14 +456,14 @@
       <li class="nav-item"><a href="#filtros-sistema"><i class="fa-solid fa-filter"></i> Guía de Filtros del Sistema</a></li>
     </ul>
 
-    <div class="nav-section">Módulos del Sistema</div>
+    <div class="nav-section">Lógica de Módulos & KPIs</div>
     <ul class="nav-list">
       <li class="nav-item"><a href="#dashboard"><i class="fa-solid fa-chart-line"></i> 1. Dashboard Ejecutivo</a></li>
       <li class="nav-item"><a href="#inventario"><i class="fa-solid fa-box-open"></i> 2. Catálogo Inventario</a></li>
-      <li class="nav-item"><a href="#compras"><i class="fa-solid fa-cart-shopping"></i> 3. Carga de Compras (PDF)</a></li>
+      <li class="nav-item"><a href="#compras"><i class="fa-solid fa-cart-shopping"></i> 3. Compras y Entradas</a></li>
       <li class="nav-item"><a href="#ventas"><i class="fa-solid fa-receipt"></i> 4. Ventas (POS & Remisión)</a></li>
       <li class="nav-item"><a href="#cartera"><i class="fa-solid fa-hand-holding-dollar"></i> 5. Gestión de Cartera</a></li>
-      <li class="nav-item"><a href="#ajustes"><i class="fa-solid fa-wand-magic-sparkles"></i> 6. Ajustes con IA & Plantilla</a></li>
+      <li class="nav-item"><a href="#ajustes"><i class="fa-solid fa-wand-magic-sparkles"></i> 6. Ajustes con IA</a></li>
       <li class="nav-item"><a href="#cierres"><i class="fa-solid fa-clipboard-check"></i> 7. Cierre & Conciliación</a></li>
       <li class="nav-item"><a href="#mobile"><i class="fa-solid fa-mobile-screen-button"></i> 8. App Web Móvil</a></li>
     </ul>
@@ -471,8 +481,8 @@
   <main class="main-wrapper">
     <header class="doc-header">
       <div class="doc-badge"><i class="fa-solid fa-shield-halved"></i> Sistema Oficial • Edición 2026</div>
-      <h1>Manual Integral de Usuario y Operación</h1>
-      <p>Guía de operación diaria, carga masiva de facturas en PDF, uso de la plantilla de ajustes, filtros por módulo, control de cartera y conciliación contable para <strong>Desechables y Abarrotes Doña Mary S.A.S.</strong></p>
+      <h1>Manual Integral de Usuario, Indicadores y Lógica Financiera</h1>
+      <p>Guía de operación detallada con <strong>fórmulas exactas, significado empresarial y ejemplos numéricos</strong> para cada Card, KPI y módulo del sistema <strong>Desechables y Abarrotes Doña Mary S.A.S.</strong></p>
     </header>
 
     <!-- ─── INTRODUCCIÓN ─── -->
@@ -484,6 +494,29 @@
         <i class="fa-solid fa-circle-info"></i>
         <div>
           <strong>Principio de Integridad Automática:</strong> Todas las transacciones impactan el sistema en tiempo real. Cuando se aprueba una compra o un ajuste, el costo promedio ponderado y el stock se actualizan de inmediato; cuando se registra una remisión, se genera la cuenta por cobrar en Cartera y se recalculan las ventas del día.
+        </div>
+      </div>
+
+      <!-- LLAMADO DE RECUPERACIÓN / LIMPIEZA DE CACHÉ -->
+      <div class="callout callout-danger" style="margin-top: 20px; border-left-width: 6px;">
+        <i class="fa-solid fa-arrows-rotate" style="font-size: 22px; color: #DC2626;"></i>
+        <div>
+          <strong style="font-size: 14.5px; color: #991B1B;">¿QUÉ HACER SI EL SISTEMA NO RESPONDE, SE QUEDA CARGANDO O SE CONGELA?</strong><br>
+          En caso de caídas momentáneas de internet, lentitud en la red o si alguna ventana o diálogo se queda congelado, <strong>NO es necesario cerrar el programa ni reiniciar la computadora</strong>. El sistema cuenta con una función de autorrecuperación instantánea:<br>
+          
+          <div style="background: white; border: 1px solid #FCA5A5; padding: 10px 16px; border-radius: 8px; margin: 10px 0; display: inline-flex; align-items: center; gap: 10px;">
+            <i class="fa-solid fa-arrows-rotate" style="background: #0F172A; color: white; padding: 6px 8px; border-radius: 6px; font-size: 13px;"></i>
+            <span style="font-weight: 700; color: #0F172A;">Botón: "Restaurar estado y limpiar caché"</span>
+          </div><br>
+
+          📍 <strong>Ubicación Exacta del Ícono:</strong><br>
+          Se encuentra en la <strong>Barra Lateral Izquierda (Sidebar)</strong>, dentro del recuadro de tu perfil de usuario (donde aparece tu avatar con iniciales y tu nombre de usuario). Es el ícono de <strong>flecha circular de recarga</strong> ubicado justo al lado izquierdo del botón de Cerrar Sesión.<br><br>
+
+          ⚡ <strong>¿Qué hace al pulsarlo?</strong><br>
+          1. Cierra diálogos o modales huérfanos que hayan quedado bloqueados.<br>
+          2. Reinicia los sockets TCP y la sesión HTTP segura con Supabase / PostgreSQL.<br>
+          3. Purga la memoria caché local de clientes, vistas y filtros.<br>
+          4. Re-instancia y recarga la pantalla activa en menos de 1 segundo sin cerrar la sesión.
         </div>
       </div>
     </section>
@@ -548,23 +581,32 @@
       <div class="section-title"><i class="fa-solid fa-calendar-check"></i> El Selector Global de Período</div>
       <p class="section-lead">Ubicado en la barra superior derecha de la aplicación, permite alternar la perspectiva temporal de toda la empresa con un solo clic.</p>
 
-      <div class="kpi-grid">
-        <div class="kpi-card-explain">
-          <span class="kpi-tag tag-blue">Sincronización</span>
-          <h4>Cambio Global en Cascada</h4>
-          <p>Al seleccionar <strong>Agosto 2026</strong> o <strong>Septiembre 2026</strong>, todos los módulos adaptan sus tarjetas y tablas al rango de dicho mes.</p>
-        </div>
-        <div class="kpi-card-explain">
-          <span class="kpi-tag tag-green">Estados del Mes</span>
-          <h4>Insignia Visual de Control</h4>
-          <p>Indica si el mes está <code>ABIERTO</code> (operativo y recibiendo facturas), <code>EN_AUDITORIA</code> (en conteo de bodega) o <code>CERRADO</code> (bloqueado y conciliado).</p>
-        </div>
-        <div class="kpi-card-explain">
-          <span class="kpi-tag tag-purple">Persistencia</span>
-          <h4>Libros Abiertos</h4>
-          <p>Cambiar de mes no borra datos históricos; recalcula los KPIs financieros del mes elegido manteniendo disponibles los saldos acumulados de clientes.</p>
-        </div>
-      </div>
+      <table class="data-table-doc">
+        <thead>
+          <tr>
+            <th>Estado Visual</th>
+            <th>Significado Operativo</th>
+            <th>Efecto en los Módulos</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="badge badge-green">ABIERTO</span></td>
+            <td>Mes en curso activo (ej. Septiembre 2026).</td>
+            <td>Permite registrar nuevas compras, ventas, abonos en cartera y ajustes en tiempo real.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-amber">EN_AUDITORIA</span></td>
+            <td>Mes en proceso de conteo físico o revisión.</td>
+            <td>Habilita el escaneo móvil y congelamiento temporal para comparar sistema vs físico.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-purple">CERRADO</span></td>
+            <td>Mes finalizado y conciliado contablemente (ej. Agosto 2026).</td>
+            <td>Bloquea alteraciones en ese mes y transfiere su saldo final como stock inicial del mes siguiente.</td>
+          </tr>
+        </tbody>
+      </table>
     </section>
 
     <!-- ─── GUÍA DE FILTROS DEL SISTEMA ─── -->
@@ -625,54 +667,195 @@
       </table>
     </section>
 
-    <!-- ─── 1. DASHBOARD EJECUTIVO ─── -->
+    <!-- ─── 1. DASHBOARD EJECUTIVO & INDICADORES ─── -->
     <section id="dashboard" class="doc-section">
-      <div class="section-title"><i class="fa-solid fa-chart-pie"></i> 1. Módulo: Dashboard Ejecutivo</div>
-      <p class="section-lead">Es el centro de comando directivo de Doña Mary. Ofrece una vista panorámica de la salud comercial, rentabilidad y flujo de caja.</p>
+      <div class="section-title"><i class="fa-solid fa-chart-pie"></i> 1. Dashboard Ejecutivo: Explicación Detallada de Cada Card y KPI</div>
+      <p class="section-lead">A continuación se detalla la lógica matemática, significado financiero y un ejemplo real para cada una de las tarjetas e indicadores mostrados en el Dashboard:</p>
 
-      <table class="data-table-doc">
-        <thead>
-          <tr>
-            <th>Pestaña / Vista</th>
-            <th>Lo que estás viendo</th>
-            <th>Acciones Disponibles</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><strong>Resumen General (Tab 1)</strong></td>
-            <td>8 Tarjetas de KPIs maestros, balance de IVA comercial, neto de ajustes por mermas, gráfico diario de barras con meta unificada ($11M/día) y tablas Top 10.</td>
-            <td>Cambiar mes de análisis, inspeccionar insumos de mayor rotación y verificar el valor monetario del inventario unificado.</td>
-          </tr>
-          <tr>
-            <td><strong>Resumen Diario por Semanas (Tab 2)</strong></td>
-            <td>Matriz diaria agrupada en 5 semanas con tarjetas individuales de los 31 días del mes, detallando ventas POS, Remisión, Compras, Recaudos e IVA diario.</td>
-            <td>Desplegar o contraer semanas, evaluar el cumplimiento porcentual de cada día vs la meta y analizar el flujo financiero día por día.</td>
-          </tr>
-        </tbody>
-      </table>
+      <!-- CARD 1: VALOR INVENTARIO -->
+      <div class="kpi-detail-card">
+        <div class="kpi-detail-header">
+          <div class="kpi-detail-title"><i class="fa-solid fa-boxes-stacked" style="color:#2563eb;"></i> Card: Valor de Inventario Actual</div>
+          <span class="badge badge-blue">Patrimonio en Bodega</span>
+        </div>
+        <p><strong>¿Qué representa?</strong> El capital total en pesos colombianos que la empresa tiene inmovilizado en mercancía física disponible en bodega a la fecha seleccionada.</p>
+        <div class="kpi-formula-box">
+          <i class="fa-solid fa-calculator"></i> <strong>Fórmula:</strong> Valor Inventario = Σ (Stock Real Positivo × Costo Unitario Maestro de Catálogo)
+        </div>
+        <div class="kpi-example-box">
+          <strong>Ejemplo Real (Agosto 2026):</strong><br>
+          Si se tienen 21.612 unidades de <em>Portacomida Darnel P3</em> con costo de $414,00 ($8.947.368) + 53 unidades de <em>Bolsa Aluminio</em> con costo de $2.758,20 ($146.184) + los demás 285 insumos con existencia disponible, la suma total da exactamente <strong>$90.685.967 COP</strong>.
+        </div>
+      </div>
+
+      <!-- CARD 2: INGRESOS POR VENTAS -->
+      <div class="kpi-detail-card">
+        <div class="kpi-detail-header">
+          <div class="kpi-detail-title"><i class="fa-solid fa-receipt" style="color:#16a34a;"></i> Card: Ingresos por Ventas (Mes & Hoy)</div>
+          <span class="badge badge-green">Ventas Totales</span>
+        </div>
+        <p><strong>¿Qué representa?</strong> El monto bruto total facturado en el mes y en el día actual, sumando tanto ventas de contado en mostrador como despachos a crédito.</p>
+        <div class="kpi-formula-box">
+          <i class="fa-solid fa-calculator"></i> <strong>Fórmula:</strong> Ventas Mes = Σ (Total Facturas POS Válidas) + Σ (Total Remisiones Válidas)
+        </div>
+        <div class="kpi-example-box">
+          <strong>Ejemplo Real (Agosto 2026):</strong><br>
+          • Ventas Remisión (Crédito): $231.263.477,00 (140.816 unds)<br>
+          • Ventas Facturas POS (Contado): $8.217.415,44 (9.656 unds)<br>
+          • <strong>Total Ingresos del Mes:</strong> $231.263.477 + $8.217.415,44 = <strong>$239.480.892,44 COP</strong>.
+        </div>
+      </div>
+
+      <!-- CARD 3: COMPRAS TOTALES -->
+      <div class="kpi-detail-card">
+        <div class="kpi-detail-header">
+          <div class="kpi-detail-title"><i class="fa-solid fa-cart-shopping" style="color:#7c3aed;"></i> Card: Compras Totales (Mes & Hoy)</div>
+          <span class="badge badge-purple">Entradas de Mercancía</span>
+        </div>
+        <p><strong>¿Qué representa?</strong> El costo acumulado de todas las facturas y compras de mercancía recibidas de proveedores en el período.</p>
+        <div class="kpi-formula-box">
+          <i class="fa-solid fa-calculator"></i> <strong>Fórmula:</strong> Compras Mes = Σ (Costo Total de Facturas de Compra con estado VÁLIDO)
+        </div>
+        <div class="kpi-example-box">
+          <strong>Ejemplo Real (Agosto 2026):</strong><br>
+          En el mes de agosto se registraron 584 facturas de proveedores con un costo total acumulado de <strong>$232.572.865,00 COP</strong>.
+        </div>
+      </div>
+
+      <!-- CARD 4: RENTABILIDAD BRUTA -->
+      <div class="kpi-detail-card">
+        <div class="kpi-detail-header">
+          <div class="kpi-detail-title"><i class="fa-solid fa-percent" style="color:#0d9488;"></i> Card: Rentabilidad Bruta Comercial (%)</div>
+          <span class="badge badge-green">Margen Operativo</span>
+        </div>
+        <p><strong>¿Qué representa?</strong> El margen porcentual de ganancia bruta obtenido en el período después de descontar el costo de las compras frente a los ingresos generados.</p>
+        <div class="kpi-formula-box">
+          <i class="fa-solid fa-calculator"></i> <strong>Fórmula:</strong> Rentabilidad (%) = ((Ingresos Ventas - Compras Totales) / Ingresos Ventas) × 100
+        </div>
+        <div class="kpi-example-box">
+          <strong>Ejemplo Real:</strong><br>
+          Con Ingresos de $239.480.892 y Compras de $232.572.865:<br>
+          Margen Bruto = $239.480.892 - $232.572.865 = $6.908.027 COP.<br>
+          Rentabilidad = ($6.908.027 / $239.480.892) × 100 = <strong>2.9%</strong>.
+        </div>
+      </div>
+
+      <!-- CARD 5: ROTACIÓN DE INVENTARIO -->
+      <div class="kpi-detail-card">
+        <div class="kpi-detail-header">
+          <div class="kpi-detail-title"><i class="fa-solid fa-arrows-rotate" style="color:#d97706;"></i> Card: Rotación Global de Inventario (x)</div>
+          <span class="badge badge-amber">Velocidad de Movimiento</span>
+        </div>
+        <p><strong>¿Qué representa?</strong> Cuántas veces en el mes la empresa fue capaz de convertir su stock disponible en ventas efectivas. Un valor más alto indica que el inventario se mueve rápido y no se estanca.</p>
+        <div class="kpi-formula-box">
+          <i class="fa-solid fa-calculator"></i> <strong>Fórmula:</strong> Rotación (veces) = Ingresos Totales del Mes / Valor del Inventario en Bodega
+        </div>
+        <div class="kpi-example-box">
+          <strong>Ejemplo Real:</strong><br>
+          Con Ventas de $239.480.892 y un Inventario de $90.685.967:<br>
+          Rotación = $239.480.892 / $90.685.967 = <strong>2.64x</strong>.<br>
+          <em>Interpretación:</em> La bodega comercializó y renovó su valor de stock 2.64 veces durante el mes de agosto.
+        </div>
+      </div>
+
+      <!-- CARD 6: PROYECCIÓN DE VENTAS Y RENTABILIDAD FUTURA -->
+      <div class="kpi-detail-card">
+        <div class="kpi-detail-header">
+          <div class="kpi-detail-title"><i class="fa-solid fa-bullseye" style="color:#2563eb;"></i> Card: Proyección de Ventas y Rentabilidad Esperada</div>
+          <span class="badge badge-blue">Potencial Comercial</span>
+        </div>
+        <p><strong>¿Qué representa?</strong> Los ingresos potenciales que la empresa recaudaría si vendiera la totalidad de los productos que actualmente tiene guardados en bodega a sus precios sugeridos.</p>
+        <div class="kpi-formula-box">
+          <i class="fa-solid fa-calculator"></i> <strong>Fórmula:</strong> Proyección Ventas = Σ (Stock Real Positivo × Precio de Venta Sugerido)
+        </div>
+        <div class="kpi-example-box">
+          <strong>Ejemplo Real:</strong><br>
+          Si el inventario que costó $90.685.967 se vende a precio público, genera una Proyección de Ventas de <strong>$120.450.000 COP</strong>.<br>
+          • <strong>Rentabilidad Esperada:</strong> (($120.450.000 - $90.685.967) / $120.450.000) × 100 = <strong>24.7% de margen proyectado</strong>.
+        </div>
+      </div>
+
+      <!-- CARD 7: CUMPLIMIENTO DE META MES Y META DIARIA -->
+      <div class="kpi-detail-card">
+        <div class="kpi-detail-header">
+          <div class="kpi-detail-title"><i class="fa-solid fa-chart-column" style="color:#16a34a;"></i> Card: Cumplimiento de Meta Mensual y Meta Diaria</div>
+          <span class="badge badge-green">Monitoreo de Objetivos</span>
+        </div>
+        <p><strong>¿Qué representa?</strong> La capacidad comercial máxima del mes (Ventas Realizadas + Stock Disponible por Vender) y la meta que la empresa debe facturar cada día para agotar el inventario.</p>
+        <div class="kpi-formula-box">
+          <i class="fa-solid fa-calculator"></i> <strong>Fórmulas:</strong><br>
+          • Capacidad Total (Meta Mes) = Ventas Realizadas + Proyección de Ventas en Stock<br>
+          • Cumplimiento Mes (%) = (Ventas Realizadas / Capacidad Total) × 100<br>
+          • Meta Diaria Base = Capacidad Total / Días del Mes (31 días en agosto)<br>
+          • Cumplimiento Hoy (%) = (Ventas de Hoy / Meta Diaria Base) × 100
+        </div>
+        <div class="kpi-example-box">
+          <strong>Ejemplo Real (Agosto 2026):</strong><br>
+          • Capacidad Total: $239.480.892 (Ventas) + $120.450.000 (Stock) = $359.930.892 COP.<br>
+          • Cumplimiento Mes: ($239.480.892 / $359.930.892) × 100 = <strong>66.5% de meta cumplida</strong>.<br>
+          • Meta Diaria Base: $359.930.892 / 31 días = <strong>$11.610.674 COP / día</strong>.<br>
+          • Si hoy se venden $12.500.000: Cumplimiento Hoy = ($12.500.000 / $11.610.674) × 100 = <strong>107.6% (Meta Superada)</strong>.
+        </div>
+      </div>
+
+      <!-- CARD 8: RESUMEN DE IMPUESTOS (IVA) -->
+      <div class="kpi-detail-card">
+        <div class="kpi-detail-header">
+          <div class="kpi-detail-title"><i class="fa-solid fa-scale-balanced" style="color:#7c3aed;"></i> Cards: Resumen de Impuestos (IVA Generado vs IVA Pagado)</div>
+          <span class="badge badge-purple">Posición Fiscal</span>
+        </div>
+        <p><strong>¿Qué representa?</strong> El balance tributario del IVA entre lo recaudado a los clientes en ventas y lo pagado a proveedores en compras.</p>
+        <div class="kpi-formula-box">
+          <i class="fa-solid fa-calculator"></i> <strong>Fórmulas:</strong><br>
+          • IVA Generado (Mes) = Σ (IVA de Ventas POS) + Σ (IVA de Remisiones)<br>
+          • IVA Pagado / Descontable (Mes) = Σ (IVA en Facturas de Compras)<br>
+          • Balance Neto IVA = IVA Generado - IVA Pagado
+        </div>
+        <div class="kpi-example-box">
+          <strong>Ejemplo Real (Agosto 2026):</strong><br>
+          • IVA Generado en Ventas: $360.500 COP<br>
+          • IVA Pagado en Compras: $802.541 COP<br>
+          • <strong>Balance Neto:</strong> $360.500 - $802.541 = <strong>-$442.041 COP</strong> (Saldo a favor / IVA Descontable para la empresa).
+        </div>
+      </div>
+
+      <!-- CARD 9: GESTIÓN DE CARTERA EN DASHBOARD -->
+      <div class="kpi-detail-card">
+        <div class="kpi-detail-header">
+          <div class="kpi-detail-title"><i class="fa-solid fa-hand-holding-dollar" style="color:#0d9488;"></i> Cards: Métricas de Cartera y Efectividad de Cobranza</div>
+          <span class="badge badge-green">Liquidez y Créditos</span>
+        </div>
+        <p><strong>¿Qué representa?</strong> El desempeño del flujo de efectivo, el dinero recuperado de clientes y el porcentaje de cartera cobrada.</p>
+        <div class="kpi-formula-box">
+          <i class="fa-solid fa-calculator"></i> <strong>Fórmulas:</strong><br>
+          • Total Recaudado = Pagos en Efectivo + Pagos por Transferencia Bancaria<br>
+          • Saldo Pendiente por Cobrar = Σ (Saldo Pendiente de Remisiones no pagadas)<br>
+          • % Recaudo Remisión = (Total Cobrado en Remisiones / Total Facturado en Remisiones) × 100<br>
+          • % Recaudo POS = 100% (Las ventas POS son cobro de contado inmediato)
+        </div>
+        <div class="kpi-example-box">
+          <strong>Ejemplo Real:</strong><br>
+          Si se recaudaron $8.217.415 en facturas POS y se abonaron $50.000.000 en remisiones, el Total Recaudado es de $58.217.415 COP. Si en remisiones se facturaron $231.263.477, el porcentaje de recaudo de remisión es: ($50.000.000 / $231.263.477) × 100 = <strong>21.6%</strong>.
+        </div>
+      </div>
     </section>
 
     <!-- ─── 2. CATÁLOGO DE INVENTARIO ─── -->
     <section id="inventario" class="doc-section">
       <div class="section-title"><i class="fa-solid fa-boxes-stacked"></i> 2. Módulo: Catálogo e Inventario Maestro</div>
-      <p class="section-lead">Control de los 2.790 insumos y productos con stock físico en bodega, costos unitarios y proyección de ingresos.</p>
+      <p class="section-lead">Control de existencias físicas, precios de venta, umbrales de stock mínimo y valoración económica.</p>
 
-      <div class="kpi-grid">
-        <div class="kpi-card-explain">
-          <span class="kpi-tag tag-blue">Fórmula de Stock</span>
-          <h4>Cálculo Dinámico de Existencias</h4>
-          <p><code>Stock = Stock Inicial + Compras - Ventas + Ajustes Entrada - Ajustes Salida</code></p>
+      <div class="kpi-detail-card">
+        <div class="kpi-detail-header">
+          <div class="kpi-detail-title"><i class="fa-solid fa-triangle-exclamation" style="color:#dc2626;"></i> Indicador: Alertas Críticas (Stock Mínimo)</div>
+          <span class="badge badge-red">Alerta de Compras</span>
         </div>
-        <div class="kpi-card-explain">
-          <span class="kpi-tag tag-green">Valorización</span>
-          <h4>Valor Total de Inventario</h4>
-          <p>Suma de <code>Stock Positivo × Costo Unitario Maestro</code>, garantizando total congruencia (\$90.68M).</p>
+        <p><strong>¿Cómo se calcula?</strong> Cuenta automáticamente cuántos insumos tienen un stock actual menor o igual a su umbral de seguridad (por defecto 5 unidades).</p>
+        <div class="kpi-formula-box">
+          <i class="fa-solid fa-calculator"></i> <strong>Regla:</strong> Si Stock Real ≤ Stock Mínimo → Generar Alerta Roja de Reposición
         </div>
-        <div class="kpi-card-explain">
-          <span class="kpi-tag tag-amber">Alertas de Reposición</span>
-          <h4>Stock Mínimo</h4>
-          <p>Banderas rojas automáticas cuando el saldo disponible es inferior al umbral de seguridad (por defecto 5 unidades).</p>
+        <div class="kpi-example-box">
+          <strong>Ejemplo:</strong> En agosto se detectaron <strong>44 insumos en estado crítico</strong> con 0 o menos de 5 unidades, indicando al departamento de compras que debe reabastecerlos de inmediato.
         </div>
       </div>
     </section>
@@ -959,8 +1142,22 @@
       <div class="section-title"><i class="fa-solid fa-clipboard-check"></i> 7. Módulo: Cierre de Período y Auditoría</div>
       <p class="section-lead">Procedimiento mensual para conciliar el saldo teórico del sistema frente al conteo físico real de bodega.</p>
 
+      <div class="kpi-detail-card">
+        <div class="kpi-detail-header">
+          <div class="kpi-detail-title"><i class="fa-solid fa-calculator" style="color:#0d9488;"></i> Lógica de Descuadres: Teórico vs Físico</div>
+          <span class="badge badge-purple">Conciliación Contable</span>
+        </div>
+        <p><strong>¿Cómo se evalúa el descuadre?</strong> Compara el stock teórico acumulado por movimientos de compras y ventas con el conteo reportado en bodega.</p>
+        <div class="kpi-formula-box">
+          <i class="fa-solid fa-calculator"></i> <strong>Fórmula:</strong> Diferencia = Cantidad Física Contada - Cantidad Teórica en Sistema<br>
+          • Descuadre Monetario = Diferencia × Costo Unitario Snapshot
+        </div>
+        <div class="kpi-example-box">
+          <strong>Ejemplo:</strong> Si el sistema indica 100 unidades teóricas y en bodega se cuentan 95 (faltante de 5 unidades a $2.000 c/u), la diferencia es de -5 unidades con un impacto de -$10.000 COP. Al pulsar <strong>"Ajustar Diferencias"</strong>, el software genera automáticamente una salida por merma de 5 unidades, dejando el stock teórico en 95 exactas.
+        </div>
+      </div>
+
       <h3 style="margin: 20px 0 12px 0; color: var(--primary);">¿Qué debe hacer el usuario para Aprobar o Ajustar Diferencias?</h3>
-      
       <div class="steps-flow">
         <div class="step-box">
           <div class="step-num">1</div>
@@ -1119,7 +1316,14 @@
 
       <div class="faq-item">
         <div class="faq-question">¿Cómo se garantiza que el valor del inventario sea idéntico en todos los módulos? <i class="fa-solid fa-chevron-down"></i></div>
-        <div class="faq-answer">Todos los componentes (Dashboard, Catálogo, RPC de Supabase e Informes) se calculan bajo la misma regla maestra: <code>Stock Disponible Positivo × Costo Unitario de Catálogo</code>, asegurando total coherencia monetaria.</div>
+        <div class="faq-answer">Todos los componentes (Dashboard, Catálogo, RPC de Supabase e Informes) se calculan bajo la misma regla maestra: <code>Stock Disponible Positivo × Costo Unitario de Catálogo</code>, asegurando total coherencia monetaria ($90.685.967 COP).</div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-question">¿Qué debo hacer si una ventana se queda bloqueada o el sistema no responde? <i class="fa-solid fa-chevron-down"></i></div>
+        <div class="faq-answer">
+          Debes presionar el ícono de <strong>Restaurar estado y limpiar caché</strong> (representado por una flecha circular de recarga <i class="fa-solid fa-arrows-rotate"></i>). Se encuentra en la <strong>Barra Lateral Izquierda (Sidebar)</strong>, en la tarjeta de perfil de tu usuario, justo al lado del botón de cerrar sesión. Al pulsarlo, el software purga la memoria caché local, restablece la conexión segura con Supabase y vuelve a cargar la vista activa de inmediato.
+        </div>
       </div>
     </section>
 

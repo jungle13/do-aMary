@@ -1156,22 +1156,23 @@ class InventarioView(ft.Container):
         # Extracción Segura
         stock_inicial = float(item.get("stock_inicial") or 0)
         valor_inicial = float(item.get("valor_inicial") or 0)
-        compras = float(item.get("compras") or 0)
-        valor_compras = float(item.get("valor_compras") or 0)
-        ventas = float(item.get("ventas") or 0)
-        valor_ventas = float(item.get("valor_ventas") or 0)
-        ajustes_entrantes = float(item.get("ajustes_entrantes") or 0)
-        valor_ajustes_entrantes = float(item.get("valor_ajustes_entrantes") or 0)
-        ajustes_salientes = float(item.get("ajustes_salientes") or 0)
-        valor_ajustes_salientes = float(item.get("valor_ajustes_salientes") or 0)
-        neto_ajustes = float(item.get("neto_ajustes") or 0)
-        valor_neto_ajustes = float(item.get("valor_neto_ajustes") or 0)
-        
-        stock_actual = float(item.get('stock_actual') or item.get('stock_real') or 0)
         costo_u = float(item.get('costo_unitario') or 0)
         costo_antes_iva = (costo_u / 1.19) if costo_u > 0 else 0
         p_venta = float(item.get('precio_venta') or 0)
-        costo_total_insumo = float(item.get('costo_total_insumo') or (stock_actual * costo_u))
+
+        compras = float(item.get("compras") if item.get("compras") is not None else (item.get("entradas") or 0))
+        valor_compras = float(item.get("valor_compras") if item.get("valor_compras") is not None else (compras * costo_u))
+        ventas = float(item.get("ventas") if item.get("ventas") is not None else (item.get("salidas") or 0))
+        valor_ventas = float(item.get("valor_ventas") if item.get("valor_ventas") is not None else (item.get("venta_total_insumo") or (ventas * p_venta)))
+        ajustes_entrantes = float(item.get("ajustes_entrantes") or 0)
+        valor_ajustes_entrantes = float(item.get("valor_ajustes_entrantes") or (ajustes_entrantes * costo_u))
+        ajustes_salientes = float(item.get("ajustes_salientes") or 0)
+        valor_ajustes_salientes = float(item.get("valor_ajustes_salientes") or (ajustes_salientes * costo_u))
+        neto_ajustes = float(item.get("neto_ajustes") if item.get("neto_ajustes") is not None else (item.get("ajustes") or (ajustes_entrantes - ajustes_salientes)))
+        valor_neto_ajustes = float(item.get("valor_neto_ajustes") if item.get("valor_neto_ajustes") is not None else (valor_ajustes_entrantes - valor_ajustes_salientes))
+        
+        stock_actual = float(item.get('stock_actual') if item.get('stock_actual') is not None else (item.get('stock_real') or 0))
+        costo_total_insumo = float(item.get('costo_total_insumo') if item.get('costo_total_insumo') is not None else (stock_actual * costo_u))
         objetivo_venta = stock_actual * p_venta if stock_actual > 0 else 0
         
         # 1. Costo s/IVA (primero)
@@ -1287,7 +1288,34 @@ class InventarioView(ft.Container):
             checks_map[pct] = btn
             return btn
 
-        # 5. Stock Actual DESTACADO Y MÁS GRANDE (Alineado a la derecha)
+        # 5. Conteo Físico (si existe registro móvil/auditoría)
+        badge_conteo_fisico = None
+        cant_fisica = item.get("cantidad_fisica")
+        if cant_fisica is not None:
+            cant_fis_num = float(cant_fisica)
+            dif_fisica = cant_fis_num - stock_actual
+            dif_txt = f" ({dif_fisica:+g})" if abs(dif_fisica) > 0.001 else " (OK)"
+            dif_color = "#047857" if abs(dif_fisica) < 0.001 else ("#0284c7" if dif_fisica > 0 else "#dc2626")
+            
+            badge_conteo_fisico = ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.FACT_CHECK_ROUNDED, size=13, color="#6366f1"),
+                    ft.Text(
+                        spans=[
+                            ft.TextSpan("Físico: ", ft.TextStyle(size=11, color="grey800", weight="bold")),
+                            ft.TextSpan(f"{cant_fis_num:g} unds", ft.TextStyle(size=12, color="#4338ca", weight="extrabold")),
+                            ft.TextSpan(dif_txt, ft.TextStyle(size=10, color=dif_color, weight="bold")),
+                        ]
+                    )
+                ], spacing=3, tight=True),
+                padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                bgcolor="#eef2ff",
+                border=ft.border.all(1.5, "#c7d2fe"),
+                border_radius=8,
+                tooltip=f"Conteo físico registrado desde la web: {cant_fis_num:g} unds | {item.get('observacion_auditoria') or ''}"
+            )
+
+        # 6. Stock Actual DESTACADO Y MÁS GRANDE (Alineado a la derecha)
         if stock_actual > 0:
             bg_stock = "#ecfdf5"
             border_stock = "#a7f3d0"
@@ -1316,7 +1344,7 @@ class InventarioView(ft.Container):
             on_click=lambda _: self.ordenar_por("Stock Actual")
         )
 
-        # 6. Valor Total en Costo
+        # 7. Valor Total en Costo
         badge_valor_costo = ft.Container(
             content=ft.Text(
                 spans=[
@@ -1332,7 +1360,7 @@ class InventarioView(ft.Container):
             on_click=lambda _: self.ordenar_por("Valor Costo")
         )
 
-        # 7. Objetivo de Venta
+        # 8. Objetivo de Venta
         badge_objetivo_venta = ft.Container(
             content=txt_objetivo,
             padding=ft.padding.symmetric(horizontal=8, vertical=3),
@@ -1344,6 +1372,7 @@ class InventarioView(ft.Container):
         )
 
         # Contenedor dividido: Izquierda (Precios y Margen) y Derecha (Stock y Totales)
+        badges_derecha = [b for b in [badge_conteo_fisico, badge_stock, badge_valor_costo, badge_objetivo_venta] if b is not None]
         contenedor_badges = ft.Row(
             [
                 ft.Row([
@@ -1363,11 +1392,7 @@ class InventarioView(ft.Container):
                 
                 ft.Container(expand=True),
                 
-                ft.Row([
-                    badge_stock,
-                    badge_valor_costo,
-                    badge_objetivo_venta
-                ], spacing=6, alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.CENTER, tight=True)
+                ft.Row(badges_derecha, spacing=6, alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.CENTER, tight=True)
             ], 
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,

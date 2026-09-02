@@ -1,3 +1,12 @@
+import sys
+import io
+
+# Garantizar streams válidos en ejecutables de escritorio sin consola (--noconsole)
+if sys.stdout is None:
+    sys.stdout = io.StringIO()
+if sys.stderr is None:
+    sys.stderr = io.StringIO()
+
 import flet as ft
 from ui.app import AppLayout
 from ui.views.login import LoginView
@@ -54,4 +63,10 @@ def main(page: ft.Page):
     mostrar_login()
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
+    try:
+        iniciar_servidor_en_hilo(port=8550)
+    except Exception:
+        pass
     ft.app(target=main, assets_dir="assets")

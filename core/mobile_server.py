@@ -811,10 +811,25 @@ def index_mobile():
 def iniciar_servidor_en_hilo(port: int = 8550):
     if not MobileCountingService._server_running:
         def run_server():
-            MobileCountingService._server_running = True
-            uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
+            try:
+                MobileCountingService._server_running = True
+                config = uvicorn.Config(
+                    app,
+                    host="0.0.0.0",
+                    port=port,
+                    log_level="warning",
+                    log_config=None,  # Evita crash en .exe sin consola por sys.stdout=None
+                    loop="asyncio",
+                    http="h11",
+                    lifespan="off"
+                )
+                server = uvicorn.Server(config)
+                server.run()
+            except Exception as ex:
+                MobileCountingService._server_running = False
+                logger.error(f"Error al iniciar servidor FastAPI/Uvicorn en hilo: {ex}", exc_info=True)
 
-        thread = threading.Thread(target=run_server, daemon=True)
+        thread = threading.Thread(target=run_server, daemon=True, name="MobileServerThread")
         thread.start()
         MobileCountingService._server_thread = thread
         logger.info(f"Servidor Web Móvil iniciado en 0.0.0.0:{port}")

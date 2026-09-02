@@ -121,6 +121,29 @@ class InsumosRepository:
                 total_count = 0
                 if "/" in content_range:
                     total_count = int(content_range.split("/")[1])
+
+                # Enriquecer con el conteo físico más reciente si existe
+                if data and isinstance(data, list):
+                    codigos = [str(i.get("codigo_insumo") or "").strip() for i in data if i.get("codigo_insumo")]
+                    if codigos:
+                        try:
+                            cods_enc = ",".join(codigos)
+                            res_aud = self.db.get(f"registro_auditorias_cierres?codigo_insumo=in.({cods_enc})&cantidad_fisica=not.is.null&order=fecha_cierre.desc", timeout=5)
+                            if res_aud and res_aud.status_code == 200:
+                                aud_map = {}
+                                for a in res_aud.json():
+                                    c_cod = str(a.get("codigo_insumo"))
+                                    if c_cod not in aud_map:
+                                        aud_map[c_cod] = a
+                                for item in data:
+                                    c_cod = str(item.get("codigo_insumo"))
+                                    if c_cod in aud_map:
+                                        item["cantidad_fisica"] = aud_map[c_cod].get("cantidad_fisica")
+                                        item["observacion_auditoria"] = aud_map[c_cod].get("observacion")
+                                        item["fecha_conteo_fisico"] = aud_map[c_cod].get("fecha_cierre")
+                        except Exception:
+                            pass
+
                 return data, total_count
             else:
                 err_text = res.text if res else "No response"

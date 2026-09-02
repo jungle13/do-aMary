@@ -44,8 +44,22 @@ class MobileCountingService:
         except Exception:
             return "127.0.0.1"
 
+    def set_mes_activo(self, mes: str):
+        """Permite fijar manualmente el mes del periodo de auditoría móvil."""
+        if mes:
+            self.mes_activo_manual = str(mes).strip()
+
     def get_mes_activo(self) -> str:
-        """Obtiene dinámicamente el mes del periodo activo o el mes calendario actual."""
+        """Obtiene dinámicamente el mes del periodo activo desde PeriodoManager o la BD."""
+        if getattr(self, "mes_activo_manual", None):
+            return self.mes_activo_manual
+        try:
+            from core.periodo_manager import PeriodoManager
+            pm_mes = PeriodoManager().get_periodo_activo()
+            if pm_mes:
+                return pm_mes
+        except Exception:
+            pass
         try:
             res = self.db.get("periodos_inventario?estado=in.(ABIERTO,PRELIMINAR,EN_AUDITORIA)&order=mes_periodo.desc&limit=1", timeout=5)
             if res and res.status_code == 200 and res.json():

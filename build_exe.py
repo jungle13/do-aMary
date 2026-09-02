@@ -9,6 +9,13 @@ def build():
 
     print(f'Usando binario Flet pack: {flet_exe}')
     
+    import shutil
+    if os.path.exists("build"):
+        try:
+            shutil.rmtree("build")
+        except Exception:
+            pass
+
     hidden_imports = [
         'core',
         'core.fecha_utils',
@@ -58,6 +65,41 @@ def build():
         'requests',
         'pypdf',
         'plotly',
+        # --- FastAPI & Uvicorn para Servidor Móvil en PyInstaller ---
+        'fastapi',
+        'fastapi.responses',
+        'fastapi.routing',
+        'fastapi.middleware',
+        'fastapi.middleware.cors',
+        'starlette',
+        'starlette.responses',
+        'starlette.routing',
+        'starlette.middleware',
+        'starlette.middleware.cors',
+        'pydantic',
+        'uvicorn',
+        'uvicorn.logging',
+        'uvicorn.loops',
+        'uvicorn.loops.auto',
+        'uvicorn.loops.asyncio',
+        'uvicorn.protocols',
+        'uvicorn.protocols.http',
+        'uvicorn.protocols.http.auto',
+        'uvicorn.protocols.http.h11_impl',
+        'uvicorn.protocols.websockets',
+        'uvicorn.protocols.websockets.auto',
+        'uvicorn.lifespan',
+        'uvicorn.lifespan.off',
+        'uvicorn.lifespan.on',
+        'h11',
+        'anyio',
+        'anyio._backends._asyncio',
+        'sniffio',
+        'qrcode',
+        'qrcode.image.pil',
+        'PIL',
+        'PIL.Image',
+        'fpdf',
     ]
 
     cmd = [
@@ -66,6 +108,8 @@ def build():
         'main.py',
         '--name', 'InventarioDonaMary',
         '--add-data', '.env;.',
+        '--add-data', 'assets;assets',
+        '--icon', 'assets/icon.ico',
         '--product-name', 'Inventario Abarrotes y Desechables Dona Mary',
         '--file-description', 'Sistema de Gestion de Inventario y Ventas',
         '--product-version', '1.0.0.0',
