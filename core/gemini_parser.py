@@ -432,7 +432,7 @@ class GeminiParser:
                 Extrae los datos de ventas formato POS (Facturas Diarias / WXManager / Tipo PP o PE) de este documento y devuelve EXCLUSIVAMENTE un arreglo JSON válido.
                 
                 REGLAS DE EXTRACCIÓN:
-                1. BLOQUES DE FACTURA: Cada factura inicia debajo del encabezado con el prefijo "PP" o "PE" (o "POS") seguido del número (ej. "PP 26396", "PE 22549", "PE 22550"). Extrae SOLO el número de la factura en "numero_factura".
+                1. BLOQUES DE FACTURA: Cada factura inicia debajo del encabezado con el prefijo "PP" o "PE" (o "POS") seguido del número (ej. "PP 26396", "PE 22549", "PE 22550"). Extrae el prefijo y número completo en "numero_factura" (ej. "PP 26396", "PE 22549").
                 2. CLIENTE: Extrae el nombre del cliente que aparece en la misma línea de 'PP/PE XXXXX' o en la línea inmediatamente inferior (ej. 'CONSUMIDOR FINAL', 'CLIENTES VARIOS', o el nombre particular del cliente/empresa si fue registrado). Si no aparece o dice 'Clientes Varios' o 'CONSUMIDOR FINAL', asigna 'CONSUMIDOR FINAL' o 'CLIENTES VARIOS'.
                 3. FECHA: La fecha general de las ventas está en el encabezado superior (ej. '24/08/2026'). Conviértela siempre al formato estándar 'YYYY-MM-DD' (ej. '2026-08-24').
                 4. PRODUCTOS: Cada producto en la factura contiene:

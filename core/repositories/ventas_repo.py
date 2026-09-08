@@ -30,7 +30,8 @@ class VentasRepository:
         categoria_filtro: str | None = None,
         factura_filtro: str | None = None,
         tipo_documento_filtro: str | None = None,
-        fecha_dia: str | None = None
+        fecha_dia: str | None = None,
+        subtipo_pos_filtro: str | None = None
     ) -> tuple[list, int]:
         if categoria_filtro:
             endpoint = "registro_ventas?select=*,catalogo_insumos!inner(nombre,categoria)"
@@ -47,7 +48,8 @@ class VentasRepository:
             filtros.append(f"fecha=gte.{fd_clean}T00:00:00&fecha=lte.{fd_clean}T23:59:59")
         elif fecha_corte:
             fc_clean = fecha_corte.strip()
-            filtros.append(f"fecha=lte.{fc_clean}T23:59:59")
+            f_inicio = f"{fc_clean[:7]}-01"
+            filtros.append(f"fecha=gte.{f_inicio}T00:00:00&fecha=lte.{fc_clean}T23:59:59")
 
         if categoria_filtro:
             cat_enc = urllib.parse.quote(str(categoria_filtro).strip())
@@ -60,6 +62,13 @@ class VentasRepository:
         if tipo_documento_filtro and tipo_documento_filtro != "TODOS":
             doc_enc = urllib.parse.quote(str(tipo_documento_filtro).strip())
             filtros.append(f"tipo_documento=eq.{doc_enc}")
+
+        if subtipo_pos_filtro and subtipo_pos_filtro != "TODOS":
+            sub_clean = str(subtipo_pos_filtro).upper().strip()
+            if "NEGRA" in sub_clean or "PP" in sub_clean:
+                filtros.append("factura_no=ilike.*PP*")
+            elif "SAS" in sub_clean or "PE" in sub_clean:
+                filtros.append("factura_no=ilike.*PE*")
 
         if filtros:
             endpoint += "&" + "&".join(filtros)
@@ -92,31 +101,52 @@ class VentasRepository:
         categoria_filtro: str | None = None,
         factura_filtro: str | None = None,
         tipo_documento_filtro: str | None = None,
-        fecha_dia: str | None = None
+        fecha_dia: str | None = None,
+        subtipo_pos_filtro: str | None = None
     ) -> dict:
         """
-        Calcula los totales acumulados (cantidad, subtotal, iva, total) para los filtros aplicados vía RPC.
+        Calcula los totales acumulados (cantidad, subtotal, iva, total) para los filtros aplicados.
         """
         try:
-            payload = {
-                "p_search": search.strip() if search else None,
-                "p_fecha_corte": fecha_corte.strip() if fecha_corte else None,
-                "p_categoria": categoria_filtro.strip() if categoria_filtro else None,
-                "p_factura": factura_filtro.strip() if factura_filtro else None,
-                "p_tipo_doc": tipo_documento_filtro.strip() if (tipo_documento_filtro and tipo_documento_filtro != "TODOS") else None,
-                "p_fecha_dia": fecha_dia.strip() if fecha_dia else None
-            }
-            res = self.db.post("rpc/fn_totales_ventas", json_data=payload, timeout=8)
-            if res and res.status_code == 200:
-                data = res.json()
-                if isinstance(data, dict):
-                    return {
-                        "total_cantidad": float(data.get("total_cantidad") or 0.0),
-                        "total_subtotal": float(data.get("total_subtotal") or 0.0),
-                        "total_iva": float(data.get("total_iva") or 0.0),
-                        "total_ventas": float(data.get("total_ventas") or 0.0),
-                        "total_registros": int(data.get("total_registros") or 0)
-                    }
+            filtros = ["estado_registro=neq.ANULADO"]
+            if fecha_dia:
+                filtros.append(f"fecha=gte.{fecha_dia.strip()}T00:00:00&fecha=lte.{fecha_dia.strip()}T23:59:59")
+            elif fecha_corte:
+                f_inicio = f"{fecha_corte.strip()[:7]}-01"
+                filtros.append(f"fecha=gte.{f_inicio}T00:00:00&fecha=lte.{fecha_corte.strip()}T23:59:59")
+            
+            if tipo_documento_filtro and tipo_documento_filtro != "TODOS":
+                filtros.append(f"tipo_documento=eq.{urllib.parse.quote(str(tipo_documento_filtro).strip())}")
+            
+            if categoria_filtro:
+                filtros.append(f"catalogo_insumos.categoria=eq.{urllib.parse.quote(str(categoria_filtro).strip())}")
+
+            if factura_filtro:
+                filtros.append(f"factura_no.ilike.*{urllib.parse.quote(str(factura_filtro).strip())}*")
+
+            if search:
+                s_enc = urllib.parse.quote(search.strip())
+                filtros.append(f"or=(codigo_insumo.ilike.*{s_enc}*,factura_no.ilike.*{s_enc}*,descripcion.ilike.*{s_enc}*)")
+            
+            if subtipo_pos_filtro and subtipo_pos_filtro != "TODOS":
+                sub_clean = str(subtipo_pos_filtro).upper().strip()
+                if "NEGRA" in sub_clean or "PP" in sub_clean:
+                    filtros.append("factura_no=ilike.*PP*")
+                elif "SAS" in sub_clean or "PE" in sub_clean:
+                    filtros.append("factura_no=ilike.*PE*")
+            
+            select_cols = "cantidad,subtotal,iva,total" + (",catalogo_insumos!inner(categoria)" if categoria_filtro else "")
+            endpoint = f"registro_ventas?select={select_cols}&{'&'.join(filtros)}"
+            raw_data = self.db.get_all(endpoint, page_size=2000, timeout=10)
+            if raw_data:
+                return {
+                    "total_cantidad": sum(float(r.get("cantidad") or 0) for r in raw_data),
+                    "total_subtotal": sum(float(r.get("subtotal") or 0) for r in raw_data),
+                    "total_iva": sum(float(r.get("iva") or 0) for r in raw_data),
+                    "total_ventas": sum(float(r.get("total") or 0) for r in raw_data),
+                    "total_registros": len(raw_data)
+                }
+            return {"total_cantidad": 0.0, "total_subtotal": 0.0, "total_iva": 0.0, "total_ventas": 0.0, "total_registros": 0}
         except Exception as ex:
             log_error("get_ventas_totales_filtrados", ex)
 
@@ -594,6 +624,7 @@ class VentasRepository:
         search: str = "",
         fecha_corte: str | None = None,
         tipo_documento_filtro: str | None = None,
+        subtipo_pos_filtro: str | None = None,
     ) -> tuple[list, int]:
         """
         Obtiene las ventas agrupadas a nivel de documento (Factura POS / Remisión),
@@ -602,10 +633,18 @@ class VentasRepository:
         try:
             filtros = ["estado_registro=neq.ANULADO"]
             if fecha_corte and fecha_corte.strip():
-                filtros.append(f"fecha=lte.{fecha_corte.strip()}T23:59:59")
+                fc_clean = fecha_corte.strip()
+                f_inicio = f"{fc_clean[:7]}-01"
+                filtros.append(f"fecha=gte.{f_inicio}T00:00:00&fecha=lte.{fc_clean}T23:59:59")
             if tipo_documento_filtro and tipo_documento_filtro != "TODOS":
                 td_enc = urllib.parse.quote(str(tipo_documento_filtro).strip())
                 filtros.append(f"tipo_documento=eq.{td_enc}")
+            if subtipo_pos_filtro and subtipo_pos_filtro != "TODOS":
+                sub_clean = str(subtipo_pos_filtro).upper().strip()
+                if "NEGRA" in sub_clean or "PP" in sub_clean:
+                    filtros.append("factura_no=ilike.*PP*")
+                elif "SAS" in sub_clean or "PE" in sub_clean:
+                    filtros.append("factura_no=ilike.*PE*")
 
             query_filtros = "&" + "&".join(filtros)
             endpoint = (

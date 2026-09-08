@@ -239,13 +239,15 @@ def parse_ventas_remisiones_diarias(pdf_source: Union[str, bytes, io.BytesIO]) -
                 if m_fec:
                     fecha_reporte = m_fec.group(1)
 
-            m_pp = re.search(r'^(?:TIPO\s+NUMERO\s+)?(?:PP|PE|FE|POS)\s+(\d+)\s*(.*)$', line_str, re.IGNORECASE)
+            m_pp = re.search(r'^(?:TIPO\s+NUMERO\s+)?(PP|PE|FE|POS)\s+(\d+)\s*(.*)$', line_str, re.IGNORECASE)
             if not m_pp:
-                m_pp = re.search(r'\b(?:PP|PE)\s+(\d+)\s*(.*)$', line_str, re.IGNORECASE)
+                m_pp = re.search(r'\b(PP|PE)\s+(\d+)\s*(.*)$', line_str, re.IGNORECASE)
 
             if m_pp:
-                num_rem = m_pp.group(1).strip()
-                cliente_cand = clean_text(m_pp.group(2))
+                prefijo_doc = m_pp.group(1).upper().strip()
+                num_solo = m_pp.group(2).strip()
+                num_rem = f"{prefijo_doc} {num_solo}"
+                cliente_cand = clean_text(m_pp.group(3))
                 cliente_rem = cliente_cand or 'CONSUMIDOR FINAL'
                 
                 parts_f = fecha_reporte.split('/') if fecha_reporte else []

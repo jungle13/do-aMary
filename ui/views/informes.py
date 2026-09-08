@@ -6,6 +6,20 @@ from calendar import monthrange
 import threading
 from core.fecha_utils import parsear_a_fecha_local, formatear_fecha_hora_local, get_ahora_local, get_hoy_local_str
 
+def _clasificar_tipo_documento_str(tipo_doc_raw: str, factura_no_raw: str) -> str:
+    td = str(tipo_doc_raw or "").strip()
+    fac = str(factura_no_raw or "").strip()
+    fac_u = fac.upper()
+    if "remi" in td.lower():
+        return "Remisión"
+    elif "PP" in fac_u:
+        return "Factura POS (NEGRA / PP)"
+    elif "PE" in fac_u:
+        return "Factura POS (SAS / PE)"
+    elif "pos" in td.lower():
+        return "Factura POS"
+    return td or "Factura POS"
+
 class InformesView(ft.Container):
     def __init__(self):
         super().__init__()
@@ -641,12 +655,8 @@ class InformesView(ft.Container):
                 continue
 
             tipo_doc = str(item.get("tipo_documento") or "Remisión").strip()
-            if "pos" in tipo_doc.lower():
-                tipo_doc_fmt = "FACTURA POS"
-            elif "remi" in tipo_doc.lower():
-                tipo_doc_fmt = "REMISIÓN"
-            else:
-                tipo_doc_fmt = tipo_doc.upper()
+            factura_num = str(item.get("factura_no") or "S/D")
+            tipo_doc_fmt = _clasificar_tipo_documento_str(tipo_doc, factura_num).upper()
 
             cat = str(item.get("catalogo_insumos", {}).get("categoria") or "SIN CATEGORIA").strip().upper()
 
@@ -1479,12 +1489,16 @@ class InformesView(ft.Container):
 
             for r_idx, v in enumerate(raw_ventas, start=6):
                 cat_i = v.get("catalogo_insumos") or {}
+                fac_val = str(v.get("factura_no", "S/N"))
+                td_raw = str(v.get("tipo_documento", "Factura POS"))
+                td_fmt = _clasificar_tipo_documento_str(td_raw, fac_val)
+
                 ws_v.cell(row=r_idx, column=1, value=str(v.get("fecha", ""))[:10])
                 ws_v.cell(row=r_idx, column=2, value=str(v.get("codigo_insumo", "")))
                 ws_v.cell(row=r_idx, column=3, value=cat_i.get("nombre") or str(v.get("descripcion", "Insumo")))
                 ws_v.cell(row=r_idx, column=4, value=str(v.get("cliente", "Clientes Varios")))
-                ws_v.cell(row=r_idx, column=5, value=str(v.get("tipo_documento", "Factura POS")))
-                ws_v.cell(row=r_idx, column=6, value=str(v.get("factura_no", "S/N")))
+                ws_v.cell(row=r_idx, column=5, value=td_fmt)
+                ws_v.cell(row=r_idx, column=6, value=fac_val)
                 
                 v7 = ws_v.cell(row=r_idx, column=7, value=float(v.get("cantidad") or 0))
                 v7.number_format = num_fmt_qty
@@ -1621,10 +1635,14 @@ class InformesView(ft.Container):
 
             for idx, d in enumerate(docs_cartera, start=6):
                 c_nom = str(d.get("cliente", ""))
+                fac_c = str(d.get("factura_no", ""))
+                td_raw_c = str(d.get("tipo_documento", "Factura POS"))
+                td_fmt_c = _clasificar_tipo_documento_str(td_raw_c, fac_c)
+
                 ws_cart.cell(row=idx, column=1, value=c_nom)
                 ws_cart.cell(row=idx, column=2, value=vendedor_map.get(c_nom, "Sin Asignar"))
-                ws_cart.cell(row=idx, column=3, value=str(d.get("tipo_documento", "Factura POS")))
-                ws_cart.cell(row=idx, column=4, value=str(d.get("factura_no", "")))
+                ws_cart.cell(row=idx, column=3, value=td_fmt_c)
+                ws_cart.cell(row=idx, column=4, value=fac_c)
                 ws_cart.cell(row=idx, column=5, value=str(d.get("fecha", ""))[:10])
                 
                 c6 = ws_cart.cell(row=idx, column=6, value=float(d.get("total_factura") or 0.0))

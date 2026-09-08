@@ -42,7 +42,8 @@ class ComprasRepository:
 
             if fecha_corte:
                 fc_clean = fecha_corte.strip()
-                filtros.append(f"fecha=lte.{fc_clean}T23:59:59")
+                f_inicio = f"{fc_clean[:7]}-01"
+                filtros.append(f"fecha=gte.{f_inicio}T00:00:00&fecha=lte.{fc_clean}T23:59:59")
 
             if factura_filtro:
                 fac_q = urllib.parse.quote(str(factura_filtro).strip())
@@ -436,7 +437,9 @@ class ComprasRepository:
         try:
             filtros = ["estado_registro=neq.ANULADO"]
             if fecha_corte and fecha_corte.strip():
-                filtros.append(f"fecha=lte.{fecha_corte.strip()}T23:59:59")
+                fc_clean = fecha_corte.strip()
+                f_inicio = f"{fc_clean[:7]}-01"
+                filtros.append(f"fecha=gte.{f_inicio}T00:00:00&fecha=lte.{fc_clean}T23:59:59")
             if proveedor_filtro and proveedor_filtro != "TODOS":
                 prov_q = urllib.parse.quote(str(proveedor_filtro).strip())
                 filtros.append(f"proveedor=eq.{prov_q}")

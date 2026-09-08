@@ -162,12 +162,31 @@ class VentasView(ft.Container):
             value="TODOS",
             label="Tipo Documento",
             dense=True,
-            width=200,
+            width=180,
             border_radius=8,
             text_size=12,
             content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
             height=38,
             on_change=lambda e: self.on_filtro_tipo_doc_change(e)
+        )
+
+        # Filtro de Subtipo POS (SAS vs NEGRA) - Condicional cuando tipo es Factura POS
+        self.drop_filtro_subtipo_pos = ft.Dropdown(
+            options=[
+                ft.dropdown.Option("TODOS", "Todos los POS"),
+                ft.dropdown.Option("SAS", "Solo SAS (PE)"),
+                ft.dropdown.Option("NEGRA", "Solo NEGRA (PP)")
+            ],
+            value="TODOS",
+            label="Subtipo POS",
+            dense=True,
+            width=170,
+            border_radius=8,
+            text_size=12,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+            height=38,
+            visible=False,
+            on_change=lambda e: (setattr(self, 'current_page', 1), self.load_data())
         )
 
         # Botón para limpiar todos los filtros del panel
@@ -179,7 +198,7 @@ class VentasView(ft.Container):
             on_click=self.limpiar_todos_los_filtros
         )
 
-        # Panel de Filtros Unificado Colapsable (Una sola fila limpia: Tipo Doc, Fecha, Limpiar)
+        # Panel de Filtros Unificado Colapsable (Una sola fila limpia: Tipo Doc, Subtipo POS, Fecha, Limpiar)
         self.panel_filtros = ft.Container(
             visible=False,
             bgcolor="white",
@@ -189,6 +208,7 @@ class VentasView(ft.Container):
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=4, color=ft.colors.with_opacity(0.03, "black")),
             content=ft.Row([
                 self.drop_filtro_tipo_doc_tabla,
+                self.drop_filtro_subtipo_pos,
                 self.btn_fecha_filtro,
                 self.btn_clear_date,
                 ft.Container(expand=True),
@@ -198,6 +218,7 @@ class VentasView(ft.Container):
 
         # Dashboard Resumen Financiero Compacto y Detallado
         self.lbl_ventas_hist = ft.Text("$0", size=16, weight="bold", color=Config.COLOR_PRIMARY)
+        self.lbl_ventas_subtext = ft.Text("Ventas del Periodo", size=10, color="grey500")
         self.lbl_ventas_pos = ft.Text("$0", size=12, weight="bold", color="blue700")
         self.lbl_ventas_remi = ft.Text("$0", size=12, weight="bold", color="teal800")
         self.lbl_ventas_hoy = ft.Text("$0", size=15, weight="bold", color="green700")
@@ -212,16 +233,16 @@ class VentasView(ft.Container):
             border=ft.border.all(1, "#e2e8f0"),
             shadow=ft.BoxShadow(spread_radius=1, blur_radius=6, color=ft.colors.with_opacity(0.04, "black")),
             content=ft.Row([
-                # Bloque 1: TOTAL VENTAS ACUMULADO
+                # Bloque 1: TOTAL VENTAS DEL PERIODO
                 ft.Container(
                     expand=2,
                     content=ft.Column([
                         ft.Row([
                             ft.Icon(ft.icons.POINT_OF_SALE, size=15, color=Config.COLOR_PRIMARY),
-                            ft.Text("TOTAL VENTAS", size=10, weight="bold", color="grey700")
+                            ft.Text("VENTAS DEL MES", size=10, weight="bold", color="grey700")
                         ], spacing=4),
                         self.lbl_ventas_hist,
-                        ft.Text("Acumulado en Sistema", size=10, color="grey500")
+                        self.lbl_ventas_subtext
                     ], spacing=2)
                 ),
                 ft.VerticalDivider(width=1, color="#e2e8f0"),
@@ -231,7 +252,7 @@ class VentasView(ft.Container):
                     content=ft.Column([
                         ft.Row([
                             ft.Icon(ft.icons.PIE_CHART_OUTLINE, size=15, color="blue700"),
-                            ft.Text("VENTAS POR CANAL", size=10, weight="bold", color="grey700")
+                            ft.Text("VENTAS POR CANAL (MES)", size=10, weight="bold", color="grey700")
                         ], spacing=4),
                         ft.Row([
                             ft.Container(
@@ -265,13 +286,13 @@ class VentasView(ft.Container):
                     ], spacing=2)
                 ),
                 ft.VerticalDivider(width=1, color="#e2e8f0"),
-                # Bloque 4: IVA RECAUDADO
+                # Bloque 4: IVA DEL MES
                 ft.Container(
                     expand=2,
                     content=ft.Column([
                         ft.Row([
                             ft.Icon(ft.icons.ACCOUNT_BALANCE_WALLET_OUTLINED, size=15, color="purple700"),
-                            ft.Text("IVA TOTAL", size=10, weight="bold", color="grey700")
+                            ft.Text("IVA DEL MES", size=10, weight="bold", color="grey700")
                         ], spacing=4),
                         self.lbl_iva_hist,
                         self.lbl_iva_hoy_sub
@@ -756,11 +777,25 @@ class VentasView(ft.Container):
             icon_mat = ft.icons.CATEGORY
         else:
             # FACTURA_VENTA
-            subtipo = item.get("subtipo", "POS")
+            subtipo = str(item.get("subtipo", "POS"))
+            fac_str = str(item.get("factura", "") or "S/N")
             is_pos = "POS" in subtipo.upper()
-            badge_txt = f"#{item['factura']} ({'POS' if is_pos else 'REMI'})"
-            badge_bg, badge_col = ("#eff6ff", "blue800") if is_pos else ("#f0fdf4", "teal800")
-            sub_txt = f"Venta {subtipo}"
+            if not is_pos:
+                badge_txt = f"#{fac_str} (REMI)"
+                badge_bg, badge_col = "#f0fdf4", "teal800"
+                sub_txt = "Remisión de Venta"
+            elif "PP" in fac_str.upper():
+                badge_txt = f"#{fac_str} (POS • NEGRA)"
+                badge_bg, badge_col = "#f3e8ff", "purple900"
+                sub_txt = "Factura POS (NEGRA / PP)"
+            elif "PE" in fac_str.upper():
+                badge_txt = f"#{fac_str} (POS • SAS)"
+                badge_bg, badge_col = "#eff6ff", "blue900"
+                sub_txt = "Factura POS (SAS / PE)"
+            else:
+                badge_txt = f"#{fac_str} (POS)"
+                badge_bg, badge_col = "#f1f5f9", "grey800"
+                sub_txt = "Factura POS"
             icon_mat = ft.icons.RECEIPT_LONG
 
         badge = ft.Container(
@@ -1274,14 +1309,25 @@ class VentasView(ft.Container):
         self.safe_update()
 
     def on_filtro_tipo_doc_change(self, e):
-        """Filtra ventas por tipo de documento (TODOS, Factura POS, Remisión)."""
+        """Filtra ventas por tipo de documento y activa el selector de subtipo POS si corresponde."""
         self.tipo_doc_filtro = getattr(self.drop_filtro_tipo_doc_tabla, "value", "TODOS") or "TODOS"
+        
+        # Mostrar subtipo POS únicamente si se escoge Factura POS
+        if self.tipo_doc_filtro == "Factura POS":
+            self.drop_filtro_subtipo_pos.visible = True
+        else:
+            self.drop_filtro_subtipo_pos.visible = False
+            self.drop_filtro_subtipo_pos.value = "TODOS"
+
         self.current_page = 1
         self.load_data()
+        self.safe_update()
 
     def limpiar_todos_los_filtros(self, e=None):
         """Restablece todos los filtros aplicados a sus valores por defecto."""
         self.drop_filtro_tipo_doc_tabla.value = "TODOS"
+        self.drop_filtro_subtipo_pos.value = "TODOS"
+        self.drop_filtro_subtipo_pos.visible = False
         self.tipo_doc_filtro = "TODOS"
         self.fecha_corte = None
         self.btn_fecha_filtro.text = "Filtrar por Fecha"
@@ -1303,21 +1349,34 @@ class VentasView(ft.Container):
     def load_summary(self):
         f_corte = getattr(self, "fecha_corte", None) or (self.periodo_selector.get_fecha_corte() if hasattr(self, "periodo_selector") else None)
         res = self.db.get_ventas_summary(fecha_corte=f_corte)
-        tot_hist = res.get("total_historico", 0.0)
-        tot_pos = res.get("total_pos", 0.0)
-        tot_remi = res.get("total_remi", 0.0)
-        tot_hoy = res.get("total_hoy", 0.0)
-        hoy_pos = res.get("hoy_pos", 0.0)
-        hoy_remi = res.get("hoy_remi", 0.0)
-        iva_hist = res.get("iva_historico", 0.0)
-        iva_hoy = res.get("iva_hoy", 0.0)
+        tot_mes = float(res.get("total_mes", 0.0) or 0.0)
+        tot_hoy = float(res.get("total_hoy", 0.0) or 0.0)
+        hoy_pos = float(res.get("hoy_pos", 0.0) or 0.0)
+        hoy_remi = float(res.get("hoy_remi", 0.0) or 0.0)
+        iva_mes = float(res.get("iva_mes", 0.0) or 0.0)
+        iva_hoy = float(res.get("iva_hoy", 0.0) or 0.0)
 
-        self.lbl_ventas_hist.value = f"${tot_hist:,.2f}"
-        self.lbl_ventas_pos.value = f"${tot_pos:,.2f}"
-        self.lbl_ventas_remi.value = f"${tot_remi:,.2f}"
+        mes_activo = (f_corte[:7] if f_corte else datetime.date.today().strftime("%Y-%m"))
+        pos_m = float(res.get("total_pos", 0.0) or 0.0)
+        remi_m = float(res.get("total_remi", 0.0) or 0.0)
+        if (pos_m + remi_m) > tot_mes and tot_mes >= 0:
+            try:
+                import calendar
+                y, m = int(mes_activo[:4]), int(mes_activo[5:7])
+                last_d = calendar.monthrange(y, m)[1]
+                r_pos = self.db._db.get(f"registro_ventas?fecha=gte.{mes_activo}-01T00:00:00&fecha=lte.{mes_activo}-{last_d:02d}T23:59:59&tipo_documento=eq.Factura POS&estado_registro=neq.ANULADO&select=total", timeout=5)
+                pos_m = sum(float(x.get("total") or 0) for x in (r_pos.json() if r_pos else []))
+                remi_m = max(0.0, tot_mes - pos_m)
+            except Exception:
+                pass
+
+        self.lbl_ventas_hist.value = f"${tot_mes:,.2f}"
+        self.lbl_ventas_subtext.value = f"Mes: {mes_activo}"
+        self.lbl_ventas_pos.value = f"${pos_m:,.2f}"
+        self.lbl_ventas_remi.value = f"${remi_m:,.2f}"
         self.lbl_ventas_hoy.value = f"${tot_hoy:,.2f}"
         self.lbl_ventas_hoy_sub.value = f"POS: ${hoy_pos:,.0f}  •  Remi: ${hoy_remi:,.0f}"
-        self.lbl_iva_hist.value = f"${iva_hist:,.2f}"
+        self.lbl_iva_hist.value = f"${iva_mes:,.2f}"
         self.lbl_iva_hoy_sub.value = f"Hoy: ${iva_hoy:,.2f}"
         if self.page:
             try:
@@ -2088,12 +2147,25 @@ class VentasView(ft.Container):
         fact_filtro = getattr(self, 'filtro_factura_activo', None)
         f_corte = getattr(self, 'fecha_corte', None) or (self.periodo_selector.get_fecha_corte() if hasattr(self, 'periodo_selector') else None)
         tipo_doc_filtro = getattr(self.drop_filtro_tipo_doc_tabla, "value", "TODOS")
+        subtipo_pos_filtro = getattr(self.drop_filtro_subtipo_pos, "value", "TODOS") if getattr(self.drop_filtro_subtipo_pos, "visible", False) else None
+
+        def _obtener_badge_doc(tipo_doc_val: str, factura_no_val: str):
+            f_u = str(factura_no_val or "").upper().strip()
+            t_u = str(tipo_doc_val or "").upper().strip()
+            if "REMI" in t_u:
+                return "REMI", "#f0fdf4", "teal800", "Remisión", ft.icons.DESCRIPTION_OUTLINED
+            elif "PP" in f_u:
+                return "POS • NEGRA", "#f3e8ff", "purple900", "Factura POS (NEGRA / PP)", ft.icons.POINT_OF_SALE
+            elif "PE" in f_u:
+                return "POS • SAS", "#eff6ff", "blue900", "Factura POS (SAS / PE)", ft.icons.POINT_OF_SALE
+            else:
+                return "POS", "#f1f5f9", "grey800", "Factura POS", ft.icons.POINT_OF_SALE
 
         if self.modo_vista_tabla == "FACTURA":
             # 1. Configurar columnas para Modo Factura / Documento
             self.data_table.columns = [
                 ft.DataColumn(ft.Text("Documento & Fecha", weight="bold", size=12)),
-                ft.DataColumn(ft.Container(content=ft.Text("Tipo Documento", weight="bold", size=12), width=160)),
+                ft.DataColumn(ft.Container(content=ft.Text("Tipo Documento", weight="bold", size=12), width=180)),
                 ft.DataColumn(ft.Text("Cant. Insumos", weight="bold", size=12), numeric=True),
                 ft.DataColumn(ft.Text("Subtotal", weight="bold", size=12), numeric=True),
                 ft.DataColumn(ft.Text("IVA Total", weight="bold", size=12), numeric=True),
@@ -2107,6 +2179,7 @@ class VentasView(ft.Container):
                 search=search_val,
                 fecha_corte=f_corte,
                 tipo_documento_filtro=tipo_doc_filtro,
+                subtipo_pos_filtro=subtipo_pos_filtro,
             )
 
             self.total_records = total
@@ -2128,10 +2201,7 @@ class VentasView(ft.Container):
                 str_iva = f"${iva_tot:,.2f}"
                 str_tot = f"${tot_venta:,.2f}"
 
-                is_pos = "POS" in tipo_doc.upper()
-                badge_color = "blue700" if is_pos else "teal800"
-                badge_bg = "#eff6ff" if is_pos else "#f0fdf4"
-                badge_txt = "POS" if is_pos else "REMI"
+                badge_txt, badge_bg, badge_color, tipo_doc_desc, icon_doc = _obtener_badge_doc(tipo_doc, num_fac)
 
                 cell_doc = ft.Container(
                     content=ft.Column([
@@ -2149,10 +2219,10 @@ class VentasView(ft.Container):
 
                 cell_tipo = ft.Container(
                     content=ft.Row([
-                        ft.Icon(ft.icons.POINT_OF_SALE if is_pos else ft.icons.DESCRIPTION_OUTLINED, size=14, color=badge_color),
-                        ft.Text(tipo_doc, size=11, weight="w600", color="grey800")
+                        ft.Icon(icon_doc, size=14, color=badge_color),
+                        ft.Text(tipo_doc_desc, size=11, weight="w600", color="grey800")
                     ], spacing=5),
-                    width=160
+                    width=180
                 )
 
                 row = ft.DataRow(
@@ -2204,7 +2274,8 @@ class VentasView(ft.Container):
                 fecha_corte=f_corte,
                 categoria_filtro=cat_filtro,
                 factura_filtro=fact_filtro,
-                tipo_documento_filtro=tipo_doc_filtro
+                tipo_documento_filtro=tipo_doc_filtro,
+                subtipo_pos_filtro=subtipo_pos_filtro
             )
             
             self.total_records = total
@@ -2234,10 +2305,7 @@ class VentasView(ft.Container):
                 str_total = f"${costo_total:,.2f}"
                 str_cant = f"{int(cantidad)} unds" if cantidad.is_integer() else f"{cantidad:g} unds"
                 
-                is_pos = "POS" in str_tipo_doc.upper()
-                badge_color = "blue700" if is_pos else "teal800"
-                badge_bg = "#eff6ff" if is_pos else "#f0fdf4"
-                badge_txt = "POS" if is_pos else "REMI"
+                badge_txt, badge_bg, badge_color, tipo_doc_desc, icon_doc = _obtener_badge_doc(str_tipo_doc, str_factura)
                 
                 cell_doc = ft.Container(
                     content=ft.Column([
@@ -2299,6 +2367,7 @@ class VentasView(ft.Container):
                 categoria_filtro=cat_filtro,
                 factura_filtro=fact_filtro,
                 tipo_documento_filtro=tipo_doc_filtro,
+                subtipo_pos_filtro=subtipo_pos_filtro,
             )
             tot_cant = float(totales.get("total_cantidad") or 0.0)
             tot_sub = float(totales.get("total_subtotal") or 0.0)

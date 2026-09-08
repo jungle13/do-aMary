@@ -269,17 +269,159 @@ class ClientesRepository:
             return False
 
     def get_vendedores_disponibles(self) -> list[str]:
-        """Retorna la lista de vendedores únicos registrados en el catálogo de clientes."""
+        """Retorna la lista de vendedores/encargados únicos y activos registrados en encargados_cartera."""
         try:
-            res = self.db.get("clientes?select=vendedor_encargado&vendedor_encargado=not.is.null", timeout=6)
-            if res and res.status_code == 200 and res.json():
-                vendedores = set()
-                for r in res.json():
-                    v = (r.get("vendedor_encargado") or "").strip()
-                    if v:
-                        vendedores.add(v)
-                return sorted(list(vendedores))
+            res_e = self.db.get("encargados_cartera?activo=eq.true&order=nombre.asc", timeout=6)
+            if res_e and res_e.status_code == 200 and res_e.json():
+                vendedores = []
+                for r in res_e.json():
+                    v = (r.get("nombre") or "").strip()
+                    if v and v not in vendedores:
+                        vendedores.append(v)
+                return sorted(vendedores)
             return []
         except Exception as ex:
             log_error("get_vendedores_disponibles", ex)
             return []
+
+    def get_encargados_completos(self, mes_periodo: str | None = None) -> list[dict]:
+        """
+        Retorna la lista de encargados activos con su porcentaje de comisión y el total
+        recaudado en el periodo seleccionado (o histórico si no hay mes).
+        """
+        try:
+            res_e = self.db.get("encargados_cartera?activo=eq.true&order=nombre.asc", timeout=8)
+            encargados = res_e.json() if res_e and res_e.status_code == 200 and res_e.json() else []
+
+            # Consultar pagos para totalizar lo recaudado por encargado
+            endpoint_p = "pagos_cartera?estado_registro=neq.ANULADO&select=vendedor_encargado,monto_total,fecha_pago,id_pago,nombre_cliente,metodo_pago"
+            pagos = self.db.get_all(endpoint_p, page_size=2000, timeout=15) or []
+
+            recaudo_periodo_map: dict[str, float] = {}
+            recaudo_historico_map: dict[str, float] = {}
+            cant_pagos_periodo_map: dict[str, int] = {}
+            cant_pagos_historico_map: dict[str, int] = {}
+            pagos_por_encargado: dict[str, list[dict]] = {}
+
+            for p in pagos:
+                v_enc = (p.get("vendedor_encargado") or "").strip()
+                if not v_enc:
+                    continue
+                monto = float(p.get("monto_total") or 0.0)
+                fec = str(p.get("fecha_pago") or "")[:7]
+
+                recaudo_historico_map[v_enc] = recaudo_historico_map.get(v_enc, 0.0) + monto
+                cant_pagos_historico_map[v_enc] = cant_pagos_historico_map.get(v_enc, 0) + 1
+                pagos_por_encargado.setdefault(v_enc, []).append(p)
+
+                if mes_periodo and fec == mes_periodo:
+                    recaudo_periodo_map[v_enc] = recaudo_periodo_map.get(v_enc, 0.0) + monto
+                    cant_pagos_periodo_map[v_enc] = cant_pagos_periodo_map.get(v_enc, 0) + 1
+
+            for e in encargados:
+                nom = e.get("nombre") or ""
+                com_pct = float(e.get("porcentaje_comision") or 0.0)
+                tot_per = recaudo_periodo_map.get(nom, 0.0) if mes_periodo else recaudo_historico_map.get(nom, 0.0)
+                cant_per = cant_pagos_periodo_map.get(nom, 0) if mes_periodo else cant_pagos_historico_map.get(nom, 0)
+                tot_hist = recaudo_historico_map.get(nom, 0.0)
+
+                e["porcentaje_comision"] = com_pct
+                e["total_recaudado_periodo"] = round(tot_per, 2)
+                e["cantidad_pagos_periodo"] = cant_per
+                e["total_recaudado_historico"] = round(tot_hist, 2)
+                e["comision_estimada_periodo"] = round(tot_per * (com_pct / 100.0), 2)
+                e["pagos_lista"] = pagos_por_encargado.get(nom, [])
+
+            return encargados
+        except Exception as ex:
+            log_error("get_encargados_completos", ex)
+            return []
+
+    def crear_encargado(self, nombre: str, porcentaje_comision: float = 0.0, telefono: str = "") -> dict | None:
+        """Crea un nuevo encargado en la base de datos."""
+        import uuid
+        nom_clean = nombre.strip()
+        if not nom_clean:
+            return None
+        try:
+            payload = {
+                "id_encargado": str(uuid.uuid4()),
+                "nombre": nom_clean,
+                "porcentaje_comision": round(float(porcentaje_comision or 0.0), 2),
+                "telefono": telefono.strip() if telefono else None,
+                "activo": True
+            }
+            res = self.db.post("encargados_cartera", json_data=payload, timeout=8)
+            if res and res.status_code in (200, 201):
+                return payload
+            elif res and res.status_code == 409:
+                nom_q = urllib.parse.quote(nom_clean)
+                self.db.patch(f"encargados_cartera?nombre=eq.{nom_q}", json_data={"activo": True, "porcentaje_comision": payload["porcentaje_comision"]}, timeout=8)
+                return payload
+        except Exception as ex:
+            log_error(f"crear_encargado({nom_clean})", ex)
+        return None
+
+    def actualizar_encargado(self, id_encargado: str, nombre_anterior: str, nombre_nuevo: str, porcentaje_comision: float, telefono: str = "") -> bool:
+        """Actualiza un encargado y propaga el cambio de nombre a clientes y pagos si cambió."""
+        nom_ant = nombre_anterior.strip()
+        nom_nue = nombre_nuevo.strip()
+        if not nom_nue:
+            return False
+        try:
+            payload = {
+                "nombre": nom_nue,
+                "porcentaje_comision": round(float(porcentaje_comision or 0.0), 2),
+                "telefono": telefono.strip() if telefono else None
+            }
+            res = self.db.patch(f"encargados_cartera?id_encargado=eq.{id_encargado}", json_data=payload, timeout=8)
+            ok = bool(res and res.status_code in (200, 204))
+
+            if ok and nom_ant and nom_ant != nom_nue:
+                try:
+                    nom_q = urllib.parse.quote(nom_ant)
+                    self.db.patch(f"clientes?vendedor_encargado=eq.{nom_q}", json_data={"vendedor_encargado": nom_nue, "porcentaje_comision": payload["porcentaje_comision"]}, timeout=8)
+                except Exception:
+                    pass
+                try:
+                    nom_q = urllib.parse.quote(nom_ant)
+                    self.db.patch(f"pagos_cartera?vendedor_encargado=eq.{nom_q}", json_data={"vendedor_encargado": nom_nue}, timeout=8)
+                except Exception:
+                    pass
+
+            return ok
+        except Exception as ex:
+            log_error(f"actualizar_encargado({id_encargado})", ex)
+            return False
+
+    def eliminar_encargado(self, id_encargado: str | None = None, nombre: str = "") -> bool:
+        """Elimina o desactiva un encargado de la cartera por ID o por Nombre."""
+        nom_clean = (nombre or "").strip()
+        ok = False
+        try:
+            if id_encargado:
+                res = self.db.patch(f"encargados_cartera?id_encargado=eq.{id_encargado}", json_data={"activo": False}, timeout=8)
+                ok = bool(res and res.status_code in (200, 204))
+                if not ok:
+                    res_d = self.db.delete(f"encargados_cartera?id_encargado=eq.{id_encargado}", timeout=8)
+                    ok = bool(res_d and res_d.status_code in (200, 204))
+
+            if not ok and nom_clean:
+                nom_q = urllib.parse.quote(nom_clean)
+                res_n = self.db.patch(f"encargados_cartera?nombre=eq.{nom_q}", json_data={"activo": False}, timeout=8)
+                ok = bool(res_n and res_n.status_code in (200, 204))
+                if not ok:
+                    res_nd = self.db.delete(f"encargados_cartera?nombre=eq.{nom_q}", timeout=8)
+                    ok = bool(res_nd and res_nd.status_code in (200, 204))
+
+            if nom_clean:
+                try:
+                    nom_q = urllib.parse.quote(nom_clean)
+                    self.db.patch(f"clientes?vendedor_encargado=eq.{nom_q}", json_data={"vendedor_encargado": None, "porcentaje_comision": 0.0}, timeout=8)
+                except Exception:
+                    pass
+
+            return ok
+        except Exception as ex:
+            log_error(f"eliminar_encargado({id_encargado}, {nom_clean})", ex)
+            return False

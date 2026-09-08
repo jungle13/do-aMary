@@ -429,17 +429,188 @@
       font-size: 12px;
     }
 
+    /* ─── MOBILE TOPBAR & DRAWER ─── */
+    .mobile-navbar {
+      display: none;
+      position: sticky;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 56px;
+      background: #0F172A;
+      color: white;
+      padding: 0 16px;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 999;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+    }
+    .mobile-navbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .mobile-navbar-brand i {
+      color: #38BDF8;
+      font-size: 18px;
+    }
+    .mobile-menu-btn {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: white;
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 16px;
+      transition: all 0.2s ease;
+    }
+    .mobile-menu-btn:hover {
+      background: rgba(255, 255, 255, 0.25);
+    }
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(3px);
+      z-index: 1000;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    .sidebar-overlay.active {
+      display: block;
+      opacity: 1;
+    }
+    .btn-back-to-top {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 44px;
+      height: 44px;
+      background: var(--primary-accent);
+      color: white;
+      border-radius: 50%;
+      border: none;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 900;
+      font-size: 16px;
+      transition: all 0.2s ease;
+    }
+    .btn-back-to-top:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 6px 18px rgba(37, 99, 235, 0.5);
+    }
+    .table-responsive {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 18px 0;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+    }
+    .table-responsive table {
+      margin: 0;
+    }
+
     @media (max-width: 900px) {
-      body { flex-direction: column; }
-      .sidebar { width: 100%; height: auto; position: relative; }
-      .main-wrapper { padding: 20px; }
+      body { flex-direction: column; overflow-x: hidden; }
+      .mobile-navbar { display: flex; }
+      .sidebar {
+        position: fixed;
+        top: 0;
+        left: -320px;
+        width: 300px;
+        max-width: 85vw;
+        height: 100vh;
+        z-index: 1001;
+        transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+      }
+      .sidebar.open {
+        left: 0;
+      }
+      .main-wrapper {
+        padding: 20px 16px;
+        max-width: 100%;
+        width: 100%;
+      }
+      .doc-header {
+        padding: 24px 20px;
+      }
+      .doc-header h1 {
+        font-size: 22px;
+      }
+      .doc-section {
+        padding: 22px 18px;
+        margin-bottom: 24px;
+      }
+      .section-title {
+        font-size: 18px;
+      }
+      .kpi-detail-card {
+        padding: 16px;
+      }
+      .kpi-detail-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+      }
+      .kpi-formula-box {
+        font-size: 12px;
+        word-break: break-word;
+        overflow-x: auto;
+      }
+      .data-table-doc th, .data-table-doc td {
+        padding: 10px 12px;
+        font-size: 12.5px;
+      }
+      .step-box {
+        padding: 14px;
+        gap: 12px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .main-wrapper { padding: 14px 10px; }
+      .doc-header { padding: 18px 14px; }
+      .doc-header h1 { font-size: 19px; }
+      .doc-section { padding: 16px 12px; border-radius: 12px; }
+      .section-title { font-size: 16.5px; }
+      .callout { padding: 12px; font-size: 12.5px; }
     }
   </style>
 </head>
 <body>
 
-  <!-- ─── MENÚ LATERAL ─── -->
-  <aside class="sidebar">
+  <!-- ─── BARRA DE NAVEGACIÓN SUPERIOR MÓVIL ─── -->
+  <header class="mobile-navbar">
+    <div class="mobile-navbar-brand">
+      <i class="fa-solid fa-boxes-stacked"></i>
+      <span>Doña Mary SAS • Manual</span>
+    </div>
+    <button id="mobile-menu-btn" class="mobile-menu-btn" aria-label="Abrir menú de navegación">
+      <i class="fa-solid fa-bars"></i>
+    </button>
+  </header>
+
+  <!-- ─── OVERLAY BACKDROP MÓVIL ─── -->
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+  <!-- ─── MENÚ LATERAL (DESKTOP & OFF-CANVAS MÓVIL) ─── -->
+  <aside id="sidebar" class="sidebar">
     <div class="sidebar-brand">
       <div class="brand-icon"><i class="fa-solid fa-boxes-stacked"></i></div>
       <div class="brand-text">
@@ -556,6 +727,20 @@
             <td><code>eliana31</code></td>
             <td><span class="badge badge-purple">ADMINISTRADOR</span></td>
             <td>Auditoría contable, Cierres de período, Precios y Ajustes.</td>
+            <td><span class="badge badge-green">Supervisor / Total</span></td>
+          </tr>
+          <tr>
+            <td><code>claudia</code></td>
+            <td><code>123</code></td>
+            <td><span class="badge badge-purple">ADMINISTRADOR</span></td>
+            <td>Acceso administrativo completo a todos los módulos y reportes.</td>
+            <td><span class="badge badge-green">Supervisor / Total</span></td>
+          </tr>
+          <tr>
+            <td><code>julian</code></td>
+            <td><code>123</code></td>
+            <td><span class="badge badge-purple">ADMINISTRADOR</span></td>
+            <td>Acceso administrativo completo a todos los módulos y reportes.</td>
             <td><span class="badge badge-green">Supervisor / Total</span></td>
           </tr>
           <tr>
@@ -921,28 +1106,34 @@
         </div>
       </div>
 
-      <h3 style="margin: 20px 0 14px 0; color: var(--primary);">Descripción de los 2 Tipos de Documentos de Venta</h3>
+      <h3 style="margin: 20px 0 14px 0; color: var(--primary);">Clasificación y Documentos de Venta (POS SAS • POS NEGRA • Remisión)</h3>
       <table class="data-table-doc">
         <thead>
           <tr>
-            <th>Tipo de Documento</th>
-            <th>Naturaleza Comercial</th>
+            <th>Tipo / Subtipo de Documento</th>
+            <th>Naturaleza y Resolución</th>
             <th>Flujo Financiero & Cartera</th>
             <th>Comportamiento en Sistema</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td><strong>Factura POS</strong><br><span class="badge badge-blue">Venta de Contado</span></td>
-            <td>Tirilla o factura POS emitida en caja por ventas directas de mostrador a clientes de contado.</td>
-            <td>Se cobra de inmediato en el punto de venta. <strong>No genera cuenta por cobrar en Cartera.</strong></td>
-            <td>Resta unidades del inventario, suma a los ingresos del día e incrementa el recaudo POS y el IVA generado.</td>
+            <td><strong>POS SAS</strong><br><span class="badge badge-blue">Prefijo PE / Res. Principal</span></td>
+            <td>Factura de venta electrónica POS emitida bajo la resolución oficial de la sociedad (Prefijo <code>PE</code> o consecutivo asignado).</td>
+            <td>Cobro de contado en caja. <strong>No genera saldo de deuda en Cartera.</strong></td>
+            <td>Resta stock de inventario, suma a ingresos del día, liquida IVA generado y se discrimina en el Informe de Ventas como <strong>POS SAS</strong>.</td>
+          </tr>
+          <tr>
+            <td><strong>POS NEGRA</strong><br><span class="badge badge-amber">Prefijo PP / Res. Secundaria</span></td>
+            <td>Factura de venta POS de mostrador operada bajo resolución secundaria (Prefijo <code>PP</code> o consecutivo asignado).</td>
+            <td>Cobro de contado directo. <strong>No genera cuenta por cobrar.</strong></td>
+            <td>Resta existencias de bodega, suma a ingresos comerciales y se clasifica de forma independiente en los informes de gestión.</td>
           </tr>
           <tr>
             <td><strong>Remisión</strong><br><span class="badge badge-purple">Venta a Crédito / Despacho</span></td>
             <td>Documento de entrega de mercancía a clientes institucionales, restaurantes y distribuidores a crédito o contraentrega.</td>
-            <td><strong>Crea automáticamente una factura pendiente en el Módulo de Cartera</strong> asociada al cliente.</td>
-            <td>Resta unidades de bodega, registra el valor total facturado y queda a la espera de pagos o abonos en Cartera.</td>
+            <td><strong>Genera automáticamente la cuenta por cobrar en Cartera</strong> a nombre del cliente.</td>
+            <td>Resta unidades de bodega, registra el valor facturado y queda activa para amortización mediante abonos en Cartera.</td>
           </tr>
         </tbody>
       </table>
@@ -982,72 +1173,89 @@
 
     <!-- ─── 5. GESTIÓN DE CARTERA ─── -->
     <section id="cartera" class="doc-section">
-      <div class="section-title"><i class="fa-solid fa-hand-holding-dollar"></i> 5. Módulo: Gestión de Cartera y Recaudos</div>
-      <p class="section-lead">Control de cuentas por cobrar, seguimiento a vendedores/encargados y conciliación de pagos con aplicación inteligente FIFO.</p>
+      <div class="section-title"><i class="fa-solid fa-hand-holding-dollar"></i> 5. Módulo: Gestión de Cartera, Encargados y Recaudos</div>
+      <p class="section-lead">Control de cuentas por cobrar, seguimiento a cobradores/encargados con liquidación de comisiones, conciliación FIFO y pagos mixtos.</p>
 
       <div class="callout callout-purple">
         <i class="fa-solid fa-calculator"></i>
         <div>
-          <strong>Regla de Pago FIFO (First In, First Out):</strong> Cuando un cliente abona dinero sin especificar factura, el sistema amortiza automáticamente la deuda de las facturas más antiguas a las más recientes hasta agotar el monto recibido.
+          <strong>Regla de Pago FIFO (First In, First Out):</strong> Cuando un cliente abona dinero a su deuda global (opción <code>TODAS</code>), el sistema amortiza automáticamente las facturas de la más antigua a la más reciente hasta agotar el monto recibido.
         </div>
       </div>
 
-      <h3 style="margin: 24px 0 12px 0; color: var(--primary);">Filtros Específicos del Módulo de Cartera</h3>
-      <p style="margin-bottom: 14px; color: var(--text-muted);">El módulo de Cartera incorpora herramientas avanzadas de segmentación para optimizar el cobro y la rendición de cuentas:</p>
+      <h3 style="margin: 24px 0 12px 0; color: var(--primary);">Vistas del Panel Izquierdo (Clientes • Documentos • Encargados)</h3>
+      <p style="margin-bottom: 14px; color: var(--text-muted);">El selector superior del panel lateral permite alternar entre tres modos de trabajo según la necesidad operativa:</p>
 
       <table class="data-table-doc">
         <thead>
           <tr>
-            <th>Filtro / Control</th>
-            <th>Opciones Disponibles</th>
-            <th>Propósito y Cómo Usarlo</th>
+            <th>Modo de Vista</th>
+            <th>¿Qué muestra?</th>
+            <th>Acciones y Utilidad</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td><strong>Vendedor / Encargado</strong></td>
-            <td><code>Todos</code>, <code>Mary</code>, Vendedores individuales</td>
-            <td>Permite filtrar la lista para ver únicamente los clientes y facturas asignadas a un vendedor o cobrador específico, ideal para reuniones de cobranza.</td>
+            <td><strong>Clientes</strong></td>
+            <td>Lista consolidada de clientes con su saldo total por cobrar, cantidad de facturas y último movimiento.</td>
+            <td>Permite seleccionar un cliente para ver su estado de cuenta, facturas pendientes, registrar pagos o ver su historial de abonos.</td>
           </tr>
           <tr>
-            <td><strong>Estado de Deuda</strong></td>
-            <td><code>Con Saldo Pendiente</code>, <code>Al Día / Pagadas</code>, <code>Todos</code></td>
-            <td>Aísla a los clientes morosos (ocultando los que están a paz y salvo) para agilizar las llamadas y cobros del día.</td>
+            <td><strong>Documentos</strong></td>
+            <td>Listado cronológico de todas las remisiones y facturas individuales con su saldo pendiente y estado.</td>
+            <td>Permite localizar un número de remisión específico y abonar directamente a esa factura.</td>
           </tr>
           <tr>
-            <td><strong>Buscador Predictivo</strong></td>
-            <td>Texto libre (Nombre, NIT/Cédula, Teléfono)</td>
-            <td>Filtra de manera instantánea mientras se escribe, localizando al cliente por cualquier coincidencia de nombre o identificación.</td>
-          </tr>
-          <tr>
-            <td><strong>Criterio de Ordenamiento</strong></td>
-            <td><code>Mayor Saldo</code>, <code>Menor Saldo</code>, <code>Nombre (A-Z)</code>, <code>Antigüedad</code></td>
-            <td>Organiza las tarjetas de clientes priorizando las deudas más elevadas o las cuentas por cobrar más antiguas.</td>
+            <td><strong>Encargados</strong></td>
+            <td>Catálogo centralizado de cobradores/vendedores con su <strong>porcentaje de comisión</strong> y el <strong>total recaudado en el período activo</strong>.</td>
+            <td>Permite crear nuevos encargados, editar sus comisiones, eliminarlos y consultar en el panel derecho su historial detallado de recaudos cobrados.</td>
           </tr>
         </tbody>
       </table>
 
-      <h3 style="margin: 28px 0 12px 0; color: var(--primary);">Paso a Paso: Cómo Registrar Pagos y Abonos</h3>
+      <h3 style="margin: 28px 0 12px 0; color: var(--primary);">Gestión Integral de Encargados y Cobradores</h3>
+      <div class="kpi-detail-card">
+        <div class="kpi-detail-header">
+          <div class="kpi-detail-title"><i class="fa-solid fa-id-badge" style="color:#2563eb;"></i> Pestaña Encargados: Rendimiento y Comisiones por Período</div>
+          <span class="badge badge-blue">Administración Comercial</span>
+        </div>
+        <p>Al seleccionar la vista <strong>Encargados</strong>, el sistema calcula en tiempo real:</p>
+        <ul style="margin: 10px 0 10px 24px; color: var(--text-muted); font-size: 13.5px; line-height: 1.6;">
+          <li><strong>Recaudado en el Período:</strong> Suma exacta de los cobros en efectivo y transferencias que el encargado realizó durante el mes seleccionado en la barra superior (ej. Agosto 2026).</li>
+          <li><strong>Comisión Estimada:</strong> Cálculo automático <code>Total Recaudado en Mes × (% Comisión / 100)</code> para liquidar comisiones de cobranza.</li>
+          <li><strong>Recaudo Histórico Total:</strong> Acumulado total de dinero recaudado por el encargado desde su creación.</li>
+          <li><strong>Historial de Recaudos:</strong> Tabla en panel derecho con fecha, cliente, monto, método de pago y comisión generada por cada cobro.</li>
+        </ul>
+      </div>
+
+      <h3 style="margin: 28px 0 12px 0; color: var(--primary);">Paso a Paso: Cómo Registrar un Pago o Recaudo</h3>
       <div class="steps-flow">
         <div class="step-box">
           <div class="step-num">1</div>
           <div class="step-content">
-            <h4>Localizar al Cliente</h4>
-            <p>Busca por nombre o filtra por el <strong>Vendedor Encargado</strong> para ver su saldo vencido y sus facturas pendientes.</p>
+            <h4>Seleccionar el Cliente o Documento</h4>
+            <p>Busca al cliente por nombre en la lista o localiza la remisión en la vista de Documentos y haz clic en <strong>"Registrar Recaudo"</strong>.</p>
           </div>
         </div>
         <div class="step-box">
           <div class="step-num">2</div>
           <div class="step-content">
-            <h4>Pulsar "Registrar Pago / Abono"</h4>
-            <p>Indica el método (Efectivo o Transferencia Bancaria), banco de origen, número de comprobante y monto recibido.</p>
+            <h4>Especificar Monto y Método de Pago</h4>
+            <p>Elige entre <strong>Efectivo</strong>, <strong>Transferencia Bancaria</strong> o <strong>Pago Mixto</strong> (combinando montos en efectivo y bancos).</p>
           </div>
         </div>
         <div class="step-box">
           <div class="step-num">3</div>
           <div class="step-content">
-            <h4>Aplicación y Paz y Salvo</h4>
-            <p>El sistema actualiza el saldo del cliente, marca las facturas como <code>PAGADA</code> o <code>PARCIAL</code> y registra el recibo en el historial.</p>
+            <h4>Asignar el Encargado del Cobro (Input Inteligente)</h4>
+            <p>El campo de encargado te muestra en vivo los encargados activos existentes para autocompletar con un clic, o te permite escribir un nombre nuevo que se registrará automáticamente.</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <h4>Confirmar Recaudo y Actualización Inmediata</h4>
+            <p>Al confirmar, el sistema descuenta la deuda con conciliación FIFO, registra el pago en el historial con el nombre del encargado asignado y actualiza las métricas de recaudo del período.</p>
           </div>
         </div>
       </div>
@@ -1216,7 +1424,7 @@
         <tbody>
           <tr>
             <td><strong>Inicio de Sesión con Roles</strong></td>
-            <td>Ingreso con usuarios <code>bod1</code> a <code>bod5</code> (Modo Ciego sin ver existencias para evitar sesgos) o <code>aux1</code> a <code>aux3</code> (Modo Supervisor).</td>
+            <td>Ingreso para administradores (<code>admin</code>, <code>mary</code>, <code>eliana</code>, <code>claudia</code>, <code>julian</code>) y auxiliares (<code>aux1</code> a <code>aux3</code>) con acceso a supervisor y referencias, y bodegueros (<code>bod1</code> a <code>bod5</code>) en Modo Ciego sin existencias visibles para evitar sesgos de conteo.</td>
           </tr>
           <tr>
             <td><strong>Búsqueda Instantánea & Código de Barras</strong></td>
@@ -1390,26 +1598,93 @@
     </footer>
   </main>
 
+  <!-- Botón Volver Arriba -->
+  <button id="btn-back-to-top" class="btn-back-to-top" aria-label="Volver al inicio del manual">
+    <i class="fa-solid fa-arrow-up"></i>
+  </button>
+
   <script>
-    // Resaltado de navegación activa
-    const links = document.querySelectorAll('.nav-item a');
+    // 1. Control del Drawer Móvil y Overlay
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+    const btnBackToTop = document.getElementById('btn-back-to-top');
+
+    function toggleMobileMenu() {
+      const isOpen = sidebar.classList.toggle('open');
+      if (isOpen) {
+        overlay.classList.add('active');
+        mobileMenuBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+      } else {
+        overlay.classList.remove('active');
+        mobileMenuBtn.innerHTML = '<i class="fa-solid fa-bars"></i>';
+      }
+    }
+
+    function closeMobileMenu() {
+      sidebar.classList.remove('open');
+      overlay.classList.remove('active');
+      if (mobileMenuBtn) {
+        mobileMenuBtn.innerHTML = '<i class="fa-solid fa-bars"></i>';
+      }
+    }
+
+    if (mobileMenuBtn) {
+      mobileMenuBtn.addEventListener('click', toggleMobileMenu);
+    }
+    if (overlay) {
+      overlay.addEventListener('click', closeMobileMenu);
+    }
+
+    // Cerrar menú al hacer clic en cualquier enlace en móviles
+    const navLinks = document.querySelectorAll('.nav-item a');
+    navLinks.forEach(link => {
+      link.addEventListener('click', () => {
+        if (window.innerWidth <= 900) {
+          closeMobileMenu();
+        }
+      });
+    });
+
+    // 2. Resaltado de navegación activa en scroll y Botón Volver Arriba
     const sections = document.querySelectorAll('section');
 
     window.addEventListener('scroll', () => {
       let current = '';
       sections.forEach(section => {
         const sectionTop = section.offsetTop;
-        if (pageYOffset >= sectionTop - 60) {
+        if (window.pageYOffset >= sectionTop - 100) {
           current = section.getAttribute('id');
         }
       });
 
-      links.forEach(link => {
+      navLinks.forEach(link => {
         link.classList.remove('active');
         if (link.getAttribute('href') === `#${current}`) {
           link.classList.add('active');
         }
       });
+
+      // Botón flotante Volver Arriba
+      if (window.pageYOffset > 350) {
+        btnBackToTop.style.display = 'flex';
+      } else {
+        btnBackToTop.style.display = 'none';
+      }
+    });
+
+    btnBackToTop.addEventListener('click', () => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    // 3. Envoltura automática de tablas para scroll horizontal responsive
+    document.querySelectorAll('.data-table-doc').forEach(table => {
+      if (!table.parentElement.classList.contains('table-responsive')) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'table-responsive';
+        table.parentNode.insertBefore(wrapper, table);
+        wrapper.appendChild(table);
+      }
     });
   </script>
 </body>

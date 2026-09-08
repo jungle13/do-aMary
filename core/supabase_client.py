@@ -147,14 +147,14 @@ class SupabaseClient:
         return self.compras_repo.eliminar_documento_compras_completo(numero_entrada, numero_factura, proveedor)
 
     # --- VENTAS ---
-    def get_ventas(self, page=1, page_size=20, search="", fecha_corte=None, categoria_filtro=None, factura_filtro=None, tipo_documento_filtro=None):
-        return self.ventas_repo.get_ventas(page, page_size, search, fecha_corte, categoria_filtro, factura_filtro, tipo_documento_filtro)
+    def get_ventas(self, page=1, page_size=20, search="", fecha_corte=None, categoria_filtro=None, factura_filtro=None, tipo_documento_filtro=None, subtipo_pos_filtro=None):
+        return self.ventas_repo.get_ventas(page, page_size, search, fecha_corte, categoria_filtro, factura_filtro, tipo_documento_filtro, subtipo_pos_filtro=subtipo_pos_filtro)
 
-    def get_ventas_totales_filtrados(self, search="", fecha_corte=None, categoria_filtro=None, factura_filtro=None, tipo_documento_filtro=None, fecha_dia=None):
-        return self.ventas_repo.get_ventas_totales_filtrados(search, fecha_corte, categoria_filtro, factura_filtro, tipo_documento_filtro, fecha_dia)
+    def get_ventas_totales_filtrados(self, search="", fecha_corte=None, categoria_filtro=None, factura_filtro=None, tipo_documento_filtro=None, fecha_dia=None, subtipo_pos_filtro=None):
+        return self.ventas_repo.get_ventas_totales_filtrados(search, fecha_corte, categoria_filtro, factura_filtro, tipo_documento_filtro, fecha_dia, subtipo_pos_filtro=subtipo_pos_filtro)
 
-    def get_ventas_documentos(self, page=1, page_size=15, search="", fecha_corte=None, tipo_documento_filtro=None):
-        return self.ventas_repo.get_ventas_documentos(page, page_size, search, fecha_corte, tipo_documento_filtro)
+    def get_ventas_documentos(self, page=1, page_size=15, search="", fecha_corte=None, tipo_documento_filtro=None, subtipo_pos_filtro=None):
+        return self.ventas_repo.get_ventas_documentos(page, page_size, search, fecha_corte, tipo_documento_filtro, subtipo_pos_filtro=subtipo_pos_filtro)
 
     def get_insumos_de_factura_venta(self, factura_no=None, tipo_documento=None):
         return self.ventas_repo.get_insumos_de_factura_venta(factura_no, tipo_documento)

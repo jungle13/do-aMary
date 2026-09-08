@@ -17,7 +17,10 @@ logger = get_logger("CarteraRepo")
 
 class CarteraRepository:
     def __init__(self, db: BaseDatabase | None = None):
-        self.db = db or BaseDatabase()
+        if db is not None and hasattr(db, "_db"):
+            self.db = db._db
+        else:
+            self.db = db or BaseDatabase()
         self.clientes_repo = ClientesRepository(self.db)
 
     def _get_todos_pagos_deduplicados(self, nombre_cliente: str | None = None) -> list[dict]:
@@ -553,7 +556,8 @@ class CarteraRepository:
         referencia: str = "",
         observaciones: str = "",
         facturas_seleccionadas: dict | None = None,
-        usuario: str = "admin"
+        usuario: str = "admin",
+        vendedor_encargado: str | None = None
     ) -> bool:
         """
         Registra un pago de cartera directamente en Supabase y lo distribuye a las facturas correspondientes.
@@ -572,6 +576,8 @@ class CarteraRepository:
             id_pago_gen = str(uuid.uuid4())
             ahora_iso = datetime.datetime.now().isoformat()
 
+            v_enc_clean = str(vendedor_encargado).strip() if vendedor_encargado else None
+
             pago_payload = {
                 "id_pago": id_pago_gen,
                 "id_cliente": id_cliente,
@@ -581,10 +587,18 @@ class CarteraRepository:
                 "banco_origen": banco_origen if metodo_pago.upper() == "TRANSFERENCIA" else None,
                 "referencia_comprobante": referencia.strip() if referencia else None,
                 "observaciones": observaciones.strip() if observaciones else None,
+                "vendedor_encargado": v_enc_clean,
                 "usuario_registro": usuario,
                 "estado_registro": "VÁLIDO",
                 "fecha_pago": ahora_iso
             }
+
+            if v_enc_clean:
+                try:
+                    nom_q = urllib.parse.quote(nom_clean)
+                    self.db.patch(f"clientes?nombre=eq.{nom_q}", json_data={"vendedor_encargado": v_enc_clean}, timeout=5)
+                except Exception as ex_c:
+                    logger.warning(f"Error actualizando vendedor_encargado en cliente: {ex_c}")
 
             # 1. Calcular distribución de facturas
             detalles_payload = []
@@ -656,7 +670,8 @@ class CarteraRepository:
         referencia: str | None = None,
         observaciones: str | None = None,
         facturas_seleccionadas: dict[str, float] | None = None,
-        usuario: str = "admin"
+        usuario: str = "admin",
+        vendedor_encargado: str | None = None
     ) -> bool:
         """
         Registra un pago combinado (efectivo + transferencia) para un cliente/documento
@@ -697,7 +712,8 @@ class CarteraRepository:
                 referencia=None,
                 observaciones=obs_efectivo,
                 facturas_seleccionadas=fac_efectivo,
-                usuario=usuario
+                usuario=usuario,
+                vendedor_encargado=vendedor_encargado
             )
 
         if m_transf > 0:
@@ -710,7 +726,8 @@ class CarteraRepository:
                 referencia=referencia,
                 observaciones=obs_transf,
                 facturas_seleccionadas=fac_transferencia,
-                usuario=usuario
+                usuario=usuario,
+                vendedor_encargado=vendedor_encargado
             )
 
         return ok_efectivo and ok_transferencia
