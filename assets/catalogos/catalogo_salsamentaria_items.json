@@ -1,0 +1,306 @@
+[
+  {
+    "codigo": "0610",
+    "nombre": "SALSA MAYONESA DIFFER BOLSA KILO X 12",
+    "descripcion": "Mayonesa emulsionada de consistencia suave y cremosa, ideal para aderezar sándwiches, ensaladas y platos fuertes.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$9.950",
+    "precio_venta": 8361.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0609",
+    "nombre": "SALSA MAYONESA DIFFER X 4000 X 3",
+    "descripcion": "Mayonesa emulsionada de consistencia suave y cremosa, ideal para aderezar sándwiches, ensaladas y platos fuertes.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$25.630",
+    "precio_venta": 25630.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0622",
+    "nombre": "SALSA ROSADA DIFFER BOLSA KILO X 12",
+    "descripcion": "Clásica salsa rosada cremosa, emulsión perfecta entre tomate y mayonesa para perros, hamburguesas y pasabocas.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$7.815",
+    "precio_venta": 7815.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0623",
+    "nombre": "SALSA ROSADA DIFFER BOLSA LB X 20",
+    "descripcion": "Clásica salsa rosada cremosa, emulsión perfecta entre tomate y mayonesa para perros, hamburguesas y pasabocas.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$3.866",
+    "precio_venta": 3865.57,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0624",
+    "nombre": "SALSA ROSADA DIFFER BOLSA X 4000 X 3",
+    "descripcion": "Clásica salsa rosada cremosa, emulsión perfecta entre tomate y mayonesa para perros, hamburguesas y pasabocas.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$28.529",
+    "precio_venta": 28529.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0596",
+    "nombre": "SALSA ROSADA DIFFER SOBRE X 100X12",
+    "descripcion": "Clásica salsa rosada cremosa, emulsión perfecta entre tomate y mayonesa para perros, hamburguesas y pasabocas.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$10.798",
+    "precio_venta": 10798.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0628",
+    "nombre": "SALSA TOMATE DIFFER KILO X 12",
+    "descripcion": "Salsa de tomate con concentrado de tomates maduros y balance agridulce tradicional para comidas rápidas.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$5.200",
+    "precio_venta": 5200.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0629",
+    "nombre": "SALSA TOMATE DIFFER X 4000 X3",
+    "descripcion": "Salsa de tomate con concentrado de tomates maduros y balance agridulce tradicional para comidas rápidas.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$15.672",
+    "precio_venta": 15294.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0631",
+    "nombre": "SALSA TOMATE SOBRE DIFFER X 100X12",
+    "descripcion": "Salsa de tomate con concentrado de tomates maduros y balance agridulce tradicional para comidas rápidas.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$7.227",
+    "precio_venta": 7227.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0605",
+    "nombre": "SALSA BBQ KILO DIFFER",
+    "descripcion": "Salsa barbacoa con notas ahumadas y toque dulce balanceado, perfecta para marinar, glasear y asar carnes.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$9.500",
+    "precio_venta": 7437.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0606",
+    "nombre": "SALSA BBQ X 4000",
+    "descripcion": "Salsa barbacoa con notas ahumadas y toque dulce balanceado, perfecta para marinar, glasear y asar carnes.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$25.798",
+    "precio_venta": 25630.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0613",
+    "nombre": "SALSA MOSTAZA DIFFER BOLSA KILO X 12",
+    "descripcion": "Mostaza suave de receta tradicional con agradable toque de acidez para aderezar embutidos y sándwiches.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$5.000",
+    "precio_venta": 5000.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0612",
+    "nombre": "SALSA MOSTAZA DIFFER BOLSA X 4000 X 3",
+    "descripcion": "Mostaza suave de receta tradicional con agradable toque de acidez para aderezar embutidos y sándwiches.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$15.672",
+    "precio_venta": 15672.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0619",
+    "nombre": "SALSA PIÑA DIFFER BOLSA KILO X 12",
+    "descripcion": "Salsa dulce con trozos de piña natural seleccionada, ideal para pizzas hawaianas, perros y hamburguesas.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$5.546",
+    "precio_venta": 5546.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0621",
+    "nombre": "SALSA PIÑA DIFFER GALON X 4000 X 3 BOLSA",
+    "descripcion": "Salsa dulce con trozos de piña natural seleccionada, ideal para pizzas hawaianas, perros y hamburguesas.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$19.328",
+    "precio_venta": 19328.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0990",
+    "nombre": "SALSA TARTARA SOBRE X 102 X 12",
+    "descripcion": "Salsa tártara sazonada con finas hierbas y especias selectas, excelente para acompañar carnes, arepas y frituras.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$10.798",
+    "precio_venta": 2570.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0625",
+    "nombre": "SALSA TARTARA X 1000 DIFFER BOLSA",
+    "descripcion": "Salsa tártara sazonada con finas hierbas y especias selectas, excelente para acompañar carnes, arepas y frituras.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$9.034",
+    "precio_venta": 9033.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0626",
+    "nombre": "SALSA TARTARA X 4000 DIFFER BOLSA",
+    "descripcion": "Salsa tártara sazonada con finas hierbas y especias selectas, excelente para acompañar carnes, arepas y frituras.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$29.580",
+    "precio_venta": 29580.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0009",
+    "nombre": "AJI DIFFER PEQUEÑO X40",
+    "descripcion": "Ají líquido concentrado con el balance justo de picor y acidez para realzar el sabor de caldos y comidas.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$2.521",
+    "precio_venta": 2521.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1460",
+    "nombre": "AJI DIFFER x 3000",
+    "descripcion": "Ají líquido concentrado con el balance justo de picor y acidez para realzar el sabor de caldos y comidas.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$14.000",
+    "precio_venta": 14000.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0615",
+    "nombre": "SALSA NEGRA DIFFER GALON X 3000 X 6",
+    "descripcion": "Salsa oscura fermentada de alto poder sazonador para adobos, marinados, arroces especiales y carnes.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$12.269",
+    "precio_venta": 12269.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1784",
+    "nombre": "SALSA NEGRA JH X 3000",
+    "descripcion": "Salsa oscura fermentada de alto poder sazonador para adobos, marinados, arroces especiales y carnes.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$6.303",
+    "precio_venta": 6303.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0947",
+    "nombre": "SALSA NEGRA SOYA X3000",
+    "descripcion": "Salsa oscura fermentada de alto poder sazonador para adobos, marinados, arroces especiales y carnes.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$13.866",
+    "precio_venta": 13866.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0977",
+    "nombre": "SALSA SOYA DIFFER X 3000",
+    "descripcion": "Salsa oscura fermentada de alto poder sazonador para adobos, marinados, arroces especiales y carnes.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$16.891",
+    "precio_venta": 16891.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0601",
+    "nombre": "AJO MOLIDO X500GR",
+    "descripcion": "Sabor y aroma concentrado a ajo fresco para sazonar carnes, salsas caseras, empanadas y adobos.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$9.874",
+    "precio_venta": 9874.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0389",
+    "nombre": "HUMO LIQUIDO GALON",
+    "descripcion": "Extracto de humo líquido natural para impartir un auténtico sabor y aroma ahumado a carnes y preparaciones.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$16.681",
+    "precio_venta": 16681.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1786",
+    "nombre": "HUMO X 3000 JH",
+    "descripcion": "Extracto de humo líquido natural para impartir un auténtico sabor y aroma ahumado a carnes y preparaciones.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$7.143",
+    "precio_venta": 7143.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0600",
+    "nombre": "SALSA AJO DIFFER BOLSA KILO X 12",
+    "descripcion": "Sabor y aroma concentrado a ajo fresco para sazonar carnes, salsas caseras, empanadas y adobos.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$8.403",
+    "precio_venta": 8403.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0869",
+    "nombre": "VINAGRE DIFFER GALON X 3000 X 6",
+    "descripcion": "Vinagre blanco cristalino de acidez controlada para marinados, encurtidos y preparación de aderezos.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$6.050",
+    "precio_venta": 6050.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1574",
+    "nombre": "VINAGRE GALON",
+    "descripcion": "Vinagre blanco cristalino de acidez controlada para marinados, encurtidos y preparación de aderezos.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$3.782",
+    "precio_venta": 3782.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1651",
+    "nombre": "ACEITE X1000 X12",
+    "descripcion": "Aceite vegetal 100% puro y refinado con excelente rendimiento y punto de humo para frituras doradas.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$9.328",
+    "precio_venta": 9327.73,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0007",
+    "nombre": "ACENTO X 500 LB",
+    "descripcion": "Realzador de sabor y sazón gourmet que potencia el gusto natural de carnes, sopas y comidas preparadas.",
+    "familia": "✦ SALSAS TOMATE, ROSADA & MAYONESA ✦",
+    "precio_original": "$7.500",
+    "precio_venta": 5462.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1394",
+    "nombre": "ABLANDACARNES X 250",
+    "descripcion": "ABLANDACARNES X 250",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_venta": 3591.0,
+    "precio_manual": true
+  },
+  {
+    "codigo": "4903",
+    "nombre": "ACEITE GLICERINADO",
+    "descripcion": "ACEITE GLICERINADO",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_venta": 7500.0,
+    "precio_manual": false
+  }
+]

@@ -137,6 +137,7 @@ class Sidebar(ft.Container):
             menu_controls.append(self._create_menu_item("Dashboard", ft.icons.DASHBOARD_ROUNDED, "dashboard"))
 
         menu_controls.append(self._create_menu_item("Inventario", ft.icons.INVENTORY_2_ROUNDED, "inventario"))
+        menu_controls.append(self._create_menu_item("Catálogos", ft.icons.AUTO_STORIES_ROUNDED, "catalogos"))
         menu_controls.append(self._create_menu_item("Compras", ft.icons.ADD_SHOPPING_CART_ROUNDED, "compras"))
         menu_controls.append(self._create_menu_item("Ventas", ft.icons.POINT_OF_SALE_ROUNDED, "ventas"))
         menu_controls.append(self._create_menu_item("Cartera", ft.icons.ACCOUNT_BALANCE_WALLET_ROUNDED, "cartera"))

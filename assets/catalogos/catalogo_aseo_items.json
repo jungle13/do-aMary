@@ -1,0 +1,709 @@
+[
+  {
+    "codigo": "1727",
+    "nombre": "AMBIENTADOR BRISA X 3800 YILOP",
+    "descripcion": "Ambientador líquido concentrado con fragancia Brisa marina, neutraliza olores al instante.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$13.403",
+    "precio_venta": 10553.0,
+    "precio_manual": true
+  },
+  {
+    "codigo": "1831",
+    "nombre": "AMBIENTADOR CANELA X3800 YILOP",
+    "descripcion": "Ambientador líquido concentrado con cálido aroma a canela, neutraliza olores al instante.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$11.008",
+    "precio_venta": 11008.4,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1842",
+    "nombre": "AMBIENTADOR FLORAL X 1900 YILOP",
+    "descripcion": "Ambientador líquido concentrado con suave fragancia floral silvestre, neutraliza olores al instante.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$6.092",
+    "precio_venta": 6092.44,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1728",
+    "nombre": "AMBIENTADOR FLORAL X 3800 YILOP",
+    "descripcion": "Ambientador líquido concentrado con suave fragancia floral silvestre, neutraliza olores al instante.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$11.008",
+    "precio_venta": 11008.4,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1723",
+    "nombre": "AMBIENTADOR LAVANDA YILOP CUÑT",
+    "descripcion": "Ambientador líquido concentrado con relajante aroma a lavanda, neutraliza olores al instante.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$53.403",
+    "precio_venta": 53403.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0029",
+    "nombre": "AMBIENTADOR LAVANDA YILOP X 3800",
+    "descripcion": "Ambientador líquido concentrado con relajante aroma a lavanda, neutraliza olores al instante.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$11.344",
+    "precio_venta": 11344.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1832",
+    "nombre": "AMBIENTADOR TALCO X 3800 YILOP",
+    "descripcion": "Ambientador líquido concentrado con delicado y fresco aroma a talco, neutraliza olores al instante.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$11.344",
+    "precio_venta": 11344.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1873",
+    "nombre": "DETERGENTE LIQUIDO CUÑETE DYILOP",
+    "descripcion": "Detergente de alto poder limpiador y blancura impecable, remueve la suciedad protegiendo las fibras.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$98.655",
+    "precio_venta": 98655.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1086",
+    "nombre": "DETERGENTE LIQUIDO YILOP X 3800 X 6",
+    "descripcion": "Detergente de alto poder limpiador y blancura impecable, remueve la suciedad protegiendo las fibras.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$14.000",
+    "precio_venta": 19495.0,
+    "precio_manual": true
+  },
+  {
+    "codigo": "4143",
+    "nombre": "GEL ANTIBACTERIAL X300ML YILOP",
+    "descripcion": "Solución antiséptica de rápida acción y secado para desinfección confiable de manos y áreas.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$34.874",
+    "precio_venta": 34874.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0394",
+    "nombre": "JABON LIQ DE MANOS BRISA FRESH X3800 YILOP",
+    "descripcion": "Jabón líquido antibacterial para manos con agentes humectantes que evitan la resequedad.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$13.697",
+    "precio_venta": 13697.33,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1724",
+    "nombre": "JABON LIQ FRUTOS ROJOS X 3800 YILOP",
+    "descripcion": "Jabón líquido antibacterial para manos con agentes humectantes que evitan la resequedad.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$14.286",
+    "precio_venta": 15042.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1725",
+    "nombre": "JABON LIQ MANOS MANZANA TROPI X 3800 YILOP",
+    "descripcion": "Jabón líquido antibacterial para manos con agentes humectantes que evitan la resequedad.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$13.697",
+    "precio_venta": 13697.33,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1252",
+    "nombre": "JABON LIQUIDO DE MANOS FRUTOS R YILOP X 1900",
+    "descripcion": "Jabón líquido antibacterial para manos con agentes humectantes que evitan la resequedad.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$8.571",
+    "precio_venta": 8571.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0411",
+    "nombre": "LIMPIDO YILOP X 3800",
+    "descripcion": "Desinfectante clorado de amplio espectro, elimina el 99.9% de gérmenes y blanquea profundamente.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$6.347",
+    "precio_venta": 6347.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "4208",
+    "nombre": "ALGODON EN POMO",
+    "descripcion": "Algodón 100% puro en pomos suaves y absorbentes para primeros auxilios y cuidado general.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$5.000",
+    "precio_venta": 5000.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "5457",
+    "nombre": "ATRAPA POLVO",
+    "descripcion": "Fórmula tratadora de mopas y traperos que atrapa el polvo sin rayar ni levantar partículas.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$32.773",
+    "precio_venta": 32773.1,
+    "precio_manual": false
+  },
+  {
+    "codigo": "8181",
+    "nombre": "CESTA EXTRAGRANDE AMERICAS",
+    "descripcion": "Accesorio institucional de alta durabilidad y fácil mantenimiento para baños y áreas comunes.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$13.310",
+    "precio_venta": 13310.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1165",
+    "nombre": "DISPENSADOR JABON LIQUIDO PARED",
+    "descripcion": "Jabón líquido antibacterial para manos con agentes humectantes que evitan la resequedad.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$18.908",
+    "precio_venta": 18907.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1113",
+    "nombre": "GUANTE ASEO",
+    "descripcion": "Guantes de caucho resistentes a químicos de limpieza, con labrado antideslizante para agarre seguro.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$2.300",
+    "precio_venta": 4402.0,
+    "precio_manual": true
+  },
+  {
+    "codigo": "2080",
+    "nombre": "GUANTE ASEO CALIBRE 25",
+    "descripcion": "Guantes de caucho resistentes a químicos de limpieza, con labrado antideslizante para agarre seguro.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$5.462",
+    "precio_venta": 5462.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1445",
+    "nombre": "GUANTE ASEO CL 25 TALLA 9 X12",
+    "descripcion": "Guantes de caucho resistentes a químicos de limpieza, con labrado antideslizante para agarre seguro.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$5.462",
+    "precio_venta": 5462.33,
+    "precio_manual": false
+  },
+  {
+    "codigo": "5459",
+    "nombre": "INSECTISIDA EN AEROSOL",
+    "descripcion": "Aerosol insecticida de acción fulminante y residual contra insectos rastreros y voladores.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$16.303",
+    "precio_venta": 16302.6,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1378",
+    "nombre": "HIPOCLORITO CUÑETE",
+    "descripcion": "Desinfectante clorado de amplio espectro, elimina el 99.9% de gérmenes y blanquea profundamente.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$51.260",
+    "precio_venta": 51260.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1558",
+    "nombre": "JABON LIQUIDO MANOS NACARX 3800",
+    "descripcion": "Jabón líquido antibacterial para manos con agentes humectantes que evitan la resequedad.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$16.303",
+    "precio_venta": 16303.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1652",
+    "nombre": "LAVALOZA LIQ GALON",
+    "descripcion": "Poderosa fórmula desengrasante activa que elimina la grasa pesada, rinde más y cuida sus manos.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$24.958",
+    "precio_venta": 24958.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0406",
+    "nombre": "LIMPIAVIDRIOS TAK- TAX BRISA X 3800 X 6 UND",
+    "descripcion": "Insumo de aseo garantizado de alta calidad para empresas, instituciones y el hogar.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$2.900",
+    "precio_venta": 9305.0,
+    "precio_manual": true
+  },
+  {
+    "codigo": "0945",
+    "nombre": "LIMPIDO CUÑETE",
+    "descripcion": "Desinfectante clorado de amplio espectro, elimina el 99.9% de gérmenes y blanquea profundamente.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$28.824",
+    "precio_venta": 27143.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1429",
+    "nombre": "PATO TANQUE AZUL",
+    "descripcion": "Pastilla desinfectante y aromatizante continua para tanque sanitario, previene el sarro.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$6.387",
+    "precio_venta": 6386.6,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1847",
+    "nombre": "CREMA LAVALOZA TAK TAX X 450",
+    "descripcion": "Poderosa fórmula desengrasante activa que elimina la grasa pesada, rinde más y cuida sus manos.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$3.697",
+    "precio_venta": 3697.47,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1693",
+    "nombre": "CREMA LAVALOZA TAK-TAX LIMON 3000GR",
+    "descripcion": "Poderosa fórmula desengrasante activa que elimina la grasa pesada, rinde más y cuida sus manos.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$20.966",
+    "precio_venta": 20966.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1604",
+    "nombre": "DESENGRASANTE TAK TAX X 3800",
+    "descripcion": "Desengrasante multiusos de alta concentración para limpieza profunda en cocinas y superficies.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$14.706",
+    "precio_venta": 14706.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1606",
+    "nombre": "DESMANCHADOR TAK TAX X3800",
+    "descripcion": "Removedor especializado de manchas rebeldes en baldosas, juntas, cerámicas e inodoros.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$20.252",
+    "precio_venta": 20252.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "6136",
+    "nombre": "JABON BARRA LIQUIDO TAKTAX AZUL X3800",
+    "descripcion": "Jabón en barra de máxima tradición y rendimiento para lavado de ropa, pisos y tareas generales.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$19.832",
+    "precio_venta": 19832.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1027",
+    "nombre": "JABON LAVALOZA LIQUIDO GALON TAK TAX",
+    "descripcion": "Poderosa fórmula desengrasante activa que elimina la grasa pesada, rinde más y cuida sus manos.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$17.000",
+    "precio_venta": 23344.0,
+    "precio_manual": true
+  },
+  {
+    "codigo": "1018",
+    "nombre": "AMBIENTADOR CITRONELA THORFLASH X 3800",
+    "descripcion": "Ambientador líquido concentrado con efecto repelente y fragancia a citronela, neutraliza olores al instante.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$10.672",
+    "precio_venta": 10672.25,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1726",
+    "nombre": "JABON LIQ MANOS TALCO THORFLASH X 3800",
+    "descripcion": "Jabón líquido antibacterial para manos con agentes humectantes que evitan la resequedad.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$13.697",
+    "precio_venta": 13697.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1566",
+    "nombre": "JABON LIQ MANOS THORFLASH DURAZNO X 3800",
+    "descripcion": "Jabón líquido antibacterial para manos con agentes humectantes que evitan la resequedad.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$14.790",
+    "precio_venta": 14790.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0318",
+    "nombre": "DETERGENTE DERSA LIMON X 1000X20",
+    "descripcion": "Detergente de alto poder limpiador y blancura impecable, remueve la suciedad protegiendo las fibras.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$8.740",
+    "precio_venta": 8907.6,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0319",
+    "nombre": "DETERGENTE DERSA LIMON X500 X 40",
+    "descripcion": "Detergente de alto poder limpiador y blancura impecable, remueve la suciedad protegiendo las fibras.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$5.126",
+    "precio_venta": 5126.05,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1853",
+    "nombre": "JABON DETERGENTE AS BARRA X 350G",
+    "descripcion": "Detergente de alto poder limpiador y blancura impecable, remueve la suciedad protegiendo las fibras.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$3.613",
+    "precio_venta": 3613.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0396",
+    "nombre": "JABON REY C X 25",
+    "descripcion": "Jabón en barra de máxima tradición y rendimiento para lavado de ropa, pisos y tareas generales.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$3.445",
+    "precio_venta": 3445.33,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0397",
+    "nombre": "JABON SUPREMO X 300 X 48",
+    "descripcion": "Jabón en barra de máxima tradición y rendimiento para lavado de ropa, pisos y tareas generales.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$3.950",
+    "precio_venta": 3950.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1176",
+    "nombre": "DETERGENTE LINCE LIMON X3000GR PCX6",
+    "descripcion": "Detergente de alto poder limpiador y blancura impecable, remueve la suciedad protegiendo las fibras.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$15.900",
+    "precio_venta": 12521.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0326",
+    "nombre": "DETERGENTE LINCE X 500X 40",
+    "descripcion": "Detergente de alto poder limpiador y blancura impecable, remueve la suciedad protegiendo las fibras.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$2.269",
+    "precio_venta": 2268.91,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0350",
+    "nombre": "ESPONJA DE BRILLO LINCE X 12 UND",
+    "descripcion": "Fibra abrasiva multiusos para lavado de ollas y vajillas, retira grasa adherida con facilidad.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$2.101",
+    "precio_venta": 2101.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0408",
+    "nombre": "LIMPIDO PATOJITO X 1 GALON X 6",
+    "descripcion": "Desinfectante clorado de amplio espectro, elimina el 99.9% de gérmenes y blanquea profundamente.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$11.345",
+    "precio_venta": 11345.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0410",
+    "nombre": "LIMPIDO PATOJITO X 450 X 24",
+    "descripcion": "Desinfectante clorado de amplio espectro, elimina el 99.9% de gérmenes y blanquea profundamente.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$2.000",
+    "precio_venta": 2000.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1166",
+    "nombre": "DISPENSADOR PAPEL HIGIENICO",
+    "descripcion": "Papel higiénico de hojas suaves, absorbentes y resistentes, ideal para alto tráfico institucional.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$35.588",
+    "precio_venta": 45176.0,
+    "precio_manual": true
+  },
+  {
+    "codigo": "0483",
+    "nombre": "PAPEL H. DOBLE HOJA BLANKO 12X4 UND",
+    "descripcion": "Papel higiénico de hojas suaves, absorbentes y resistentes, ideal para alto tráfico institucional.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$2.300",
+    "precio_venta": 2300.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0484",
+    "nombre": "PAPEL H. JUMBO INST. BCO X 8 X 250 NUBE",
+    "descripcion": "Papel higiénico de hojas suaves, absorbentes y resistentes, ideal para alto tráfico institucional.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$5.250",
+    "precio_venta": 9580.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0487",
+    "nombre": "PAPEL H. MEGAROLLO BLANKO X 4 UND X 12",
+    "descripcion": "Papel higiénico de hojas suaves, absorbentes y resistentes, ideal para alto tráfico institucional.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$8.500",
+    "precio_venta": 8500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1970",
+    "nombre": "PAPEL HIGIENICO XTRA1 X250M NATURAL X4 COD613",
+    "descripcion": "Papel higiénico de hojas suaves, absorbentes y resistentes, ideal para alto tráfico institucional.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$5.350",
+    "precio_venta": 19855.0,
+    "precio_manual": true
+  },
+  {
+    "codigo": "1220",
+    "nombre": "PAPELERA VAIVEN RESIDUOS CUADRADA 10 LTS NEGRO",
+    "descripcion": "Accesorio institucional de alta durabilidad y fácil mantenimiento para baños y áreas comunes.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$11.765",
+    "precio_venta": 46319.0,
+    "precio_manual": true
+  },
+  {
+    "codigo": "2015",
+    "nombre": "PAÑO LIMPIEZA INDUSTRAIL NUBE 1JX6 88H PCX6",
+    "descripcion": "Papel y paño absorbente de rápida absorción, no se desintegra al humedecerse y cuida las manos.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$27.731",
+    "precio_venta": 27731.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0646",
+    "nombre": "SERVILLETA FAMILIA PLUS X 550 X 9 PAQ",
+    "descripcion": "Papel y paño absorbente de rápida absorción, no se desintegra al humedecerse y cuida las manos.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$14.900",
+    "precio_venta": 12016.8,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1753",
+    "nombre": "TOALLA COCINA NUBE X1UND 2H X50H",
+    "descripcion": "Papel y paño absorbente de rápida absorción, no se desintegra al humedecerse y cuida las manos.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$2.800",
+    "precio_venta": 2800.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1040",
+    "nombre": "TOALLA LIMPION",
+    "descripcion": "Papel y paño absorbente de rápida absorción, no se desintegra al humedecerse y cuida las manos.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$7.479",
+    "precio_venta": 7479.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1029",
+    "nombre": "TOALLA Z COLTISU X24PQTS",
+    "descripcion": "Papel y paño absorbente de rápida absorción, no se desintegra al humedecerse y cuida las manos.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$4.454",
+    "precio_venta": 4453.79,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0191",
+    "nombre": "BOMBAS PARA BAÑO",
+    "descripcion": "Insumo de aseo garantizado de alta calidad para empresas, instituciones y el hogar.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$600",
+    "precio_venta": 600.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1306",
+    "nombre": "CEPILLO DE BAÑO",
+    "descripcion": "Cepillo ergonómico de cerdas duraderas para restregar eficazmente pisos, paredes y sanitarios.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$5.000",
+    "precio_venta": 5000.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1623",
+    "nombre": "ESCOBA DURA REPUESTO NEGRA",
+    "descripcion": "Escoba con cerdas firmes de alta durabilidad, diseñada para un barrido eficiente y sin esfuerzo.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$3.277",
+    "precio_venta": 3277.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0346",
+    "nombre": "ESCOBA SUPREMA DURA",
+    "descripcion": "Escoba con cerdas firmes de alta durabilidad, diseñada para un barrido eficiente y sin esfuerzo.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$7.500",
+    "precio_venta": 7000.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0347",
+    "nombre": "ESCOBA ZULIA",
+    "descripcion": "Escoba con cerdas firmes de alta durabilidad, diseñada para un barrido eficiente y sin esfuerzo.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$6.891",
+    "precio_venta": 5882.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1360",
+    "nombre": "ESCOBA ZULIA SIN PALO",
+    "descripcion": "Escoba con cerdas firmes de alta durabilidad, diseñada para un barrido eficiente y sin esfuerzo.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$4.202",
+    "precio_venta": 4201.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0590",
+    "nombre": "RECOGEDOR FINO",
+    "descripcion": "Insumo de aseo garantizado de alta calidad para empresas, instituciones y el hogar.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$4.370",
+    "precio_venta": 4411.67,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0922",
+    "nombre": "TRAPERO DE MICROFIBRA",
+    "descripcion": "Trapero de máxima absorción y resistencia, no suelta motas y asegura un secado rápido y uniforme.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$16.500",
+    "precio_venta": 16500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0726",
+    "nombre": "TRAPERO INDUSTRIAL",
+    "descripcion": "Trapero de máxima absorción y resistencia, no suelta motas y asegura un secado rápido y uniforme.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$12.500",
+    "precio_venta": 8781.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1359",
+    "nombre": "TRAPERO INDUSTRIAL GTO",
+    "descripcion": "Trapero de máxima absorción y resistencia, no suelta motas y asegura un secado rápido y uniforme.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$11.500",
+    "precio_venta": 8823.57,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1866",
+    "nombre": "TRAPERO REPUESTO",
+    "descripcion": "Trapero de máxima absorción y resistencia, no suelta motas y asegura un secado rápido y uniforme.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$8.000",
+    "precio_venta": 6554.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0923",
+    "nombre": "TRAPERO SUPER INDUSTRIAL",
+    "descripcion": "Trapero de máxima absorción y resistencia, no suelta motas y asegura un secado rápido y uniforme.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$10.504",
+    "precio_venta": 10504.2,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0348",
+    "nombre": "ESPONJA ALAMBRE COLIBRI X12 UND",
+    "descripcion": "Fibra abrasiva multiusos para lavado de ollas y vajillas, retira grasa adherida con facilidad.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$672",
+    "precio_venta": 672.25,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2274",
+    "nombre": "ESPONJA ALAMBRE X12UND",
+    "descripcion": "Fibra abrasiva multiusos para lavado de ollas y vajillas, retira grasa adherida con facilidad.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$3.529",
+    "precio_venta": 3529.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1774",
+    "nombre": "ESPONJA INTITUCIONAL X 10CM",
+    "descripcion": "Fibra abrasiva multiusos para lavado de ollas y vajillas, retira grasa adherida con facilidad.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$3.151",
+    "precio_venta": 3151.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2286",
+    "nombre": "ESPONJA MULTIUSOS CLEANRF X12UDS",
+    "descripcion": "Fibra abrasiva multiusos para lavado de ollas y vajillas, retira grasa adherida con facilidad.",
+    "familia": "✦ LÍNEA QUÍMICOS YILOP ✦",
+    "precio_original": "$1.512",
+    "precio_venta": 1344.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1149",
+    "nombre": "ALCOHOL GALON",
+    "descripcion": "ALCOHOL GALON",
+    "familia": "LÍNEA QUÍMICOS YILOP",
+    "precio_venta": 23067.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1991",
+    "nombre": "ACEITE BIDON",
+    "descripcion": "ACEITE BIDON",
+    "familia": "Nuevos Productos",
+    "precio_venta": 111765.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0002",
+    "nombre": "ACEITE BIDON",
+    "descripcion": "ACEITE BIDON",
+    "familia": "Nuevos Productos",
+    "precio_venta": 168988.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1692",
+    "nombre": "ACEITE BIDON MAXRICO 20LTS",
+    "descripcion": "ACEITE BIDON MAXRICO 20LTS",
+    "familia": "Nuevos Productos",
+    "precio_venta": 162318.84,
+    "precio_manual": false
+  }
+]

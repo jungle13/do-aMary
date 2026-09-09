@@ -10,6 +10,7 @@ from ui.views.cierre_inventario import CierreInventarioView
 from ui.views.conteo_inicial import ConteoInicialView
 from ui.views.ajustes_inventario import AjustesInventarioView
 from ui.views.informes import InformesView
+from ui.views.catalogos import CatalogosView
 from config import Config
 from core.logger import get_logger, log_error
 
@@ -71,6 +72,7 @@ class AppLayout(ft.Row):
         elif route_name == "ajustes_inventario": return AjustesInventarioView()
         elif route_name == "cierre_mes": return CierreInventarioView()
         elif route_name == "informes": return InformesView()
+        elif route_name == "catalogos": return CatalogosView()
         return InventarioView()
 
     def reset_global_state(self):

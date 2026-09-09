@@ -1,0 +1,3335 @@
+[
+  {
+    "codigo": "1976",
+    "nombre": "ALUMINIO 100MTS DIFFER CJX12",
+    "descripcion": "Papel de aluminio institucional de alta pureza y resistencia térmica para cocción, conservación y envoltura profesional.",
+    "familia": "Aluminios",
+    "precio_original": "$20.168",
+    "precio_venta": 25000.0,
+    "precio_manual": false,
+    "categoria": "Desechables"
+  },
+  {
+    "codigo": "0023",
+    "nombre": "ALUMINIO 16 MTS X 30",
+    "descripcion": "Papel de aluminio institucional de alta pureza y resistencia térmica para cocción, conservación y envoltura profesional.",
+    "familia": "Aluminios",
+    "precio_original": "$3.277",
+    "precio_venta": 3781.5,
+    "precio_manual": false,
+    "categoria": "Desechables"
+  },
+  {
+    "codigo": "0026",
+    "nombre": "ALUMINIO 300 MTS X 6 HOUSE",
+    "descripcion": "Papel de aluminio institucional de alta pureza y resistencia térmica para cocción, conservación y envoltura profesional.",
+    "familia": "Aluminios",
+    "precio_original": "$65.800",
+    "precio_venta": 55294.0,
+    "precio_manual": false,
+    "categoria": "Desechables"
+  },
+  {
+    "codigo": "1974",
+    "nombre": "ALUMINIO 300M DIFFER CJX6",
+    "descripcion": "Papel de aluminio institucional de alta pureza y resistencia térmica para cocción, conservación y envoltura profesional.",
+    "familia": "General",
+    "precio_original": "$55.294",
+    "precio_venta": 52941.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2026",
+    "nombre": "ALUMINIO 40 MTS ECO CJ X 30",
+    "descripcion": "Papel de aluminio institucional de alta pureza y resistencia térmica para cocción, conservación y envoltura profesional.",
+    "familia": "General",
+    "precio_original": "$7.983",
+    "precio_venta": 7983.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0024",
+    "nombre": "ALUMINIO 40 MTS X 30 HOUSE",
+    "descripcion": "Papel de aluminio institucional de alta pureza y resistencia térmica para cocción, conservación y envoltura profesional.",
+    "familia": "General",
+    "precio_original": "$7.563",
+    "precio_venta": 7563.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0022",
+    "nombre": "ALUMINIO 7 MTS X 30 HOUSE",
+    "descripcion": "Papel de aluminio institucional de alta pureza y resistencia térmica para cocción, conservación y envoltura profesional.",
+    "familia": "General",
+    "precio_original": "$1.681",
+    "precio_venta": 1680.7,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1133",
+    "nombre": "MOLDE ALUMINIO 28ONZ DARNEL X250UDS",
+    "descripcion": "Papel de aluminio institucional de alta pureza y resistencia térmica para cocción, conservación y envoltura profesional.",
+    "familia": "General",
+    "precio_original": "$403",
+    "precio_venta": 403.4,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0452",
+    "nombre": "MOLDE ALUMINIO REDONDO X 45 OZ",
+    "descripcion": "Papel de aluminio institucional de alta pureza y resistencia térmica para cocción, conservación y envoltura profesional.",
+    "familia": "General",
+    "precio_original": "$756",
+    "precio_venta": 3790.0,
+    "precio_manual": true
+  },
+  {
+    "codigo": "0740",
+    "nombre": "DOMINGO VASOTE 7 ONZ COLOR",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$1.891",
+    "precio_venta": 1890.8,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0684",
+    "nombre": "TAPA VASO 12 ONZ TAMI X 50 UND X 20 PQ",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$4.580",
+    "precio_venta": 4873.94,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0688",
+    "nombre": "TAPA VASO 13-14-16 WAU X 25 X 80",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$3.109",
+    "precio_venta": 3361.33,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0659",
+    "nombre": "TAPA VASO 3,5 Y 7 ONZ WAU X 50 X 90",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$4.034",
+    "precio_venta": 4075.75,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0685",
+    "nombre": "TAPA VASO 4 ONZ TROFORMA X 25 X500 X7",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.164",
+    "precio_venta": 2184.83,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0959",
+    "nombre": "TAPA VASO 6 ICOPOR X 100 X 10 DARNEL",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$15.966",
+    "precio_venta": 15546.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0686",
+    "nombre": "TAPA VASO 7 ONZ TAMI X 50 UND X 20 PQ",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$3.362",
+    "precio_venta": 3361.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0960",
+    "nombre": "TAPA VASO 8 ICOPOR X 100 X 10 DARNEL",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$14.622",
+    "precio_venta": 14622.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0687",
+    "nombre": "TAPA VASO 9 ONZ TAMI X 50 UND X 20 PQ",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$3.277",
+    "precio_venta": 3445.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0918",
+    "nombre": "TAPA VASO 9-10-12 TROFORMA TRANSPARENTE X50UDS",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.542",
+    "precio_venta": 2542.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0690",
+    "nombre": "TAPA VASO 9-10-12 WAU X 50 X 62",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$6.500",
+    "precio_venta": 6500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0678",
+    "nombre": "TAPA VASO CARTON 7ONZ CJX20 X50UDS INCOLPA",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$1.083",
+    "precio_venta": 1083.33,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1743",
+    "nombre": "TAPA VASO CARTON 9 OZ X 20 PREXXA",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$6.302",
+    "precio_venta": 6302.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0666",
+    "nombre": "TAPA VASO CARTON 9OZ INCOLPA 20X50",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$5.882",
+    "precio_venta": 5882.4,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0961",
+    "nombre": "TAPA VASO ICOPOR 10 ONZX 100 X 10 DARNEL",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$22.521",
+    "precio_venta": 22521.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0931",
+    "nombre": "TAPA VASO ICOPOR 12 ONZ DARNEL X 100",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$32.563",
+    "precio_venta": 32563.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1890",
+    "nombre": "TAPA VASO TAMI 16 ONZ X50UDS CJX20PQTS",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$6.176",
+    "precio_venta": 6176.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0681",
+    "nombre": "TAPA VASO VACAN PERFO 9-10 ONZ CJX25 PQTX100UDS",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$3.025",
+    "precio_venta": 2250.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1032",
+    "nombre": "VASO 4 OZ IMPRESO CARTON DOMINGO X50",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$4.244",
+    "precio_venta": 4243.7,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1643",
+    "nombre": "VASO 6 OZ BCO CARTON DOMINGO",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$3.750",
+    "precio_venta": 3750.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2156",
+    "nombre": "VASO CARTON 12ONZ BCO X25PQTS DOMINGO",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$7.059",
+    "precio_venta": 7058.84,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2252",
+    "nombre": "VASO CARTON 16ONZ BCO DOMINGO X50UDS",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$7.500",
+    "precio_venta": 7500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2357",
+    "nombre": "VASO CARTON 4 ONZ 30 X 50UND INCOLPA",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.689",
+    "precio_venta": 2352.93,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1740",
+    "nombre": "VASO CARTON 7 OZ PREXXA X 50",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$3.361",
+    "precio_venta": 3235.3,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1369",
+    "nombre": "VASO CARTON 7ONZ X50UND X30PQ INCOLPA",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$3.361",
+    "precio_venta": 3361.3,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2302",
+    "nombre": "VASO CARTON 9 ONZ CAÑATEK X50UDS",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$6.597",
+    "precio_venta": 6597.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1741",
+    "nombre": "VASO CARTON 9 OZ X 40 PREXXA",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$5.042",
+    "precio_venta": 5462.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0741",
+    "nombre": "VASO CARTON 9ONZ INCOLPA",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$6.500",
+    "precio_venta": 5462.2,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0739",
+    "nombre": "VASO CARTON IMPRESO 6 ONZ X 50 UND X 20 PQ",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$1.875",
+    "precio_venta": 1875.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0791",
+    "nombre": "VASO CARTON IMPRESO 9 ONZ X 40 UND X 25 PQ",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$6.723",
+    "precio_venta": 6722.67,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2360",
+    "nombre": "VASO DOMINGO 16ONZ X25UND",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$3.403",
+    "precio_venta": 3403.35,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2210",
+    "nombre": "VASO GOLD 14ONZ BIO GOLD X50UDS",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$19.370",
+    "precio_venta": 19370.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1704",
+    "nombre": "VASO GOLD 16ONZ BIO X50UDS",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$20.084",
+    "precio_venta": 20084.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0774",
+    "nombre": "VASO ICOPOR CON TAPA 10 ONZ X 20 X 25 DARNEL",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$10.336",
+    "precio_venta": 10336.13,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0785",
+    "nombre": "VASO ICOPOR SIN TAPA 10 ONZ X 20 X 50 DARNEL",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$3.529",
+    "precio_venta": 3906.0,
+    "precio_manual": true
+  },
+  {
+    "codigo": "0787",
+    "nombre": "VASO ICOPOR SIN TAPA 12 ONZ X 20 X 50 DARNEL",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$3.950",
+    "precio_venta": 3949.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0789",
+    "nombre": "VASO ICOPOR SIN TAPA 14 ONZ X 20 X 50 DARNEL",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$5.546",
+    "precio_venta": 5546.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0779",
+    "nombre": "VASO ICOPOR SIN TAPA 4 ONZ X 20 X 100 DARNEL",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.941",
+    "precio_venta": 2941.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0781",
+    "nombre": "VASO ICOPOR SIN TAPA 6 ONZ X 20 X 100 DARNEL",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$6.800",
+    "precio_venta": 2941.2,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0783",
+    "nombre": "VASO ICOPOR SIN TAPA 8 ONZ X 20 X 50 DARNEL",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$1.000",
+    "precio_venta": 3033.6,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1263",
+    "nombre": "VASO IPM 16ONZ X 50",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.689",
+    "precio_venta": 2689.08,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0798",
+    "nombre": "VASO MAMBO 3,0 LIDER X 72",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$138",
+    "precio_venta": 138.46,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1908",
+    "nombre": "VASO MARPLAST 14 OZ X40PQT",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.731",
+    "precio_venta": 2731.09,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0814",
+    "nombre": "VASO TAMI 12 X 25 TRANSP X 126 PQ",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$4.202",
+    "precio_venta": 4369.75,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1776",
+    "nombre": "VASO TAMI 16 ONZ X96PQT X25UND",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$5.294",
+    "precio_venta": 5294.17,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0815",
+    "nombre": "VASO TAMI 7 X 25 X 160 PQ",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.521",
+    "precio_venta": 2521.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0816",
+    "nombre": "VASO TAMI 9 X 25 TRANSP X 144 PQ",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.773",
+    "precio_venta": 1750.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0817",
+    "nombre": "VASO TROFORMA 4 ONZ",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$1.650",
+    "precio_venta": 1650.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0818",
+    "nombre": "VASO TROFORMA 4 ONZ X 25 X 140",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$850",
+    "precio_venta": 2773.08,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0837",
+    "nombre": "VASO VACAN 10 ONZ CJX40 X50UDS",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$1.167",
+    "precio_venta": 1600.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0838",
+    "nombre": "VASO VACAN 12 ONZ CJX40 X50UDS",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.815",
+    "precio_venta": 2647.1,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0839",
+    "nombre": "VASO VACAN 14 X 25 X 120",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$3.500",
+    "precio_venta": 3500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0999",
+    "nombre": "VASO VACAN 16ONZ X 25UND X 90",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.857",
+    "precio_venta": 2857.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2260",
+    "nombre": "VASO VACAN 3.3ONZ COLOR X50PQT X50UDS",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$1.471",
+    "precio_venta": 1512.62,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0532",
+    "nombre": "VASO VACAN 3.5 TRANSP CJX120 X50UND",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.479",
+    "precio_venta": 2478.99,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0840",
+    "nombre": "VASO VACAN 5 X 50 X 60 BCO COLERO",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$1.681",
+    "precio_venta": 1680.75,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0842",
+    "nombre": "VASO VACAN 7 ONZ X 50 X 60",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.250",
+    "precio_venta": 1250.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0841",
+    "nombre": "VASO VACAN 7 X 50 X 100 BCO",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$500",
+    "precio_venta": 2500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1839",
+    "nombre": "VASO VACAN 9 OZ CJX40 PQT X50UDS",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.353",
+    "precio_venta": 1750.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1356",
+    "nombre": "VASO VACAN COLERO 5.5 TRANSP",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$333",
+    "precio_venta": 400.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1370",
+    "nombre": "VASO WHISKY X 20UND X 32PQ",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$4.167",
+    "precio_venta": 4166.67,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0845",
+    "nombre": "VASOTE 10 ONZ X 50 OPAL X 50",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$3.698",
+    "precio_venta": 3866.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0846",
+    "nombre": "VASOTE 12 ONZ X 50 X 50",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$4.622",
+    "precio_venta": 4621.8,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0847",
+    "nombre": "VASOTE 13 ONZ X 25 X 37",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$875",
+    "precio_venta": 2857.25,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0849",
+    "nombre": "VASOTE 16 ONZ X 25 X 37",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$3.529",
+    "precio_venta": 3529.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0850",
+    "nombre": "VASOTE 3,5 BCO X 50 X 60 PQ",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.800",
+    "precio_venta": 2142.86,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0852",
+    "nombre": "VASOTE 3,5 TANSL X 50 X 60 PQ",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.227",
+    "precio_venta": 2311.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0853",
+    "nombre": "VASOTE 5 ONZ BCO X 50 X 60 PQ",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.200",
+    "precio_venta": 1731.1,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1702",
+    "nombre": "VASOTE 5ONZ TTE X50UDS X60PQTS",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$1.731",
+    "precio_venta": 1731.1,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0854",
+    "nombre": "VASOTE 6 ONZ X 50 X 102",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$2.101",
+    "precio_venta": 2101.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0855",
+    "nombre": "VASOTE 7 ONZ X 50 BCO X 102 O 60",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$1.975",
+    "precio_venta": 1974.83,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0856",
+    "nombre": "VASOTE 7 ONZ X 50 TRANSP X 102 O X 60",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$833",
+    "precio_venta": 1974.8,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0858",
+    "nombre": "VASOTE 9 ONZ X 50 X 50",
+    "descripcion": "Vaso desechable térmico y resistente para bebidas frías y calientes, compatible con tapas antiderrame.",
+    "familia": "General",
+    "precio_original": "$4.400",
+    "precio_venta": 3487.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1535",
+    "nombre": "TAPA BOWL 44ONZ BIO X50UDS",
+    "descripcion": "Tapa con sellado hermético perimetral, previene fugas y derrames durante el transporte seguro de líquidos y postres.",
+    "familia": "General",
+    "precio_original": "$19.950",
+    "precio_venta": 19950.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1398",
+    "nombre": "TAPA BOWL BIO 19-26-32 ONZ X50UND CJX6",
+    "descripcion": "Tapa con sellado hermético perimetral, previene fugas y derrames durante el transporte seguro de líquidos y postres.",
+    "familia": "General",
+    "precio_original": "$18.236",
+    "precio_venta": 18235.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0664",
+    "nombre": "TAPA CARTON LASAÑA",
+    "descripcion": "Tapa con sellado hermético perimetral, previene fugas y derrames durante el transporte seguro de líquidos y postres.",
+    "familia": "General",
+    "precio_original": "$84",
+    "precio_venta": 75.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1145",
+    "nombre": "TAPA DOMO GOLD PLANA 9-12-14-16 X50UDS",
+    "descripcion": "Tapa con sellado hermético perimetral, previene fugas y derrames durante el transporte seguro de líquidos y postres.",
+    "familia": "General",
+    "precio_original": "$12.479",
+    "precio_venta": 12479.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1808",
+    "nombre": "TAPA LASAÑA CARTON DE 24 OZ",
+    "descripcion": "Tapa con sellado hermético perimetral, previene fugas y derrames durante el transporte seguro de líquidos y postres.",
+    "familia": "General",
+    "precio_original": "$151",
+    "precio_venta": 151.25,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0679",
+    "nombre": "TAPA LASAÑA ICOPOR X 200 16ONZ DARNEL",
+    "descripcion": "Tapa con sellado hermético perimetral, previene fugas y derrames durante el transporte seguro de líquidos y postres.",
+    "familia": "General",
+    "precio_original": "$18",
+    "precio_venta": 18.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0665",
+    "nombre": "TAPA LASAÑA PERSONAL CARTON X100",
+    "descripcion": "Tapa con sellado hermético perimetral, previene fugas y derrames durante el transporte seguro de líquidos y postres.",
+    "familia": "General",
+    "precio_original": "$7",
+    "precio_venta": 7.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0680",
+    "nombre": "TAPA VACAN LISA 14-16 ONZA X 50",
+    "descripcion": "Tapa con sellado hermético perimetral, previene fugas y derrames durante el transporte seguro de líquidos y postres.",
+    "familia": "General",
+    "precio_original": "$5.294",
+    "precio_venta": 5294.1,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0663",
+    "nombre": "TAPABOCA X 50",
+    "descripcion": "Tapa con sellado hermético perimetral, previene fugas y derrames durante el transporte seguro de líquidos y postres.",
+    "familia": "General",
+    "precio_original": "$8.824",
+    "precio_venta": 7142.9,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1336",
+    "nombre": "TAPABOCAS ACRILICO",
+    "descripcion": "Tapa con sellado hermético perimetral, previene fugas y derrames durante el transporte seguro de líquidos y postres.",
+    "familia": "General",
+    "precio_original": "$12.605",
+    "precio_venta": 12605.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1852",
+    "nombre": "TAPABOCAS NEGRO X 50 ECONM",
+    "descripcion": "Tapa con sellado hermético perimetral, previene fugas y derrames durante el transporte seguro de líquidos y postres.",
+    "familia": "General",
+    "precio_original": "$4.850",
+    "precio_venta": 8151.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0537",
+    "nombre": "PLATO HONDO 16 ONZ X 20UND X 24 WAU",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$3.500",
+    "precio_venta": 3361.33,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0538",
+    "nombre": "PLATO HONDO 25 ONZ X 20 UND X 24 WAU",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$1.900",
+    "precio_venta": 1900.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1635",
+    "nombre": "PLATO HONDO 30 OZ WAU",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$1.400",
+    "precio_venta": 1400.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0539",
+    "nombre": "PLATO HONDO 5 ONZ X 20 UND X 24 DARNEL",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$1.387",
+    "precio_venta": 1092.44,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0540",
+    "nombre": "PLATO HONDO 5 ONZ X 20 UND X 24 WAU",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$1.176",
+    "precio_venta": 1176.4,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0542",
+    "nombre": "PLATO HONDO No 25 X 20 UND X 24 DARNEL",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$4.118",
+    "precio_venta": 4117.67,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1700",
+    "nombre": "PLATO PANDO 26CM 3DIV RIG NEGRO",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$651",
+    "precio_venta": 651.25,
+    "precio_manual": false
+  },
+  {
+    "codigo": "4135",
+    "nombre": "PLATO PANDO NO 23CM DARNEL NEGRO X20UDS",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$4.622",
+    "precio_venta": 4621.75,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0552",
+    "nombre": "PLATO PANDO No 12 X 20 UND X 24 DARNEL",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$1.387",
+    "precio_venta": 1386.54,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0554",
+    "nombre": "PLATO PANDO No 15,5 X 20 UND X 24 DARNEL",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$2.269",
+    "precio_venta": 2269.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0555",
+    "nombre": "PLATO PANDO No 15,5 X 20 UND X 24 WAU",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$2.500",
+    "precio_venta": 2500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0556",
+    "nombre": "PLATO PANDO No 18 X 20 UND X 24 DARNEL",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$3.109",
+    "precio_venta": 3109.25,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0557",
+    "nombre": "PLATO PANDO No 18 X 20 UND X 24 WAU",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$3.109",
+    "precio_venta": 3109.25,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0558",
+    "nombre": "PLATO PANDO No 20 X 20 UND X 24 DARNEL",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$840",
+    "precio_venta": 840.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0559",
+    "nombre": "PLATO PANDO No 20 X 20 UND X 24 WAU",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$3.782",
+    "precio_venta": 3781.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0561",
+    "nombre": "PLATO PANDO No 23 X 20 UND X 24 DARNEL",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$4.202",
+    "precio_venta": 5042.02,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0560",
+    "nombre": "PLATO PANDO No 23 x 20 UND X 24 WAU",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$4.286",
+    "precio_venta": 4285.75,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0562",
+    "nombre": "PLATO PANDO No 26 X 20 UND X 24 DARNEL",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$2.433",
+    "precio_venta": 2433.33,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0563",
+    "nombre": "PLATO PANDO No 26 X 20 UND X 24 WAU",
+    "descripcion": "Plato desechable de excelente rigidez y presentación limpia para servicio en eventos, banquetes y restaurantes.",
+    "familia": "General",
+    "precio_original": "$8.500",
+    "precio_venta": 8500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0500",
+    "nombre": "PELICULA DARNEL 100MTS ECON X24 X100MTS",
+    "descripcion": "Película extensible de alto rendimiento y transparencia para empaque hermético y protección de alimentos.",
+    "familia": "General",
+    "precio_original": "$5.882",
+    "precio_venta": 725.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1589",
+    "nombre": "PELICULA DARNEL SM X 1500",
+    "descripcion": "Película extensible de alto rendimiento y transparencia para empaque hermético y protección de alimentos.",
+    "familia": "General",
+    "precio_original": "$113.445",
+    "precio_venta": 113445.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0503",
+    "nombre": "PELICULA OSMOTICA NEGRA X 100MTS",
+    "descripcion": "Película extensible de alto rendimiento y transparencia para empaque hermético y protección de alimentos.",
+    "familia": "General",
+    "precio_original": "$6.387",
+    "precio_venta": 6387.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1007",
+    "nombre": "PELICULA STRECH 15CM X300 TRANS",
+    "descripcion": "Película extensible de alto rendimiento y transparencia para empaque hermético y protección de alimentos.",
+    "familia": "General",
+    "precio_original": "$10.500",
+    "precio_venta": 10500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1080",
+    "nombre": "PELICULA STRECH TRANSP 45CM (FFC) GDE",
+    "descripcion": "Película extensible de alto rendimiento y transparencia para empaque hermético y protección de alimentos.",
+    "familia": "General",
+    "precio_original": "$22.017",
+    "precio_venta": 22016.83,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1048",
+    "nombre": "PELICULA STRECH X 30CM MEDIANA",
+    "descripcion": "Película extensible de alto rendimiento y transparencia para empaque hermético y protección de alimentos.",
+    "familia": "General",
+    "precio_original": "$10.500",
+    "precio_venta": 21500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1944",
+    "nombre": "PELICULA STRECH X25CM NEGRO",
+    "descripcion": "Película extensible de alto rendimiento y transparencia para empaque hermético y protección de alimentos.",
+    "familia": "General",
+    "precio_original": "$20.000",
+    "precio_venta": 20000.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1227",
+    "nombre": "PELICULA TAMI X 100MTR X 24UND",
+    "descripcion": "Película extensible de alto rendimiento y transparencia para empaque hermético y protección de alimentos.",
+    "familia": "General",
+    "precio_original": "$17.101",
+    "precio_venta": 17101.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0504",
+    "nombre": "PELICULA VINIPEL X100 MTS X",
+    "descripcion": "Película extensible de alto rendimiento y transparencia para empaque hermético y protección de alimentos.",
+    "familia": "General",
+    "precio_original": "$5.378",
+    "precio_venta": 5378.25,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0505",
+    "nombre": "PELICULA VINIPEL X20 MTS CJX40",
+    "descripcion": "Película extensible de alto rendimiento y transparencia para empaque hermético y protección de alimentos.",
+    "familia": "General",
+    "precio_original": "$2.857",
+    "precio_venta": 2857.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0508",
+    "nombre": "PELICULA VINIPEL X300MTS",
+    "descripcion": "Película extensible de alto rendimiento y transparencia para empaque hermético y protección de alimentos.",
+    "familia": "General",
+    "precio_original": "$14.202",
+    "precio_venta": 16500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0507",
+    "nombre": "PELICULA VINIPELX 200 MTS",
+    "descripcion": "Película extensible de alto rendimiento y transparencia para empaque hermético y protección de alimentos.",
+    "familia": "General",
+    "precio_original": "$9.412",
+    "precio_venta": 9244.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0511",
+    "nombre": "PELICULA VITAFIL 12 X 50 MTS VNT",
+    "descripcion": "Película extensible de alto rendimiento y transparencia para empaque hermético y protección de alimentos.",
+    "familia": "General",
+    "precio_original": "$3.194",
+    "precio_venta": 3193.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0512",
+    "nombre": "PELICULA VITAFIL 12 X 600 MTS DARNEL",
+    "descripcion": "Película extensible de alto rendimiento y transparencia para empaque hermético y protección de alimentos.",
+    "familia": "General",
+    "precio_original": "$42.689",
+    "precio_venta": 42689.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0509",
+    "nombre": "PELICULA VITAFIL 12X 300 MTS DARNEL",
+    "descripcion": "Película extensible de alto rendimiento y transparencia para empaque hermético y protección de alimentos.",
+    "familia": "General",
+    "precio_original": "$41.008",
+    "precio_venta": 41008.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0957",
+    "nombre": "PAPEL DE ENVOLVER 20X10 INCOLPA",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$3.571",
+    "precio_venta": 3571.43,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0482",
+    "nombre": "PAPEL DE ENVOLVER X 20X10 GUIVAL",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$7.168",
+    "precio_venta": 7168.1,
+    "precio_manual": false
+  },
+  {
+    "codigo": "8032",
+    "nombre": "PAPEL FREIDORA GRANDE CUADR-REDONDO",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$6.756",
+    "precio_venta": 6756.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "8033",
+    "nombre": "PAPEL FREIDORA PEQUEÑO CUADR-REDONDO",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$5.345",
+    "precio_venta": 5462.17,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2265",
+    "nombre": "PAPEL HIGIENICO XTRA X1 610 X200MTS FLIA HD4",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$28.403",
+    "precio_venta": 28403.36,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1629",
+    "nombre": "PAPEL PARAFINADO 34X34 X 100",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$9.496",
+    "precio_venta": 9495.8,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1117",
+    "nombre": "PAPEL PARAFINADO RESMA 21 X 21 LASTRA",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$3.655",
+    "precio_venta": 3655.44,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1118",
+    "nombre": "PAPEL PARAFINADO RESMA 25X 25 LASTRA",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$5.462",
+    "precio_venta": 5462.2,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1119",
+    "nombre": "PAPEL PARAFINADO RESMA 29X29 LASTRA",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$6.723",
+    "precio_venta": 6722.7,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1554",
+    "nombre": "PAPEL PARAFINADO RESMA BOLSILLO 17X17",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$5.042",
+    "precio_venta": 5042.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1734",
+    "nombre": "PAPEL PARAFINADO ROLLO X 20 X 28PQT BLANCO",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$4.622",
+    "precio_venta": 4622.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1455",
+    "nombre": "PAPEL PARAFINADO X 20MTS X 28 PQT CUADROS",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$5.546",
+    "precio_venta": 5042.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1116",
+    "nombre": "PAPEL PARAFINADO X 300MTSX3 PQT CUADROS ROJOS",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$57.479",
+    "precio_venta": 57479.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1218",
+    "nombre": "PAPEL PARAFINADO X 50M X 20 PQT CUADROS",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$13.500",
+    "precio_venta": 13500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0913",
+    "nombre": "PAPEL PARAFINADO X 50MTS X 20 PQT BLANCO",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$7.773",
+    "precio_venta": 7773.14,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1960",
+    "nombre": "PAPEL PARAFINDO RESMA 17X20 CITY X100UDS",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$5.294",
+    "precio_venta": 5294.1,
+    "precio_manual": false
+  },
+  {
+    "codigo": "8186",
+    "nombre": "PAPELERA VAIVEN 10 LTS NEGRO COLPLAST",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$11.268",
+    "precio_venta": 11268.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "8925",
+    "nombre": "PAPELERA VAIVEN 14LTS",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$13.025",
+    "precio_venta": 13025.2,
+    "precio_manual": false
+  },
+  {
+    "codigo": "4945",
+    "nombre": "PAPELERA VAIVEN 55LTS COLP",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$47.143",
+    "precio_venta": 47143.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "8185",
+    "nombre": "PAPELERA VAIVEN 55LTS NEGRO COLPLAST",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$45.240",
+    "precio_venta": 45240.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1332",
+    "nombre": "RESMA DE PAPEL CARTA",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$14.706",
+    "precio_venta": 20504.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0962",
+    "nombre": "SERVILLETA ACOLCHAMAX NORMAL PX200 CJX18",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$8.235",
+    "precio_venta": 8235.33,
+    "precio_manual": false
+  },
+  {
+    "codigo": "971",
+    "nombre": "SERVILLETA CAFE X500 NATURAL CJX12",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$2.941",
+    "precio_venta": 2941.17,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1049",
+    "nombre": "SERVILLETA FAMILIA PLUS 45 X100",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$2.311",
+    "precio_venta": 2310.9,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0649",
+    "nombre": "SERVILLETA FAMILIA X 600 X 9 PAQ",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$8.656",
+    "precio_venta": 5150.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1014",
+    "nombre": "SERVILLETA NUBE 1 A 1 X 60PQ X 100UND",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$15",
+    "precio_venta": 1800.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0651",
+    "nombre": "SERVILLETA NUBE CAFETERIA X 100 X 42",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$1.800",
+    "precio_venta": 1800.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1093",
+    "nombre": "SERVILLETA NUBE MIO X 30PQ X 200UND",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$2.311",
+    "precio_venta": 2750.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0644",
+    "nombre": "SERVILLETA NUBE X 300X15 PAQ",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$3.361",
+    "precio_venta": 3193.27,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1251",
+    "nombre": "SERVILLETA NUBE X 36 X 150",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$1.748",
+    "precio_venta": 1747.89,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0909",
+    "nombre": "SERVILLETA PLUS NATURAL PQTX150UND CJX36 TORK",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$3.235",
+    "precio_venta": 3445.39,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0653",
+    "nombre": "SERVILLETA POPULAR X 300 X 18 PAQ",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$4.000",
+    "precio_venta": 3361.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1489",
+    "nombre": "SERVILLETA SEDAMAX NATURAL 15 X 330",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$2.297",
+    "precio_venta": 2311.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0760",
+    "nombre": "TOALLA COCINA BCA NUBE 2H X 150H",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$4.034",
+    "precio_venta": 4800.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1258",
+    "nombre": "TOALLA COCINA BCO NUBE 3HX 1 120H PACA X 12",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$8.109",
+    "precio_venta": 8109.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0720",
+    "nombre": "TOALLA DE MANO EN Z BLANCA X 24 NUBE",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$6.639",
+    "precio_venta": 6638.71,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1235",
+    "nombre": "TOALLA ELITE NATURAL X 550MT H/D",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$106.723",
+    "precio_venta": 106723.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1092",
+    "nombre": "TOALLA MANO NAT CENTER FULL 2H PCA 6 UNDX100M NUBE",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$13.866",
+    "precio_venta": 13697.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1603",
+    "nombre": "TOALLA MANO Z NATURAL GARDEN X150UDS",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$611",
+    "precio_venta": 4369.67,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0725",
+    "nombre": "TOALLA Z NUBE NAT 24PQ X 150",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$917",
+    "precio_venta": 4789.93,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1090",
+    "nombre": "WIPE MAX ELITE X 70 X 88 PAÑOS CJX6",
+    "descripcion": "Papel absorbente de fibras seleccionadas con excelente resistencia y suavidad para uso institucional y dispensadores.",
+    "familia": "General",
+    "precio_original": "$36.386",
+    "precio_venta": 36386.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0378",
+    "nombre": "GORRO MALLA NEGRO PQTX20",
+    "descripcion": "Elemento de bioseguridad y protección desechable para manipulación higiénica de alimentos y control en áreas de producción.",
+    "familia": "General",
+    "precio_original": "$10.700",
+    "precio_venta": 10700.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0986",
+    "nombre": "GORRO NEGRO MALLA X 12",
+    "descripcion": "Elemento de bioseguridad y protección desechable para manipulación higiénica de alimentos y control en áreas de producción.",
+    "familia": "General",
+    "precio_original": "$5.462",
+    "precio_venta": 5462.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1850",
+    "nombre": "GORRO TIPO ORUGA ECONM X100",
+    "descripcion": "Elemento de bioseguridad y protección desechable para manipulación higiénica de alimentos y control en áreas de producción.",
+    "familia": "General",
+    "precio_original": "$9.244",
+    "precio_venta": 8403.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0377",
+    "nombre": "GORRO TIPO ORUGA NEGRO X 100 X 10 MEGA",
+    "descripcion": "Elemento de bioseguridad y protección desechable para manipulación higiénica de alimentos y control en áreas de producción.",
+    "familia": "General",
+    "precio_original": "$9.244",
+    "precio_venta": 9244.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1517",
+    "nombre": "GUANTE NITRILO L X100UDS MEGA",
+    "descripcion": "Elemento de bioseguridad y protección desechable para manipulación higiénica de alimentos y control en áreas de producción.",
+    "familia": "General",
+    "precio_original": "$11.500",
+    "precio_venta": 18739.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "7986",
+    "nombre": "GUANTE NITRILO NEGRO TALLA M VITAL MEDIC",
+    "descripcion": "Elemento de bioseguridad y protección desechable para manipulación higiénica de alimentos y control en áreas de producción.",
+    "familia": "General",
+    "precio_original": "$19.916",
+    "precio_venta": 19916.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1770",
+    "nombre": "GUANTE NITRILO VITAL MEDIC TALLA L NEGRO",
+    "descripcion": "Elemento de bioseguridad y protección desechable para manipulación higiénica de alimentos y control en áreas de producción.",
+    "familia": "General",
+    "precio_original": "$11.850",
+    "precio_venta": 19916.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1272",
+    "nombre": "GUANTES NITRILO M NEGRO HOUSE CJX10",
+    "descripcion": "Elemento de bioseguridad y protección desechable para manipulación higiénica de alimentos y control en áreas de producción.",
+    "familia": "General",
+    "precio_original": "$19.916",
+    "precio_venta": 19916.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0385",
+    "nombre": "GUANTES X 100 MANIPULACION DE ALIMENTOS HOUSE",
+    "descripcion": "Elemento de bioseguridad y protección desechable para manipulación higiénica de alimentos y control en áreas de producción.",
+    "familia": "General",
+    "precio_original": "$1.597",
+    "precio_venta": 2200.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "8901",
+    "nombre": "BALDE 16 LTS REF 80710",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$12.240",
+    "precio_venta": 12240.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "8183",
+    "nombre": "BALDE 20LTS AMERICAS",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$7.986",
+    "precio_venta": 7986.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1193",
+    "nombre": "BASE 3 DIV BOPS NEGRO CT",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$1.176",
+    "precio_venta": 1050.42,
+    "precio_manual": false
+  },
+  {
+    "codigo": "4879",
+    "nombre": "BOLSA BASURA BLANCA 70 X 90 X 10UND",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$378",
+    "precio_venta": 378.2,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1627",
+    "nombre": "BOLSA CIERRE 10X20",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$5.500",
+    "precio_venta": 6500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0298",
+    "nombre": "BOLSA MANIGUETA T40 BLANCA ECON",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$8.067",
+    "precio_venta": 8067.33,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0192",
+    "nombre": "BOWL 26ONZ BIO CARTON CJX6 X50UND",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$21.176",
+    "precio_venta": 21176.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1385",
+    "nombre": "CINTA DE ENMASCARAR 18X20",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$1.100",
+    "precio_venta": 1100.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0236",
+    "nombre": "CINTA EMPAQUE 48MM X 100MT",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$3.193",
+    "precio_venta": 3193.33,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1739",
+    "nombre": "CINTA EMPAQUE X 100MT ECONM",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$3.277",
+    "precio_venta": 3277.33,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1764",
+    "nombre": "CINTA IMPRONTA 24X80MM",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$2.185",
+    "precio_venta": 2185.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0234",
+    "nombre": "CINTA X 100 MT",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$5.800",
+    "precio_venta": 6500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0235",
+    "nombre": "CINTA X 50 MTS",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$4.500",
+    "precio_venta": 4500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2145",
+    "nombre": "CINTA X300MTS X48MM",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$8.403",
+    "precio_venta": 8403.25,
+    "precio_manual": false
+  },
+  {
+    "codigo": "8902",
+    "nombre": "ESCURRIDOR BALDE 16 LTS REF 80720",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$4.705",
+    "precio_venta": 4705.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1439",
+    "nombre": "LAPICERO X12",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$6.303",
+    "precio_venta": 588.2,
+    "precio_manual": false
+  },
+  {
+    "codigo": "965",
+    "nombre": "PITILLO FORRADO BIO 25cm X 500 HOUSE X 20",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$11.513",
+    "precio_venta": 18500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0518",
+    "nombre": "PITILLO JUMBO 25CM BAG NATURAL X 200 UND CJX18",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$20.840",
+    "precio_venta": 20840.4,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1338",
+    "nombre": "PITILLO JUMBO BIO X 20CM X 500 HOUSE",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$14.538",
+    "precio_venta": 14706.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0527",
+    "nombre": "PITILLOS EN BOLSA X50X 200 PAQ LARGO COLOR",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$1.513",
+    "precio_venta": 1680.71,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1766",
+    "nombre": "PORTAPERROS IMPRESO",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$6.975",
+    "precio_venta": 6974.67,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0699",
+    "nombre": "TARRINA 12 OZ X 25 UND X 20 PQ CHIC",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$13.109",
+    "precio_venta": 13109.17,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1167",
+    "nombre": "TARRINA 14 ONZ X 25UND X 20PQ PRODUCT",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$14.496",
+    "precio_venta": 14496.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "9898",
+    "nombre": "TARRINA 14ONZ WAU CJX15 X25UDS",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$12.689",
+    "precio_venta": 14496.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0701",
+    "nombre": "TARRINA 16 ONZ X 25 UND X 20 PQ PRODUC",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$13.655",
+    "precio_venta": 13655.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0700",
+    "nombre": "TARRINA 16 ONZ X25UDS CJX15 WAU!",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$13.655",
+    "precio_venta": 12773.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2044",
+    "nombre": "TARRINA 24ONZ CJX 15 X25UDS WAU!",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$17.143",
+    "precio_venta": 17142.8,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0706",
+    "nombre": "TARRINA 6 ONZ X 25 UND X 20 PQ PRODUC",
+    "descripcion": "Insumo desechable de alta calidad y rendimiento para el sector gastronómico, institucional y el hogar.",
+    "familia": "General",
+    "precio_original": "$13.650",
+    "precio_venta": 13650.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1952",
+    "nombre": "MOLDE 104 ONZ COMIDA DARNEL X100UDS",
+    "descripcion": "Molde de aluminio rígido con óptima distribución de calor para lasaña, horneados, catering y domicilios.",
+    "familia": "General",
+    "precio_original": "$1.681",
+    "precio_venta": 1638.66,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0447",
+    "nombre": "MOLDE CARTA X500 SALID",
+    "descripcion": "Molde de aluminio rígido con óptima distribución de calor para lasaña, horneados, catering y domicilios.",
+    "familia": "General",
+    "precio_original": "$1.050",
+    "precio_venta": 1050.4,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2000",
+    "nombre": "MOLDE EXTRA FUERTE HOUSE #082 X50UDS",
+    "descripcion": "Molde de aluminio rígido con óptima distribución de calor para lasaña, horneados, catering y domicilios.",
+    "familia": "General",
+    "precio_original": "$4.622",
+    "precio_venta": 4622.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0445",
+    "nombre": "MOLDE EXTRA ROASTER GOLDEN",
+    "descripcion": "Molde de aluminio rígido con óptima distribución de calor para lasaña, horneados, catering y domicilios.",
+    "familia": "General",
+    "precio_original": "$3.067",
+    "precio_venta": 3067.25,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0449",
+    "nombre": "MOLDE LASAÑA 16 ONZ X 500 UND AJOVER",
+    "descripcion": "Molde de aluminio rígido con óptima distribución de calor para lasaña, horneados, catering y domicilios.",
+    "familia": "General",
+    "precio_original": "$218",
+    "precio_venta": 66.67,
+    "precio_manual": false
+  },
+  {
+    "codigo": "5988",
+    "nombre": "MOLDE LASAÑA 16ONZ CJX800UDS",
+    "descripcion": "Molde de aluminio rígido con óptima distribución de calor para lasaña, horneados, catering y domicilios.",
+    "familia": "General",
+    "precio_original": "$336",
+    "precio_venta": 218.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1039",
+    "nombre": "MOLDE LASAÑA 8 ONZ DARNEL",
+    "descripcion": "Molde de aluminio rígido con óptima distribución de calor para lasaña, horneados, catering y domicilios.",
+    "familia": "General",
+    "precio_original": "$147",
+    "precio_venta": 50.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0454",
+    "nombre": "MOLDE LASAÑA JUNIOR CHEVERE CJX800UDS",
+    "descripcion": "Molde de aluminio rígido con óptima distribución de calor para lasaña, horneados, catering y domicilios.",
+    "familia": "General",
+    "precio_original": "$336",
+    "precio_venta": 336.12,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0450",
+    "nombre": "MOLDE LASAÑA ROSTER GOLDEN CHEVERE CJX50",
+    "descripcion": "Molde de aluminio rígido con óptima distribución de calor para lasaña, horneados, catering y domicilios.",
+    "familia": "General",
+    "precio_original": "$3.067",
+    "precio_venta": 3067.33,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0455",
+    "nombre": "MOLDE PASTA 24 ONZ X 500 UND AJOVER",
+    "descripcion": "Molde de aluminio rígido con óptima distribución de calor para lasaña, horneados, catering y domicilios.",
+    "familia": "General",
+    "precio_original": "$294",
+    "precio_venta": 294.12,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1965",
+    "nombre": "ESTUCHE AL 118",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$245",
+    "precio_venta": 245.38,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2152",
+    "nombre": "PORTA COMIDA P3 STAR PLASTIC CON TAPA X200 UDS",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$1.555",
+    "precio_venta": 1680.68,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1140",
+    "nombre": "PORTACOMIDA C1 BIO CAJA X10 PQT X50",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$23.530",
+    "precio_venta": 22059.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0569-1",
+    "nombre": "PORTACOMIDA C1 BIODEGRADABLE DARNEL X200UDS",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$294",
+    "precio_venta": 294.12,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0572",
+    "nombre": "PORTACOMIDA C1 X 200 WAU",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$1",
+    "precio_venta": 13.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0529",
+    "nombre": "PORTACOMIDA C1 X 500 NEGRO",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$275",
+    "precio_venta": 275.13,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0567",
+    "nombre": "PORTACOMIDA DARNEL B1 X 500",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$5",
+    "precio_venta": 5.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0568",
+    "nombre": "PORTACOMIDA DARNEL C1 X 500",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$212",
+    "precio_venta": 211.6,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0570",
+    "nombre": "PORTACOMIDA DARNEL J1 X 200",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$349",
+    "precio_venta": 369.74,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0571",
+    "nombre": "PORTACOMIDA DARNEL J2 X 200",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$9",
+    "precio_venta": 4.15,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0576",
+    "nombre": "PORTACOMIDA DARNEL P 1 X 200",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$412",
+    "precio_venta": 411.76,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0578",
+    "nombre": "PORTACOMIDA DARNEL P 3 X 200",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$46",
+    "precio_venta": 411.76,
+    "precio_manual": false
+  },
+  {
+    "codigo": "8114",
+    "nombre": "PORTACOMIDA DARNEL P1 CJX200UDS PQTX100UDS",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$90.756",
+    "precio_venta": 90756.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2278",
+    "nombre": "PORTACOMIDA DARNEL P3 X 20UND",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$387",
+    "precio_venta": 386.56,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0580",
+    "nombre": "PORTACOMIDA DARNEL T1 X 200",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$798",
+    "precio_venta": 798.33,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1151",
+    "nombre": "PORTACOMIDA J1 BIO CAJA X10 PQT X50",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$36.975",
+    "precio_venta": 36975.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0570-1",
+    "nombre": "PORTACOMIDA J1 BIO x 200 UND DARNEL",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$479",
+    "precio_venta": 479.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1228",
+    "nombre": "PORTACOMIDA J1 NEGRO DARNEL X 200UND",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$1",
+    "precio_venta": 0.7,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0573",
+    "nombre": "PORTACOMIDA J1-X 200 WAU",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$22",
+    "precio_venta": 22.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0571-1",
+    "nombre": "PORTACOMIDA J2 BIO X200UND DARNEL",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$3",
+    "precio_venta": 479.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1584",
+    "nombre": "PORTACOMIDA J2 BIO X20UDS PQT X10",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$26.050",
+    "precio_venta": 15378.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0581",
+    "nombre": "PORTACOMIDA J2 X 200 WAU",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$9",
+    "precio_venta": 348.75,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0574",
+    "nombre": "PORTACOMIDA P1 - X 200 WAU",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$412",
+    "precio_venta": 411.76,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0575",
+    "nombre": "PORTACOMIDA P1 NEGRO X 200",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$3",
+    "precio_venta": 3.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2151",
+    "nombre": "PORTACOMIDA P1 STAR PLASTIC CON TAPA X200 UDS",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$1.429",
+    "precio_venta": 1428.57,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0578-1",
+    "nombre": "PORTACOMIDA P3 BIO X200UND DARNEL",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$458",
+    "precio_venta": 457.98,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0583",
+    "nombre": "PORTACOMIDA P3 X 200 WAU",
+    "descripcion": "Contenedor térmico con cierre hermético y seguro, mantiene la temperatura, textura y frescura de los alimentos.",
+    "familia": "General",
+    "precio_original": "$399",
+    "precio_venta": 411.76,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1089",
+    "nombre": "COPA 0.5 ONZ CON TAPA PQTX50 CJX40 HOUSE",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$3.194",
+    "precio_venta": 3193.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0905",
+    "nombre": "COPA 0.5 X 100X25 HOUSE",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$3.529",
+    "precio_venta": 2857.1,
+    "precio_manual": false
+  },
+  {
+    "codigo": "5467",
+    "nombre": "COPA 1 ONZ CON TAPA PQTX50 STARPLASTIC",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$3.277",
+    "precio_venta": 3193.2,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0904",
+    "nombre": "COPA 1.0 X 100X25 HOUSE",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$3.361",
+    "precio_venta": 3151.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1241",
+    "nombre": "COPA 1ONZ DOMINGO X50UDS",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$1.555",
+    "precio_venta": 1638.65,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0903",
+    "nombre": "COPA 2.0 X 100 X 25 HOUSE",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$7.311",
+    "precio_venta": 7311.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1499",
+    "nombre": "COPA 2ONZ DOMINGO X25 X100UDS",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$5.966",
+    "precio_venta": 5966.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0955",
+    "nombre": "COPA 2onz X 100 X25",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$5.966",
+    "precio_venta": 5966.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "9855",
+    "nombre": "COPA BISAGRA CHEVERE CON TAPA 0.5ONZ X50UDS CJX40",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$2.857",
+    "precio_venta": 2941.18,
+    "precio_manual": false
+  },
+  {
+    "codigo": "9856",
+    "nombre": "COPA BISAGRA CHEVERE CON TAPA 1ONZ X50UDS CJX40",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$3.193",
+    "precio_venta": 3193.2,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0271",
+    "nombre": "COPA FLAUTA X 11DIS X 20UND CHEVERE",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$2.417",
+    "precio_venta": 2416.67,
+    "precio_manual": false
+  },
+  {
+    "codigo": "6565",
+    "nombre": "COPA SALSERA CON TAPA 0.5 X50UDS CJX40",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$340",
+    "precio_venta": 3025.2,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1095",
+    "nombre": "COPA SOUFFLE 4onz x 100 x25PQ",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$9.034",
+    "precio_venta": 9033.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0276",
+    "nombre": "COPA SOUFLE 0,5 X100 X25 DARNEL",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$3.529",
+    "precio_venta": 3529.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1004",
+    "nombre": "COPA SOUFLE 1 1/2 X 100",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$4.580",
+    "precio_venta": 4706.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0277",
+    "nombre": "COPA SOUFLE 1 X 100 X 25",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$3.655",
+    "precio_venta": 3655.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0280",
+    "nombre": "COPA SOUFLE 3 X 100X 25",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$358",
+    "precio_venta": 7983.25,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0882",
+    "nombre": "COPA SOUFLE 5,5 ONZ X 100X 25DARNEL",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$10.924",
+    "precio_venta": 12700.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0282",
+    "nombre": "COPA TROFORMA 1 ONZ X 50X240",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$2.101",
+    "precio_venta": 2100.8,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0283",
+    "nombre": "COPA TROFORMA 1/2 ONZ X 50 x 90",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$2.101",
+    "precio_venta": 2100.83,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0285",
+    "nombre": "COPA VACAN 1/2 ONZ X 50X120PAQ",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$1.555",
+    "precio_venta": 1554.62,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2368",
+    "nombre": "COPA VACAN 1ONZ TRANSP CJX120 PQTX50UDS",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$1.513",
+    "precio_venta": 1512.58,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0265",
+    "nombre": "PQX100 CJX200 COPA SALSERA 0,5 ONZ CT TRANS X 50X40",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$2.857",
+    "precio_venta": 2857.15,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0906",
+    "nombre": "TAPA COPA 0.5 - 1 X 100 HOUSE",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$2.857",
+    "precio_venta": 2857.1,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0672",
+    "nombre": "TAPA COPA 1 - 1/2 VACAN X 50X 240",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$1.555",
+    "precio_venta": 1554.62,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0907",
+    "nombre": "TAPA COPA 2.0 X 100 HOUSE",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$6.807",
+    "precio_venta": 6807.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1505",
+    "nombre": "TAPA COPA 2ONZ DOMINGO X100 X25",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$6.302",
+    "precio_venta": 6302.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0671",
+    "nombre": "TAPA COPA SOUFLE 0,5 / 0,75 Y 1 ONZ X100X25",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$3.193",
+    "precio_venta": 3193.28,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1005",
+    "nombre": "TAPA COPA SOUFLE 1 1/2 X 100",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$4.076",
+    "precio_venta": 4580.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0673",
+    "nombre": "TAPA COPA SOUFLE 1,5 PANDA 2 ONZ Y 2,5 X100X25",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$4.076",
+    "precio_venta": 4076.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0670",
+    "nombre": "TAPA COPA SOUFLE 2 ONZ X 100X25",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$4.076",
+    "precio_venta": 4076.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0674",
+    "nombre": "TAPA COPA SOUFLE 3 -4-5 X 100 X 25",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$268",
+    "precio_venta": 7100.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0668",
+    "nombre": "TAPA COPA TROFORMA 1 Y 1/2 ONZ X 50 X 2000 X 6",
+    "descripcion": "Copa plástica transparente para porcionado higiénico de salsas, aderezos y muestras con ajuste hermético de tapa.",
+    "familia": "General",
+    "precio_original": "$2.017",
+    "precio_venta": 2016.67,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0050",
+    "nombre": "BANDEJA # 1 X 500",
+    "descripcion": "Bandeja espumada o rígida de alta resistencia para empaque higiénico y exhibición de carnes, frutas y comidas preparadas.",
+    "familia": "General",
+    "precio_original": "$84",
+    "precio_venta": 92.45,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0055",
+    "nombre": "BANDEJA # 25 HONDA X 500",
+    "descripcion": "Bandeja espumada o rígida de alta resistencia para empaque higiénico y exhibición de carnes, frutas y comidas preparadas.",
+    "familia": "General",
+    "precio_original": "$714",
+    "precio_venta": 630.25,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0051",
+    "nombre": "BANDEJA # 3 X 500",
+    "descripcion": "Bandeja espumada o rígida de alta resistencia para empaque higiénico y exhibición de carnes, frutas y comidas preparadas.",
+    "familia": "General",
+    "precio_original": "$3",
+    "precio_venta": 2.6,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0053",
+    "nombre": "BANDEJA # 7 X 500",
+    "descripcion": "Bandeja espumada o rígida de alta resistencia para empaque higiénico y exhibición de carnes, frutas y comidas preparadas.",
+    "familia": "General",
+    "precio_original": "$160",
+    "precio_venta": 163.87,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0056",
+    "nombre": "BANDEJA # 8 X 500",
+    "descripcion": "Bandeja espumada o rígida de alta resistencia para empaque higiénico y exhibición de carnes, frutas y comidas preparadas.",
+    "familia": "General",
+    "precio_original": "$286",
+    "precio_venta": 285.7,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2285",
+    "nombre": "BANDEJA #1 NEGRA DARNEL X500 UDS",
+    "descripcion": "Bandeja espumada o rígida de alta resistencia para empaque higiénico y exhibición de carnes, frutas y comidas preparadas.",
+    "familia": "General",
+    "precio_original": "$101",
+    "precio_venta": 100.84,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2248",
+    "nombre": "BANDEJA #7 NEGRA DARNEL",
+    "descripcion": "Bandeja espumada o rígida de alta resistencia para empaque higiénico y exhibición de carnes, frutas y comidas preparadas.",
+    "familia": "General",
+    "precio_original": "$218",
+    "precio_venta": 218.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2249",
+    "nombre": "BANDEJA #9 NEGRA DARNEL",
+    "descripcion": "Bandeja espumada o rígida de alta resistencia para empaque higiénico y exhibición de carnes, frutas y comidas preparadas.",
+    "familia": "General",
+    "precio_original": "$462",
+    "precio_venta": 462.2,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0936",
+    "nombre": "BANDEJA HONDA 1-1,5BLANCA X 500",
+    "descripcion": "Bandeja espumada o rígida de alta resistencia para empaque higiénico y exhibición de carnes, frutas y comidas preparadas.",
+    "familia": "General",
+    "precio_original": "$109",
+    "precio_venta": 109.23,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1802",
+    "nombre": "DOMO #6 PARA BANDEJA #17 X100UDS",
+    "descripcion": "Bandeja espumada o rígida de alta resistencia para empaque higiénico y exhibición de carnes, frutas y comidas preparadas.",
+    "familia": "General",
+    "precio_original": "$672",
+    "precio_venta": 672.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0328",
+    "nombre": "DOMO 6 CM CRTAL PARA BANDEJA 1 CJA X 100",
+    "descripcion": "Bandeja espumada o rígida de alta resistencia para empaque higiénico y exhibición de carnes, frutas y comidas preparadas.",
+    "familia": "General",
+    "precio_original": "$504",
+    "precio_venta": 462.2,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1987",
+    "nombre": "CAJA COMBO GRANDE BLANCA",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$840",
+    "precio_venta": 840.34,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1806",
+    "nombre": "CAJA GRANDE 67 OZ BIOFORM X 25",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$25.630",
+    "precio_venta": 25630.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1409",
+    "nombre": "CAJA HAMBUR C1 BIO X 25UND X 18PQ",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$9.664",
+    "precio_venta": 9664.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1805",
+    "nombre": "CAJA MEDIANA 45 OZ BIOFORM X 25",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$15.630",
+    "precio_venta": 15630.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1893",
+    "nombre": "CAJA TORTA 40X40",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$2.101",
+    "precio_venta": 2100.84,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0200",
+    "nombre": "CAJAS DE CHURRASCO",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$406",
+    "precio_venta": 405.88,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0203",
+    "nombre": "CAJAS DE LECHONA",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$378",
+    "precio_venta": 378.15,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0208",
+    "nombre": "CAJAS DE TORTA 26X26 TM",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$1.218",
+    "precio_venta": 1218.49,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0206",
+    "nombre": "CAJAS DE TORTA 30X30",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$1.513",
+    "precio_venta": 1680.68,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0207",
+    "nombre": "CAJAS DE TORTA 32X32 TM",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$1.513",
+    "precio_venta": 1512.61,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0472",
+    "nombre": "PALO DE HAMBURGUESA CAJA X 200 PQ X 125 UND",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$1.261",
+    "precio_venta": 1008.4,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1374",
+    "nombre": "PORTA AREPA X100UDS",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$5.966",
+    "precio_venta": 5966.4,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1840",
+    "nombre": "PORTA HAMBURGEUSAS X100UDS BCO",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$7.983",
+    "precio_venta": 7983.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2259",
+    "nombre": "PORTA HAMBURGUESA IMPRESO X100UDS",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$6.975",
+    "precio_venta": 6975.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1800",
+    "nombre": "PORTA PAPA A LA FRANCESA X100UDS",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$5.966",
+    "precio_venta": 5966.4,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1573",
+    "nombre": "PORTA PERROS BCO X100UDS",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$5.966",
+    "precio_venta": 5966.4,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1899",
+    "nombre": "PORTA PIZZA ECO X100UND",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$6.050",
+    "precio_venta": 6050.4,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2167",
+    "nombre": "PORTA PIZZA IMPRESO X100UND",
+    "descripcion": "Empaque de cartón alimentario resistente a grasas y vapor, con sistema de armado rápido y ventilación adecuada.",
+    "familia": "General",
+    "precio_original": "$6.975",
+    "precio_venta": 6974.75,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1201",
+    "nombre": "NEVERA DE ICOPOR 5 LITROS",
+    "descripcion": "Nevera térmica de poliestireno expandido de alta densidad para máxima conservación de frío en transporte de alimentos y bebidas.",
+    "familia": "General",
+    "precio_original": "$6.500",
+    "precio_venta": 6500.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0457",
+    "nombre": "NEVERA DE ICOPOR DE 12 LITROS",
+    "descripcion": "Nevera térmica de poliestireno expandido de alta densidad para máxima conservación de frío en transporte de alimentos y bebidas.",
+    "familia": "General",
+    "precio_original": "$7.143",
+    "precio_venta": 7142.83,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0458",
+    "nombre": "NEVERA DE ICOPOR DE 15 LITROS",
+    "descripcion": "Nevera térmica de poliestireno expandido de alta densidad para máxima conservación de frío en transporte de alimentos y bebidas.",
+    "familia": "General",
+    "precio_original": "$8.916",
+    "precio_venta": 8916.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0459",
+    "nombre": "NEVERA DE ICOPOR DE 24 LITROS",
+    "descripcion": "Nevera térmica de poliestireno expandido de alta densidad para máxima conservación de frío en transporte de alimentos y bebidas.",
+    "familia": "General",
+    "precio_original": "$12.983",
+    "precio_venta": 12983.25,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0460",
+    "nombre": "NEVERA DE ICOPOR DE 3 LITROS",
+    "descripcion": "Nevera térmica de poliestireno expandido de alta densidad para máxima conservación de frío en transporte de alimentos y bebidas.",
+    "familia": "General",
+    "precio_original": "$4.706",
+    "precio_venta": 4706.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0461",
+    "nombre": "NEVERA DE ICOPOR DE 36 LITROS",
+    "descripcion": "Nevera térmica de poliestireno expandido de alta densidad para máxima conservación de frío en transporte de alimentos y bebidas.",
+    "familia": "General",
+    "precio_original": "$16.639",
+    "precio_venta": 16638.75,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0462",
+    "nombre": "NEVERA DE ICOPOR DE 42 LITROS",
+    "descripcion": "Nevera térmica de poliestireno expandido de alta densidad para máxima conservación de frío en transporte de alimentos y bebidas.",
+    "familia": "General",
+    "precio_original": "$18.572",
+    "precio_venta": 18571.4,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0463",
+    "nombre": "NEVERA PARA INSULINAS",
+    "descripcion": "Nevera térmica de poliestireno expandido de alta densidad para máxima conservación de frío en transporte de alimentos y bebidas.",
+    "familia": "General",
+    "precio_original": "$4.412",
+    "precio_venta": 4411.75,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1230",
+    "nombre": "NEVERA TANQUE 80",
+    "descripcion": "Nevera térmica de poliestireno expandido de alta densidad para máxima conservación de frío en transporte de alimentos y bebidas.",
+    "familia": "General",
+    "precio_original": "$33.445",
+    "precio_venta": 32647.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0251",
+    "nombre": "CONTENEDOR 12 ONZ X 20X24 T. EP WAU",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$7.563",
+    "precio_venta": 9664.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "4156",
+    "nombre": "CONTENEDOR 12ONZ BIOFORM X25UDS",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$7.521",
+    "precio_venta": 7521.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0655",
+    "nombre": "CONTENEDOR 16 ONZ DARNEL X 20X20 PAQ",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$2.240",
+    "precio_venta": 5600.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0654",
+    "nombre": "CONTENEDOR 16 ONZ WAU X 20X20 CT PAQ",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$5.600",
+    "precio_venta": 5600.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1515",
+    "nombre": "CONTENEDOR 16ONZ BIOFORM PQX25UND CJX12",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$8.025",
+    "precio_venta": 8025.25,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0658",
+    "nombre": "CONTENEDOR 24 ONZ DARNELX 20 X 20 PAQ",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$12.600",
+    "precio_venta": 10630.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0657",
+    "nombre": "CONTENEDOR 24 ONZ WAU X 20 X 20 PAQ",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$10.630",
+    "precio_venta": 10630.29,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2157",
+    "nombre": "CONTENEDOR 4 DIV NEGRO DARNEL X50UDS",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$3.193",
+    "precio_venta": 3193.3,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0257",
+    "nombre": "CONTENEDOR 8 ONZ X 20X27 TT WAU",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$6.723",
+    "precio_venta": 6722.68,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2201",
+    "nombre": "CONTENEDOR 8ONZ BIOFORM X25 UDS",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$6.008",
+    "precio_venta": 6008.42,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0932",
+    "nombre": "CONTENEDOR AIR PACK 1/2 X 200",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$311",
+    "precio_venta": 310.92,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2207",
+    "nombre": "CONTENEDOR BOWL X750CC HOUSE X25UDS C/TAPA",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$16.723",
+    "precio_venta": 16554.67,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1519",
+    "nombre": "CONTENEDOR CARTON 16 ONZ DOMINGO X25UDS C/TAPA",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$20.300",
+    "precio_venta": 20300.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0250",
+    "nombre": "CONTENEDOR DARNEL 12 ONZ X 20X25 T ESPUMADO",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$356",
+    "precio_venta": 8823.6,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0255",
+    "nombre": "CONTENEDOR DARNEL 8 ONZ T X 20X25",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$322",
+    "precio_venta": 7142.84,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0249",
+    "nombre": "CONTENEDOR DARNEL REDONDO CT MINI PACK SX 300",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$487",
+    "precio_venta": 487.4,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0263",
+    "nombre": "CONTENEDOR DARNEL TRIANGULAR ALTURA X7 CJX200",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$462",
+    "precio_venta": 462.18,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0262",
+    "nombre": "CONTENEDOR DARNEL TRIANGULAR X ALTURA 5 CJX200",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$9",
+    "precio_venta": 9.2,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0302",
+    "nombre": "CUCHARA BLANCA GRANDE TAMI X 100X10",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$7.924",
+    "precio_venta": 7924.4,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0942",
+    "nombre": "CUCHARA CRISTAL GRANDE X 100 X 10 DARNEL",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$16.471",
+    "precio_venta": 16470.67,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0303",
+    "nombre": "CUCHARA DARNEL CJ X10PQS X100UDS NEGRA",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$16.470",
+    "precio_venta": 16471.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0301",
+    "nombre": "CUCHARA DULCERA BLANCA TAMI X 100X10",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$6.513",
+    "precio_venta": 6134.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1591",
+    "nombre": "CUCHARA EUROPEA GRANDE X 100 PC X 50",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$3.866",
+    "precio_venta": 3866.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1816",
+    "nombre": "CUCHARA GOLAZO GRANDE X100",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$3.866",
+    "precio_venta": 4600.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0308",
+    "nombre": "CUCHARA GOLAZO PEQUEÑA PQT X100",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$2.311",
+    "precio_venta": 2353.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0304",
+    "nombre": "CUCHARA GRANDE SURAPLAS X 100X60",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$5.462",
+    "precio_venta": 5714.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "9044",
+    "nombre": "CUCHARA MADERA GRANDE X50UDS ECOHOUSE X16CM",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$3.916",
+    "precio_venta": 3915.96,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1206",
+    "nombre": "CUCHARA MADERA PEQUEÑA X11CM X50UDS ECOHOUSE",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$3.782",
+    "precio_venta": 3781.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "8030",
+    "nombre": "CUCHARA MADERA X100UDS 16CM MEGA",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$5.647",
+    "precio_venta": 5647.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1387",
+    "nombre": "CUCHARA PALITA X 500 FRESH",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$10.000",
+    "precio_venta": 10420.17,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1377",
+    "nombre": "CUCHARA PEQUEÑA BLANCA EUROPEA PCX100 PQTX100",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$2.850",
+    "precio_venta": 2850.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0307",
+    "nombre": "CUCHARA PEQUEÑA SURAPLAS X 100X120",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$2.689",
+    "precio_venta": 3109.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1818",
+    "nombre": "CUCHILLO GOLAZO GRANDE X 100",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$3.866",
+    "precio_venta": 3865.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "8031",
+    "nombre": "CUCHILLO MADERA X100 UDS 16CM MEGA",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$4.942",
+    "precio_venta": 4942.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0331",
+    "nombre": "DOMO CONTENEDOR DU 16 ONZ ST X 500",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$336",
+    "precio_venta": 336.14,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0519",
+    "nombre": "PITILLO JUMBO CUCHARA 7.3 COLOR X200",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$12.101",
+    "precio_venta": 12100.86,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1514",
+    "nombre": "TAPA CARTON CONTENEDOR 16ONZ BIOFORM PQX25UND CJX12",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$4.286",
+    "precio_venta": 4285.75,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2206",
+    "nombre": "TAPA CARTON CONTENEDOR 8-12ONZ BIOFORM X25UDS",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$4.160",
+    "precio_venta": 4454.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0712",
+    "nombre": "TENEDOR DARNEL NEGRO CJX10 PQTX100UDS",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$16.387",
+    "precio_venta": 16386.67,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1931",
+    "nombre": "TENEDOR GDE EUROPEA X100",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$3.866",
+    "precio_venta": 3865.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1817",
+    "nombre": "TENEDOR GOLAZO GRANDE X 100",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$920",
+    "precio_venta": 4600.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "8034",
+    "nombre": "TENEDOR MADERA X100UDS X16CM",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$5.345",
+    "precio_venta": 5345.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "3809",
+    "nombre": "TENEDOR PEQUEÑO BLANCO EUROPEO PCX100 CJX100",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$2.311",
+    "precio_venta": 2353.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1052",
+    "nombre": "TENEDOR PEQUEÑO GOLAZO X100",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$2.227",
+    "precio_venta": 2226.9,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0713",
+    "nombre": "TENEDOR SURAPLAS GRANDE X 100 X 60",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$5.462",
+    "precio_venta": 5462.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0714",
+    "nombre": "TENEDOR SURAPLAS PQÑO X 100 X 120",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$2.941",
+    "precio_venta": 2521.01,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0711",
+    "nombre": "TENEDOR TAMI BLANCO X 100 X 10",
+    "descripcion": "Cubierto desechable resistente, higiénico y ergonómico para servicio gastronómico en restaurantes, eventos y domicilios.",
+    "familia": "General",
+    "precio_original": "$8.235",
+    "precio_venta": 8235.25,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0917",
+    "nombre": "MEZCLADOR MADERA PLANO X 500 X 100 PQT CHEVERE",
+    "descripcion": "Implemento de madera pulida 100% biodegradable, suave al tacto, sin astillas y apto para contacto directo con alimentos.",
+    "familia": "General",
+    "precio_original": "$350",
+    "precio_venta": 3445.5,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0476",
+    "nombre": "PALO DE PALETA LARGO X 1000 CHEVERE",
+    "descripcion": "Implemento de madera pulida 100% biodegradable, suave al tacto, sin astillas y apto para contacto directo con alimentos.",
+    "familia": "General",
+    "precio_original": "$9.832",
+    "precio_venta": 9831.9,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0477",
+    "nombre": "PALO DOBLE PUNTA EL SOL X 180X144",
+    "descripcion": "Implemento de madera pulida 100% biodegradable, suave al tacto, sin astillas y apto para contacto directo con alimentos.",
+    "familia": "General",
+    "precio_original": "$490",
+    "precio_venta": 400.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "0471",
+    "nombre": "PALO PALETA CORTO CHEVERE CJX10 X1000UDS",
+    "descripcion": "Implemento de madera pulida 100% biodegradable, suave al tacto, sin astillas y apto para contacto directo con alimentos.",
+    "familia": "General",
+    "precio_original": "$8.824",
+    "precio_venta": 8823.57,
+    "precio_manual": false
+  },
+  {
+    "codigo": "2315",
+    "nombre": "PALO PINCHO 25CM GRUESO EL SOL X100UDS CJX50",
+    "descripcion": "Implemento de madera pulida 100% biodegradable, suave al tacto, sin astillas y apto para contacto directo con alimentos.",
+    "familia": "General",
+    "precio_original": "$2.017",
+    "precio_venta": 2016.8,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1685",
+    "nombre": "PALO PINCHO 25CM GRUESO X 100 X 50 CHEVERE",
+    "descripcion": "Implemento de madera pulida 100% biodegradable, suave al tacto, sin astillas y apto para contacto directo con alimentos.",
+    "familia": "General",
+    "precio_original": "$2.185",
+    "precio_venta": 2184.89,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1334",
+    "nombre": "PALO PINCHO EL SOL X20CM X100UDS CJX50",
+    "descripcion": "Implemento de madera pulida 100% biodegradable, suave al tacto, sin astillas y apto para contacto directo con alimentos.",
+    "familia": "General",
+    "precio_original": "$1.639",
+    "precio_venta": 1638.66,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1856",
+    "nombre": "PALO PINCHO GRUESO 25CM X50 PQTS HOUSE",
+    "descripcion": "Implemento de madera pulida 100% biodegradable, suave al tacto, sin astillas y apto para contacto directo con alimentos.",
+    "familia": "General",
+    "precio_original": "$2.185",
+    "precio_venta": 2101.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1663",
+    "nombre": "PALO PINCHO HOUSE GRUESO 30CM X50PQTS X100UDS",
+    "descripcion": "Implemento de madera pulida 100% biodegradable, suave al tacto, sin astillas y apto para contacto directo con alimentos.",
+    "familia": "General",
+    "precio_original": "$2.521",
+    "precio_venta": 2521.0,
+    "precio_manual": false
+  },
+  {
+    "codigo": "1953",
+    "nombre": "PALO RUSTICO PV X120",
+    "descripcion": "Implemento de madera pulida 100% biodegradable, suave al tacto, sin astillas y apto para contacto directo con alimentos.",
+    "familia": "General",
+    "precio_original": "$3.151",
+    "precio_venta": 4033.5,
+    "precio_manual": false
+  }
+]

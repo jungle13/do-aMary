@@ -1,0 +1,252 @@
+[
+  {
+    "codigo": "4220",
+    "nombre": "CAJA DE BORRADOR X12",
+    "descripcion": "Borrador de miga de pan suave de alta eficiencia, borra limpiamente sin manchar ni maltratar el papel.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$3.500",
+    "precio_venta": 3500.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "2116",
+    "nombre": "CAJA LAPIZ X12 OFIESCO",
+    "descripcion": "Caja de lápices de grafito HB con mina resistente de trazo suave y uniforme para uso escolar y de oficina.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$1.000",
+    "precio_venta": 4725.0,
+    "precio_manual": true,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "4223",
+    "nombre": "CAJA SACAPUNTAS X12",
+    "descripcion": "Sacapuntas con cuchilla de acero afilado de alta durabilidad para un afilado preciso y sin quiebres.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$840",
+    "precio_venta": 840.33,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "5486",
+    "nombre": "CORRECTOR",
+    "descripcion": "Corrector líquido de alta cobertura y secado ultrarrápido para correcciones limpias y precisas.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$2.521",
+    "precio_venta": 2521.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "4871",
+    "nombre": "MARCADOR PERMANENTE NEGRO X12",
+    "descripcion": "Marcador permanente de secado rápido y tinta indeleble de alta fijación sobre múltiples superficies.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$2.000",
+    "precio_venta": 647.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "2190",
+    "nombre": "CARTON PAJA 1/8",
+    "descripcion": "Lámina de cartón/cartulina de óptimo calibre y rigidez para maquetas, proyectos escolares y presentaciones.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$504",
+    "precio_venta": 504.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "8012",
+    "nombre": "CARTULINA PLANA VERDE",
+    "descripcion": "Lámina de cartón/cartulina de óptimo calibre y rigidez para maquetas, proyectos escolares y presentaciones.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$1.176",
+    "precio_venta": 1176.5,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "4928",
+    "nombre": "FOMI ESCARCHADO",
+    "descripcion": "Lámina de fomi escarchado brillante de textura flexible y fácil corte para manualidades y decoraciones.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$1.260",
+    "precio_venta": 1260.5,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "2185",
+    "nombre": "PAPEL SEDA COLORES SURTIDOS",
+    "descripcion": "Pliegos de papel seda de colores vivos y textura fina para manualidades, piñatas y envoltura delicada.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$190",
+    "precio_venta": 190.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "8912",
+    "nombre": "ROLLO PAPEL PERIODICO",
+    "descripcion": "Rollo de papel periódico resistente y versátil para embalaje, protección de objetos, bocetos y manualidades.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$5.900",
+    "precio_venta": 5900.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "5702",
+    "nombre": "CINTA ENMASCARAR 18MMX20",
+    "descripcion": "Cinta de enmascarar de papel crepado con adhesivo de fácil remoción sin dejar residuos en superficies.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$1.429",
+    "precio_venta": 1428.57,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "4887",
+    "nombre": "CINTA ENMASCARAR ANCHA",
+    "descripcion": "Cinta de enmascarar de papel crepado con adhesivo de fácil remoción sin dejar residuos en superficies.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$3.361",
+    "precio_venta": 3361.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "2089",
+    "nombre": "COLBON KILO",
+    "descripcion": "Pegante blanco sintético no tóxico de alta adherencia y secado transparente para papel, cartón y madera.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$26.800",
+    "precio_venta": 26800.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "5506",
+    "nombre": "ENCENDEDOR",
+    "descripcion": "Encendedor confiable de encendido rápido para múltiples aplicaciones en cocina, eventos y hogar.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$494",
+    "precio_venta": 6302.5,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "8910",
+    "nombre": "GALON COLBON",
+    "descripcion": "Pegante blanco sintético no tóxico de alta adherencia y secado transparente para papel, cartón y madera.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$26.800",
+    "precio_venta": 26800.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "8907",
+    "nombre": "GRAPADORA DE MADERA",
+    "descripcion": "Grapadora industrial de madera de gran resistencia para fijación segura en talleres, embalaje y oficina.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$33.500",
+    "precio_venta": 33500.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "2181",
+    "nombre": "BOMBAS R9 X 50 UDS",
+    "descripcion": "Globos de látex 100% biodegradable de alta elasticidad y colores brillantes para eventos y decoraciones.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$6.302",
+    "precio_venta": 6302.5,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "8913",
+    "nombre": "CABUYA YUTE NATURAL X100 MTS",
+    "descripcion": "Cabuya de fibra natural de yute resistente para amarres rústicos, embalaje, artesanías y jardinería.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$20.600",
+    "precio_venta": 20600.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "8909",
+    "nombre": "GLOBO R6 X50",
+    "descripcion": "Globos de látex 100% biodegradable de alta elasticidad y colores brillantes para eventos y decoraciones.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$11.500",
+    "precio_venta": 11500.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "8908",
+    "nombre": "KILO DE VINILO BLANCO",
+    "descripcion": "Pintura vinilo a base de agua de alto poder cubriente y colores vivos para cartón, madera y lienzos.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$16.400",
+    "precio_venta": 16400.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "8906",
+    "nombre": "MARCO DE MADERA 20CMX20CM (4CMX2CM)",
+    "descripcion": "Soporte y tela para pintura artística con textura fina e imprimación profesional lista para trabajar.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$7.400",
+    "precio_venta": 7400.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "8914",
+    "nombre": "PAQ DE POMPONES X100",
+    "descripcion": "Accesorios flexibles y coloridos para estimulación creativa, manualidades escolares y decoraciones.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$22.000",
+    "precio_venta": 22000.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "8911",
+    "nombre": "PAQ LIMPIAPIPAS X100",
+    "descripcion": "Accesorios flexibles y coloridos para estimulación creativa, manualidades escolares y decoraciones.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$4.250",
+    "precio_venta": 4250.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "5975",
+    "nombre": "PINCEL PLANO #8",
+    "descripcion": "Pincel plano con cerdas sintéticas de excelente retención de pintura para trazos definidos y uniformes.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$1.000",
+    "precio_venta": 1000.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  },
+  {
+    "codigo": "8915",
+    "nombre": "TELA LIENZO",
+    "descripcion": "Soporte y tela para pintura artística con textura fina e imprimación profesional lista para trabajar.",
+    "familia": "LISTADO OFICIAL MAESTRO",
+    "precio_original": "$2.200",
+    "precio_venta": 2200.0,
+    "precio_manual": false,
+    "categoria": "Papelería"
+  }
+]
