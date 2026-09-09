@@ -4,7 +4,10 @@ Permite consultar estados de cuenta por cliente, registrar pagos/abonos (FIFO o 
 diferir deudas en cuotas con amortización automática, buscar por cliente o documento y filtrar por fecha.
 """
 import datetime
+import os
+import tempfile
 import flet as ft
+from fpdf import FPDF
 from config import Config
 from core.database import BaseDatabase
 from core.logger import get_logger, log_error
@@ -12,6 +15,12 @@ from core.supabase_client import get_client
 from ui.components.periodo_selector import PeriodoSelectorWidget
 
 logger = get_logger("CarteraView")
+
+def clean_fpdf_str(txt: str) -> str:
+    if not txt:
+        return ""
+    txt = str(txt).replace("•", "-").replace("✦", "*").replace("✓", "V").replace("—", "-").replace("º", "o").replace("ª", "a")
+    return txt.encode("latin-1", "replace").decode("latin-1")
 
 class CarteraView(ft.Container):
     def __init__(self):
@@ -267,6 +276,16 @@ class CarteraView(ft.Container):
         )
 
         # Botones de Acción del Cliente (visibles solo cuando hay cliente seleccionado)
+        self.btn_informe_global = ft.ElevatedButton(
+            text="Generar Informe",
+            icon=ft.icons.ASSESSMENT_ROUNDED,
+            bgcolor=Config.COLOR_PRIMARY,
+            color="white",
+            height=34,
+            visible=False,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=lambda e: self._abrir_modal_informe_facturas(self.cliente_seleccionado)
+        )
         self.btn_pagar_global = ft.ElevatedButton(
             text="Registrar Pago",
             icon=ft.icons.PAYMENTS_ROUNDED,
@@ -293,6 +312,7 @@ class CarteraView(ft.Container):
                 ft.Column([self.lbl_titulo, self.lbl_subtitulo], spacing=2),
                 ft.Container(expand=True),
                 self.periodo_selector,
+                self.btn_informe_global,
                 self.btn_cuotas_global,
                 self.btn_pagar_global,
                 self.btn_refrescar
@@ -499,6 +519,7 @@ class CarteraView(ft.Container):
                         self.cliente_seleccionado = None
                         self.btn_pagar_global.visible = False
                         self.btn_cuotas_global.visible = False
+                        self.btn_informe_global.visible = False
                         self.panel_derecho_contenido.content = self._crear_placeholder_vacio()
 
                 self.safe_update()
@@ -831,6 +852,7 @@ class CarteraView(ft.Container):
         self.cliente_seleccionado = None
         self.btn_pagar_global.visible = False
         self.btn_cuotas_global.visible = False
+        self.btn_informe_global.visible = False
 
         nom_enc = enc.get("nombre", "")
         com_pct = float(enc.get("porcentaje_comision") or 0.0)
@@ -1163,6 +1185,7 @@ class CarteraView(ft.Container):
         self.btn_refrescar.visible = not self.panel_cliente_expandido
         self.btn_pagar_global.visible = bool(self.cliente_seleccionado)
         self.btn_cuotas_global.visible = self.mostrar_plan_cuotas and bool(self.cliente_seleccionado)
+        self.btn_informe_global.visible = bool(self.cliente_seleccionado)
 
         if self.cliente_seleccionado:
             self._cargar_detalle_cliente(self.cliente_seleccionado, recargar_datos=False)
@@ -1187,6 +1210,7 @@ class CarteraView(ft.Container):
         # Mostrar botones de acción en el top bar
         self.btn_pagar_global.visible = True
         self.btn_cuotas_global.visible = self.mostrar_plan_cuotas
+        self.btn_informe_global.visible = True
 
         # Chip visual interactivo del vendedor en la cabecera
         if vend:
@@ -1363,6 +1387,31 @@ class CarteraView(ft.Container):
             )
             return
 
+        btn_generar_informe_tab = ft.ElevatedButton(
+            text="Generar Informe",
+            icon=ft.icons.ASSESSMENT_ROUNDED,
+            bgcolor=Config.COLOR_PRIMARY,
+            color="white",
+            height=30,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=6),
+                padding=ft.padding.symmetric(horizontal=10, vertical=2)
+            ),
+            on_click=lambda e: self._abrir_modal_informe_facturas(self.cliente_seleccionado)
+        )
+
+        toolbar = ft.Container(
+            content=ft.Row([
+                ft.Row([
+                    ft.Icon(ft.icons.RECEIPT_LONG_ROUNDED, size=15, color=Config.COLOR_PRIMARY),
+                    ft.Text(f"{len(self.facturas_cliente)} facturas registradas", size=11, weight="bold", color=Config.COLOR_PRIMARY),
+                ], spacing=4),
+                ft.Container(expand=True),
+                btn_generar_informe_tab
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.padding.only(left=2, right=2, top=2, bottom=4)
+        )
+
         dt = ft.DataTable(
             columns=[
                 ft.DataColumn(ft.Text("Fecha", size=11, weight="bold")),
@@ -1422,8 +1471,9 @@ class CarteraView(ft.Container):
             )
 
         self.tab_content_container.content = ft.ListView(
-            controls=[dt],
-            expand=True
+            controls=[toolbar, dt],
+            expand=True,
+            spacing=4
         )
 
     def _render_tab_historial_pagos(self):
@@ -2410,6 +2460,609 @@ class CarteraView(ft.Container):
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda e: self._cerrar_modal(dlg)),
                 btn_confirmar_pago
+            ]
+        )
+
+        if self.page:
+            self.page.overlay.append(dlg)
+            dlg.open = True
+            self.page.update()
+
+    # ==========================================
+    # MODAL: GENERAR INFORME DE FACTURAS
+    # ==========================================
+    def _abrir_modal_informe_facturas(self, cli: dict):
+        """
+        Abre un modal detallado con todas las facturas del cliente (pagadas, parciales, pendientes).
+        Permite filtrar por período, estado, tipo de documento o texto de búsqueda,
+        seleccionar facturas con casillas de verificación (checkboxes),
+        actualizar KPIs en tiempo real y exportar en PDF o copiar al portapapeles.
+        """
+        if not cli:
+            self._mostrar_snackbar("Selecciona un cliente para generar su informe.", "amber800")
+            return
+
+        nom_cliente = cli.get("nombre", "")
+        vendedor = (cli.get("vendedor_encargado") or "").strip() or "Sin Asignar"
+        comision_pct = float(cli.get("porcentaje_comision") or 0.0)
+
+        # Facturas del cliente cargadas actualmente
+        facturas_totales = list(self.facturas_cliente or [])
+        if not facturas_totales:
+            self._mostrar_snackbar("Este cliente no tiene facturas para generar informe.", "amber800")
+            return
+
+        # Extraer periodos disponibles (YYYY-MM)
+        periodos_set = set()
+        for f in facturas_totales:
+            fec = str(f.get("fecha") or "")
+            if len(fec) >= 7 and "-" in fec:
+                periodos_set.add(fec[:7])
+        periodos_ordenados = sorted(list(periodos_set), reverse=True)
+
+        # Set de facturas seleccionadas (por defecto todas seleccionadas)
+        seleccionadas = set(str(f.get("factura_no")) for f in facturas_totales)
+
+        # Controles de filtros
+        dd_periodo_opts = [ft.dropdown.Option("TODOS", "Todos los períodos")] + [
+            ft.dropdown.Option(p, f"Período {p}") for p in periodos_ordenados
+        ]
+
+        # Período inicial: coincide con el selector superior si existe en las facturas
+        periodo_activo = self.periodo_selector.get_periodo_actual() if hasattr(self, "periodo_selector") else None
+        periodo_inicial = periodo_activo if periodo_activo in periodos_set else "TODOS"
+
+        dd_periodo = ft.Dropdown(
+            label="Período",
+            value=periodo_inicial,
+            options=dd_periodo_opts,
+            dense=True,
+            text_size=11,
+            width=165
+        )
+
+        dd_estado = ft.Dropdown(
+            label="Estado",
+            value="TODOS",
+            options=[
+                ft.dropdown.Option("TODOS", "Todos los estados"),
+                ft.dropdown.Option("CON_SALDO", "Con saldo / Pendientes"),
+                ft.dropdown.Option("PAGADA", "Pagadas (Al día)"),
+                ft.dropdown.Option("PARCIAL", "Abono parcial"),
+            ],
+            dense=True,
+            text_size=11,
+            width=165
+        )
+
+        dd_tipo_doc = ft.Dropdown(
+            label="Tipo Documento",
+            value="TODOS",
+            options=[
+                ft.dropdown.Option("TODOS", "Todos los tipos"),
+                ft.dropdown.Option("REMISIÓN", "Remisión"),
+                ft.dropdown.Option("FACTURA_POS", "Factura POS"),
+            ],
+            dense=True,
+            text_size=11,
+            width=150
+        )
+
+        txt_buscar = ft.TextField(
+            label="Buscar factura...",
+            hint_text="No. doc o tipo",
+            prefix_icon=ft.icons.SEARCH_ROUNDED,
+            dense=True,
+            text_size=11,
+            expand=True,
+            height=38
+        )
+
+        chk_todos = ft.Checkbox(
+            label="Seleccionar Todo (Visibles)",
+            value=True
+        )
+
+        # Tarjetas KPI dinámicas del modal
+        lbl_kpi_facturado = ft.Text("$0", size=15, weight="bold", color=Config.COLOR_PRIMARY)
+        lbl_kpi_abonado = ft.Text("$0", size=15, weight="bold", color=Config.COLOR_SUCCESS)
+        lbl_kpi_pendiente = ft.Text("$0", size=15, weight="bold", color="#DC2626")
+        lbl_kpi_conteo = ft.Text("0 facturas", size=10.5, color=Config.COLOR_TEXT_MUTED, weight="w500")
+
+        card_facturado = ft.Container(
+            content=ft.Column([
+                ft.Text("Total Facturado", size=9.5, color=Config.COLOR_TEXT_MUTED, weight="w500"),
+                lbl_kpi_facturado
+            ], spacing=1),
+            bgcolor="#F8FAFC",
+            border=ft.border.all(1, Config.COLOR_BORDER),
+            padding=ft.padding.symmetric(horizontal=10, vertical=6),
+            border_radius=8,
+            expand=True
+        )
+
+        card_abonado = ft.Container(
+            content=ft.Column([
+                ft.Text("Total Abonado", size=9.5, color=Config.COLOR_TEXT_MUTED, weight="w500"),
+                lbl_kpi_abonado
+            ], spacing=1),
+            bgcolor="#F0FDF4",
+            border=ft.border.all(1, "#BBF7D0"),
+            padding=ft.padding.symmetric(horizontal=10, vertical=6),
+            border_radius=8,
+            expand=True
+        )
+
+        card_pendiente = ft.Container(
+            content=ft.Column([
+                ft.Text("Saldo Pendiente", size=9.5, color=Config.COLOR_TEXT_MUTED, weight="w500"),
+                lbl_kpi_pendiente
+            ], spacing=1),
+            bgcolor="#FEF2F2",
+            border=ft.border.all(1, "#FECACA"),
+            padding=ft.padding.symmetric(horizontal=10, vertical=6),
+            border_radius=8,
+            expand=True
+        )
+
+        row_kpis_modal = ft.Row([
+            card_facturado,
+            card_abonado,
+            card_pendiente,
+        ], spacing=8)
+
+        # DataTable del Modal
+        dt_modal = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("", size=10)),
+                ft.DataColumn(ft.Text("Fecha", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Tipo", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Factura No.", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Total Factura", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Total Abonado", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Saldo Pendiente", size=11, weight="bold")),
+                ft.DataColumn(ft.Text("Estado", size=11, weight="bold")),
+            ],
+            rows=[],
+            heading_row_height=30,
+            data_row_min_height=28,
+            data_row_max_height=32,
+            column_spacing=10,
+            heading_row_color=Config.COLOR_MUTED
+        )
+
+        container_tabla_modal = ft.Container(
+            content=ft.ListView([dt_modal], expand=True),
+            border=ft.border.all(1, Config.COLOR_BORDER),
+            border_radius=8,
+            height=280,
+            expand=True
+        )
+
+        facturas_visibles_actuales = []
+
+        def recalcular_totales():
+            tot_f = 0.0
+            tot_a = 0.0
+            tot_p = 0.0
+            cnt_sel = 0
+
+            for f in facturas_visibles_actuales:
+                fno = str(f.get("factura_no"))
+                if fno in seleccionadas:
+                    cnt_sel += 1
+                    tot_f += float(f.get("total_factura") or 0.0)
+                    tot_a += float(f.get("total_abonado") or 0.0)
+                    tot_p += float(f.get("saldo_pendiente") or 0.0)
+
+            lbl_kpi_facturado.value = f"${tot_f:,.0f}"
+            lbl_kpi_abonado.value = f"${tot_a:,.0f}"
+            lbl_kpi_pendiente.value = f"${tot_p:,.0f}"
+            lbl_kpi_conteo.value = f"{cnt_sel} de {len(facturas_visibles_actuales)} visibles seleccionadas ({len(facturas_totales)} en total)"
+
+            if facturas_visibles_actuales:
+                todos_marcados = all(str(f.get("factura_no")) in seleccionadas for f in facturas_visibles_actuales)
+                chk_todos.value = todos_marcados
+            else:
+                chk_todos.value = False
+
+            if self.page:
+                self.page.update()
+
+        def on_check_fila(fno: str, valor: bool):
+            if valor:
+                seleccionadas.add(fno)
+            else:
+                seleccionadas.discard(fno)
+            recalcular_totales()
+
+        def on_toggle_todos(e):
+            nuevo_val = bool(chk_todos.value)
+            for f in facturas_visibles_actuales:
+                fno = str(f.get("factura_no"))
+                if nuevo_val:
+                    seleccionadas.add(fno)
+                else:
+                    seleccionadas.discard(fno)
+            actualizar_filas_tabla()
+            recalcular_totales()
+
+        chk_todos.on_change = on_toggle_todos
+
+        def actualizar_filas_tabla():
+            nonlocal facturas_visibles_actuales
+            f_per = dd_periodo.value
+            f_est = dd_estado.value
+            f_tipo = dd_tipo_doc.value
+            busq = (txt_buscar.value or "").strip().upper()
+
+            visibles = []
+            for f in facturas_totales:
+                fec = str(f.get("fecha") or "")
+                fac_no = str(f.get("factura_no") or "")
+                tipo = str(f.get("tipo_documento") or "")
+                est = str(f.get("estado_factura") or "PENDIENTE")
+                saldo = float(f.get("saldo_pendiente") or 0.0)
+
+                # Filtro periodo
+                if f_per != "TODOS" and not fec.startswith(f_per):
+                    continue
+
+                # Filtro estado
+                if f_est == "CON_SALDO" and saldo <= 0.01:
+                    continue
+                if f_est == "PAGADA" and est != "PAGADA":
+                    continue
+                if f_est == "PARCIAL" and est != "PARCIAL":
+                    continue
+
+                # Filtro tipo
+                if f_tipo == "REMISIÓN" and "REM" not in tipo.upper():
+                    continue
+                if f_tipo in ("FACTURA_POS", "POS") and "POS" not in tipo.upper():
+                    continue
+
+                # Filtro búsqueda
+                if busq:
+                    if busq not in fac_no.upper() and busq not in tipo.upper() and busq not in fec:
+                        continue
+
+                visibles.append(f)
+
+            facturas_visibles_actuales = visibles
+            dt_modal.rows.clear()
+
+            for f in facturas_visibles_actuales:
+                fac_no = str(f.get("factura_no", ""))
+                is_checked = fac_no in seleccionadas
+                est = f.get("estado_factura", "PENDIENTE")
+                saldo_f = float(f.get("saldo_pendiente", 0.0))
+
+                if est == "PAGADA":
+                    b_bg, b_fg, b_tx = "#DCFCE7", "#16A34A", "PAGADA"
+                elif est == "PARCIAL":
+                    b_bg, b_fg, b_tx = "#FEF3C7", "#D97706", "PARCIAL"
+                else:
+                    b_bg, b_fg, b_tx = "#FEE2E2", "#DC2626", "PENDIENTE"
+
+                chk_fila = ft.Checkbox(
+                    value=is_checked,
+                    on_change=lambda e, fno=fac_no: on_check_fila(fno, e.control.value)
+                )
+
+                dt_modal.rows.append(
+                    ft.DataRow(cells=[
+                        ft.DataCell(chk_fila),
+                        ft.DataCell(ft.Text(f.get("fecha", ""), size=10.5)),
+                        ft.DataCell(ft.Text(f.get("tipo_documento", "POS"), size=10.5)),
+                        ft.DataCell(ft.Text(fac_no, size=10.5, weight="bold")),
+                        ft.DataCell(ft.Text(f"${f.get('total_factura', 0.0):,.0f}", size=10.5)),
+                        ft.DataCell(ft.Text(f"${f.get('total_abonado', 0.0):,.0f}", size=10.5, color=Config.COLOR_SUCCESS)),
+                        ft.DataCell(ft.Text(f"${saldo_f:,.0f}", size=10.5, weight="bold", color="#DC2626" if saldo_f > 0 else "grey")),
+                        ft.DataCell(
+                            ft.Container(
+                                content=ft.Text(b_tx, size=8.5, weight="bold", color=b_fg),
+                                bgcolor=b_bg,
+                                padding=ft.padding.symmetric(horizontal=5, vertical=1),
+                                border_radius=4
+                            )
+                        )
+                    ])
+                )
+
+        def on_filtro_change(e):
+            actualizar_filas_tabla()
+            recalcular_totales()
+
+        dd_periodo.on_change = on_filtro_change
+        dd_estado.on_change = on_filtro_change
+        dd_tipo_doc.on_change = on_filtro_change
+        txt_buscar.on_change = on_filtro_change
+
+        # Inicializar filas y métricas
+        actualizar_filas_tabla()
+        recalcular_totales()
+
+        # Botón 1: Copiar al Portapapeles
+        def copiar_al_portapapeles(e):
+            facturas_a_incluir = [f for f in facturas_visibles_actuales if str(f.get("factura_no")) in seleccionadas]
+            if not facturas_a_incluir:
+                self._mostrar_snackbar("No hay facturas seleccionadas para copiar.", "amber800")
+                return
+
+            tot_f = sum(float(f.get("total_factura") or 0.0) for f in facturas_a_incluir)
+            tot_a = sum(float(f.get("total_abonado") or 0.0) for f in facturas_a_incluir)
+            tot_p = sum(float(f.get("saldo_pendiente") or 0.0) for f in facturas_a_incluir)
+
+            p_texto = f"Período: {dd_periodo.value}" if dd_periodo.value != "TODOS" else "Período: Todos los períodos"
+            fecha_gen = datetime.datetime.now().strftime("%Y-%m-%d %I:%M %p")
+
+            lineas = [
+                "====================================================",
+                "TIENDA Y ABARROTES LOS DESECHABLES DE DOÑA MARY SAS",
+                "ESTADO DE CUENTA / INFORME DE FACTURAS",
+                "====================================================",
+                f"Cliente: {nom_cliente}",
+                f"Vendedor Encargado: {vendedor}",
+                f"{p_texto}",
+                f"Fecha de Generación: {fecha_gen}",
+                "----------------------------------------------------",
+                "RESUMEN CONSOLIDADO:",
+                f"• Facturas Seleccionadas: {len(facturas_a_incluir)}",
+                f"• Total Facturado: ${tot_f:,.0f}",
+                f"• Total Abonado: ${tot_a:,.0f}",
+                f"• Saldo Total Pendiente: ${tot_p:,.0f}",
+                "----------------------------------------------------",
+                "DETALLE DE FACTURAS:",
+            ]
+
+            for idx, f in enumerate(facturas_a_incluir, 1):
+                fno = f.get("factura_no", "")
+                fec = f.get("fecha", "")
+                tipo = f.get("tipo_documento", "Factura")
+                tf = float(f.get("total_factura") or 0.0)
+                ta = float(f.get("total_abonado") or 0.0)
+                sp = float(f.get("saldo_pendiente") or 0.0)
+                est = f.get("estado_factura", "PENDIENTE")
+
+                lineas.append(
+                    f"{idx}. Factura #{fno} ({fec}) [{tipo}]\n"
+                    f"   Total: ${tf:,.0f} | Abonado: ${ta:,.0f} | Saldo: ${sp:,.0f} | Estado: {est}"
+                )
+
+            lineas.append("====================================================")
+            texto_completo = "\n".join(lineas)
+
+            if self.page:
+                self.page.set_clipboard(texto_completo)
+                self._mostrar_snackbar("✓ Informe copiado al portapapeles. Listo para pegar.", "green")
+
+        # Botón 2: Exportar a PDF
+        def exportar_pdf(e):
+            facturas_a_incluir = [f for f in facturas_visibles_actuales if str(f.get("factura_no")) in seleccionadas]
+            if not facturas_a_incluir:
+                self._mostrar_snackbar("No hay facturas seleccionadas para generar el PDF.", "amber800")
+                return
+
+            try:
+                tot_f = sum(float(f.get("total_factura") or 0.0) for f in facturas_a_incluir)
+                tot_a = sum(float(f.get("total_abonado") or 0.0) for f in facturas_a_incluir)
+                tot_p = sum(float(f.get("saldo_pendiente") or 0.0) for f in facturas_a_incluir)
+
+                periodo_label = f"Período: {dd_periodo.value}" if dd_periodo.value != "TODOS" else "Período: Todos los períodos"
+                fecha_gen = datetime.datetime.now().strftime("%Y-%m-%d %I:%M %p")
+
+                class ClienteInformePDF(FPDF):
+                    def header(self):
+                        self.set_font("Arial", "B", 12)
+                        self.set_text_color(15, 23, 42)
+                        self.cell(0, 6, clean_fpdf_str("TIENDA Y ABARROTES LOS DESECHABLES DE DOÑA MARY SAS"), ln=True, align="C")
+                        self.set_font("Arial", "B", 10)
+                        self.set_text_color(37, 99, 235)
+                        self.cell(0, 5, clean_fpdf_str("ESTADO DE CUENTA / INFORME DETALLADO DE FACTURAS"), ln=True, align="C")
+                        self.set_font("Arial", "", 8)
+                        self.set_text_color(100, 116, 139)
+                        self.cell(0, 4, f"Generado el: {fecha_gen}", ln=True, align="C")
+                        self.ln(3)
+                        self.set_draw_color(226, 232, 240)
+                        self.set_line_width(0.4)
+                        self.line(10, self.get_y(), 200, self.get_y())
+                        self.ln(4)
+
+                    def footer(self):
+                        self.set_y(-15)
+                        self.set_font("Arial", "I", 8)
+                        self.set_text_color(148, 163, 184)
+                        self.cell(0, 10, clean_fpdf_str(f"Página {self.page_no()}/{{nb}} • Sistema Doña Mary SAS"), align="C")
+
+                pdf = ClienteInformePDF(orientation="P", unit="mm", format="A4")
+                pdf.alias_nb_pages()
+                pdf.add_page()
+                pdf.set_auto_page_break(auto=True, margin=15)
+
+                # Info Box Cliente
+                pdf.set_fill_color(248, 250, 252)
+                pdf.set_draw_color(203, 213, 225)
+                pdf.rect(10, pdf.get_y(), 190, 24, "FD")
+
+                y_box = pdf.get_y() + 3
+                pdf.set_xy(14, y_box)
+                pdf.set_font("Arial", "B", 10)
+                pdf.set_text_color(15, 23, 42)
+                pdf.cell(90, 5, clean_fpdf_str(f"CLIENTE: {nom_cliente}"), ln=False)
+                pdf.set_font("Arial", "", 9)
+                pdf.set_text_color(71, 85, 105)
+                pdf.cell(90, 5, clean_fpdf_str(f"VENDEDOR: {vendedor}"), ln=True)
+
+                pdf.set_x(14)
+                pdf.cell(90, 5, clean_fpdf_str(periodo_label), ln=False)
+                pdf.cell(90, 5, clean_fpdf_str(f"FACTURAS SELECCIONADAS: {len(facturas_a_incluir)}"), ln=True)
+
+                pdf.set_x(14)
+                pdf.set_font("Arial", "B", 9)
+                pdf.set_text_color(220, 38, 38)
+                pdf.cell(90, 5, clean_fpdf_str(f"SALDO TOTAL PENDIENTE: ${tot_p:,.0f}"), ln=False)
+                pdf.set_text_color(22, 163, 74)
+                pdf.cell(90, 5, clean_fpdf_str(f"TOTAL ABONADO: ${tot_a:,.0f}"), ln=True)
+
+                pdf.set_y(y_box + 26)
+
+                # Tabla Header
+                pdf.set_fill_color(15, 23, 42)
+                pdf.set_text_color(255, 255, 255)
+                pdf.set_font("Arial", "B", 8.5)
+
+                col_w = [24, 28, 30, 28, 28, 28, 24]
+                headers = ["FECHA", "TIPO DOC.", "FACTURA NO.", "TOTAL FAC.", "TOTAL ABON.", "SALDO PEND.", "ESTADO"]
+                for w, h in zip(col_w, headers):
+                    pdf.cell(w, 7, clean_fpdf_str(h), border=1, align="C", fill=True)
+                pdf.ln(7)
+
+                pdf.set_font("Arial", "", 8)
+                for idx, r in enumerate(facturas_a_incluir):
+                    fill = (idx % 2 == 1)
+                    pdf.set_fill_color(248, 250, 252) if fill else pdf.set_fill_color(255, 255, 255)
+                    pdf.set_text_color(15, 23, 42)
+
+                    r_fec = str(r.get("fecha") or "")
+                    r_tipo = str(r.get("tipo_documento") or "Factura")
+                    r_fac = str(r.get("factura_no") or "")
+                    r_tot = float(r.get("total_factura") or 0.0)
+                    r_ab = float(r.get("total_abonado") or 0.0)
+                    r_saldo = float(r.get("saldo_pendiente") or 0.0)
+                    r_est = str(r.get("estado_factura") or "PENDIENTE")
+
+                    pdf.cell(col_w[0], 6, r_fec, border="LRB", align="C", fill=fill)
+                    pdf.cell(col_w[1], 6, clean_fpdf_str(r_tipo), border="LRB", align="L", fill=fill)
+
+                    pdf.set_font("Arial", "B", 8)
+                    pdf.cell(col_w[2], 6, r_fac, border="LRB", align="C", fill=fill)
+
+                    pdf.set_font("Arial", "", 8)
+                    pdf.cell(col_w[3], 6, f"${r_tot:,.0f}", border="LRB", align="R", fill=fill)
+
+                    pdf.set_text_color(22, 163, 74)
+                    pdf.cell(col_w[4], 6, f"${r_ab:,.0f}", border="LRB", align="R", fill=fill)
+
+                    if r_saldo > 0:
+                        pdf.set_font("Arial", "B", 8)
+                        pdf.set_text_color(220, 38, 38)
+                    else:
+                        pdf.set_font("Arial", "", 8)
+                        pdf.set_text_color(100, 116, 139)
+                    pdf.cell(col_w[5], 6, f"${r_saldo:,.0f}", border="LRB", align="R", fill=fill)
+
+                    pdf.set_font("Arial", "B", 7.5)
+                    if r_est == "PAGADA":
+                        pdf.set_text_color(22, 163, 74)
+                    elif r_est == "PARCIAL":
+                        pdf.set_text_color(217, 119, 6)
+                    else:
+                        pdf.set_text_color(220, 38, 38)
+                    pdf.cell(col_w[6], 6, r_est, border="LRB", align="C", fill=fill)
+                    pdf.ln(6)
+
+                # Totales Finales
+                pdf.ln(3)
+                pdf.set_fill_color(241, 245, 249)
+                pdf.set_draw_color(203, 213, 225)
+                pdf.set_font("Arial", "B", 8.5)
+                pdf.set_text_color(15, 23, 42)
+
+                pdf.cell(col_w[0] + col_w[1] + col_w[2], 7, "TOTALES CONSOLIDADOS (SELECCIÓN):", border=1, align="R", fill=True)
+                pdf.cell(col_w[3], 7, f"${tot_f:,.0f}", border=1, align="R", fill=True)
+                pdf.set_text_color(22, 163, 74)
+                pdf.cell(col_w[4], 7, f"${tot_a:,.0f}", border=1, align="R", fill=True)
+                pdf.set_text_color(220, 38, 38)
+                pdf.cell(col_w[5], 7, f"${tot_p:,.0f}", border=1, align="R", fill=True)
+                pdf.set_text_color(100, 116, 139)
+                pdf.cell(col_w[6], 7, "-", border=1, align="C", fill=True)
+                pdf.ln(8)
+
+                # Guardar PDF
+                user_home = os.path.expanduser("~")
+                downloads_dir = os.path.join(user_home, "Downloads")
+                if not os.path.exists(downloads_dir):
+                    downloads_dir = tempfile.gettempdir()
+
+                nom_sanitizado = "".join(c for c in nom_cliente if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
+                ts_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"Informe_Cartera_{nom_sanitizado}_{ts_str}.pdf"
+                out_path = os.path.join(downloads_dir, filename)
+
+                pdf.output(out_path)
+
+                if os.path.exists(out_path):
+                    try:
+                        os.startfile(out_path)
+                    except Exception:
+                        pass
+                    self._mostrar_snackbar(f"✓ PDF generado: {filename}", "green")
+                else:
+                    self._mostrar_snackbar("Error generando archivo PDF.", "red")
+
+            except Exception as ex:
+                log_error("CarteraView.exportar_pdf", ex)
+                self._mostrar_snackbar(f"Error generando PDF: {ex}", "red")
+
+        # Botones de Acción en el pie del modal
+        btn_copiar = ft.ElevatedButton(
+            text="Copiar al Portapapeles",
+            icon=ft.icons.COPY_ALL_ROUNDED,
+            bgcolor=Config.COLOR_PRIMARY,
+            color="white",
+            height=36,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=copiar_al_portapapeles
+        )
+
+        btn_pdf = ft.ElevatedButton(
+            text="Descargar PDF",
+            icon=ft.icons.PICTURE_AS_PDF_ROUNDED,
+            bgcolor="#DC2626",
+            color="white",
+            height=36,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+            on_click=exportar_pdf
+        )
+
+        dlg = ft.AlertDialog(
+            title=ft.Row([
+                ft.Icon(ft.icons.ASSESSMENT_ROUNDED, color=Config.COLOR_PRIMARY, size=24),
+                ft.Column([
+                    ft.Text(f"Informe de Facturas: {nom_cliente}", size=15, weight="bold", color=Config.COLOR_PRIMARY),
+                    ft.Text(f"Vendedor: {vendedor} | Filtra, selecciona con casilla y exporta el reporte", size=10.5, color=Config.COLOR_TEXT_MUTED)
+                ], spacing=1, expand=True),
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            content=ft.Container(
+                content=ft.Column([
+                    # Fila 1: Filtros
+                    ft.Row([
+                        dd_periodo,
+                        dd_estado,
+                        dd_tipo_doc,
+                        txt_buscar
+                    ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+
+                    # Fila 2: KPIs dinámicos
+                    row_kpis_modal,
+
+                    # Fila 3: Selección y tabla
+                    ft.Row([
+                        chk_todos,
+                        ft.Container(expand=True),
+                        lbl_kpi_conteo
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+
+                    container_tabla_modal
+                ], spacing=8, tight=True),
+                width=800,
+                height=480
+            ),
+            actions=[
+                ft.TextButton("Cerrar", on_click=lambda e: self._cerrar_modal(dlg)),
+                btn_copiar,
+                btn_pdf
             ]
         )
 

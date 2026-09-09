@@ -637,6 +637,7 @@
       <li class="nav-item"><a href="#ajustes"><i class="fa-solid fa-wand-magic-sparkles"></i> 6. Ajustes con IA</a></li>
       <li class="nav-item"><a href="#cierres"><i class="fa-solid fa-clipboard-check"></i> 7. Cierre & Conciliación</a></li>
       <li class="nav-item"><a href="#mobile"><i class="fa-solid fa-mobile-screen-button"></i> 8. App Web Móvil</a></li>
+      <li class="nav-item"><a href="#catalogos"><i class="fa-solid fa-book-open"></i> 9. Catálogos Comerciales</a></li>
     </ul>
 
     <div class="nav-section">Reportes & Legal</div>
@@ -1441,6 +1442,139 @@
         </tbody>
       </table>
     </section>
+ 
+    <!-- ─── 9. CATÁLOGOS COMERCIALES Y EXPORTACIÓN PDF ─── -->
+    <section id="catalogos" class="doc-section">
+      <div class="section-title"><i class="fa-solid fa-book-open"></i> 9. Módulo: Catálogos Comerciales & Exportación PDF</div>
+      <p class="section-lead">Herramienta editorial avanzada para la diagramación, edición visual en tiempo real, gestión de precios oficiales y exportación de catálogos comerciales vectoriales en PDF de alta resolución para WhatsApp, correo electrónico o impresión profesional.</p>
+
+      <div class="callout callout-info">
+        <i class="fa-solid fa-layer-group"></i>
+        <div>
+          <strong>Sincronización Total en Vivo:</strong> Cualquier cambio de precio de venta o ajuste realizado en el Catálogo Maestro o en el editor visual se propaga automáticamente a las tarjetas, tablas de resumen, vista previa HTML interactiva y documentos PDF exportados.
+        </div>
+      </div>
+
+      <h3 style="margin: 24px 0 12px 0; color: var(--primary);">Las 6 Líneas Oficiales de Catálogo</h3>
+      <table class="data-table-doc">
+        <thead>
+          <tr>
+            <th>Línea de Catálogo</th>
+            <th>Identidad Visual & Color</th>
+            <th>Subtítulo Oficial</th>
+            <th>Capacidad y Estructura</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Línea de Aseo</strong></td>
+            <td><span class="badge" style="background:#E0F2FE; color:#0369A1;"><i class="fa-solid fa-spray-can-sparkles"></i> Azul Aseo (#0096C7)</span></td>
+            <td>LÍNEA DE ASEO INSTITUCIONAL</td>
+            <td>Cuadrícula 2x2 (4 ítems/pág) + Tablas Maestras estandarizadas (30 ítems/pág).</td>
+          </tr>
+          <tr>
+            <td><strong>Línea de Bolsas</strong></td>
+            <td><span class="badge" style="background:#D1FAE5; color:#047857;"><i class="fa-solid fa-bag-shopping"></i> Verde Empaques (#059669)</span></td>
+            <td>LÍNEA DE BOLSAS Y EMPAQUES</td>
+            <td>Cuadrícula 2x2 (4 ítems/pág) + Tablas Maestras estandarizadas (30 ítems/pág).</td>
+          </tr>
+          <tr>
+            <td><strong>Línea de Desechables</strong></td>
+            <td><span class="badge" style="background:#FEF3C7; color:#B45309;"><i class="fa-solid fa-utensils"></i> Ámbar Desechables (#D97706)</span></td>
+            <td>LÍNEA DE DESECHABLES Y EPP</td>
+            <td>Layout Horizontal Row (4 ítems/pág) + Cabecera nativa con control de logo + Tablas Maestras.</td>
+          </tr>
+          <tr>
+            <td><strong>Línea de Papelería</strong></td>
+            <td><span class="badge" style="background:#DBEAFE; color:#1D4ED8;"><i class="fa-solid fa-file-lines"></i> Azul Comercial (#2563EB)</span></td>
+            <td>LÍNEA DE PAPELERÍA COMERCIAL</td>
+            <td>Cuadrícula 2x2 (4 ítems/pág) + Tablas Maestras estandarizadas (30 ítems/pág).</td>
+          </tr>
+          <tr>
+            <td><strong>Línea de Repostería</strong></td>
+            <td><span class="badge" style="background:#FCE7F3; color:#BE185D;"><i class="fa-solid fa-cake-candles"></i> Rosa Dulcería (#DB2777)</span></td>
+            <td>LÍNEA DE REPOSTERÍA Y DULCERÍA</td>
+            <td>Cuadrícula 2x2 (4 ítems/pág) + Tablas Maestras estandarizadas (30 ítems/pág).</td>
+          </tr>
+          <tr>
+            <td><strong>Línea de Salsamentaria</strong></td>
+            <td><span class="badge" style="background:#FEE2E2; color:#B91C1C;"><i class="fa-solid fa-burger"></i> Rojo Condimentos (#DC2626)</span></td>
+            <td>LÍNEA DE SALSAMENTARIA Y CONDIMENTOS</td>
+            <td>Cuadrícula 2x2 (4 ítems/pág) + Tablas Maestras estandarizadas (30 ítems/pág).</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 style="margin: 28px 0 12px 0; color: var(--primary);">Modos de Visualización y Edición</h3>
+      <div class="steps-flow">
+        <div class="step-box">
+          <div class="step-num"><i class="fa-solid fa-table-cells-large"></i></div>
+          <div class="step-content">
+            <h4>1. Gestionar Rejilla (Editor Visual de Cuadrícula)</h4>
+            <p>Permite navegar página por página como en una revista impresa. Muestra los 4 slots por página con sus fotos de Supabase Storage, precios formateados en COP con IVA incluido, códigos y descripciones. Permite reordenar insumos, desasignar slots, editar textos en vivo y crear nuevas páginas independientes.</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num"><i class="fa-solid fa-table-list"></i></div>
+          <div class="step-content">
+            <h4>2. Gestionar Tabla (Listado Maestro Estandarizado)</h4>
+            <p>Ofrece una vista consolidada en formato tabla con paginación exacta de <strong>30 insumos por página</strong>, garantizando que todas las páginas del índice tengan una distribución uniforme y profesional hasta la última página.</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num"><i class="fa-solid fa-file-code"></i></div>
+          <div class="step-content">
+            <h4>3. Vista Previa HTML & Zoom Óptico</h4>
+            <p>Genera la vista web en vivo del catálogo con zoom óptico dinámico (1.22x) en fotos para eliminar marcos blancos, y un diseño editorial exclusivo para productos sin fotografía (evitando espacios vacíos o avisos antiestéticos de "Sin foto").</p>
+          </div>
+        </div>
+        <div class="step-box">
+          <div class="step-num"><i class="fa-solid fa-file-pdf"></i></div>
+          <div class="step-content">
+            <h4>4. Exportación a PDF Vectorial Headless</h4>
+            <p>Compila el documento utilizando el motor de Microsoft Edge o Google Chrome en modo Headless, generando un PDF vectorial de máxima definición gráfica, con numeración correlativa automática (<em>Página X de Y</em>) y control milimétrico de cabeceras y márgenes.</p>
+          </div>
+        </div>
+      </div>
+
+      <h3 style="margin: 28px 0 12px 0; color: var(--primary);">Reglas Clave de Operación y Validación</h3>
+      <div class="kpi-detail-card">
+        <div class="kpi-detail-header">
+          <div class="kpi-detail-title"><i class="fa-solid fa-shield-halved" style="color:#2563EB;"></i> Reglas Maestras del Editor de Catálogos</div>
+          <span class="badge badge-purple">Integridad Editorial</span>
+        </div>
+        <table class="data-table-doc" style="margin-top: 10px;">
+          <thead>
+            <tr>
+              <th>Regla / Funcionalidad</th>
+              <th>Comportamiento del Sistema</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Deduplicación Estricta</strong></td>
+              <td>Un insumo solo puede existir <strong>1 sola vez dentro del mismo catálogo</strong>. Si se agrega un insumo a una nueva página, el sistema advierte que ya está asignado y lo traslada automáticamente sin duplicar registros. Un insumo sí puede pertenecer a catálogos de diferentes líneas.</td>
+            </tr>
+            <tr>
+              <td><strong>Modal de Asignación con Paginador</strong></td>
+              <td>El selector de insumos cuenta con buscador en tiempo real, filtro por categoría, badges de estado indicando en qué catálogo/página se encuentra y selector múltiple para ubicar hasta 4 insumos de una sola vez.</td>
+            </tr>
+            <tr>
+              <td><strong>Creación de Páginas Independientes</strong></td>
+              <td>Al presionar "Nueva Página", el sistema crea una página autónoma e independiente, sin sobreescribir ni rellenar forzadamente huecos de páginas anteriores.</td>
+            </tr>
+            <tr>
+              <td><strong>Edición Dinámica de Familia</strong></td>
+              <td>El botón "Editar Familia" (en la barra superior y en el encabezado de cada página) permite modificar el título editorial de la familia y el subtítulo de la categoría por página con reflejo inmediato en el HTML y PDF.</td>
+            </tr>
+            <tr>
+              <td><strong>Diseño Híbrido Con/Sin Foto</strong></td>
+              <td>Los insumos con fotografía disfrutan de zoom óptico integrado, mientras que los insumos sin foto se presentan con una tarjeta editorial de lujo (con micro-etiqueta oficial, nombre destacado y divisor corporativo), logrando una presentación impecable y uniforme.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
     <!-- ─── CATÁLOGO DE INFORMES ─── -->
     <section id="reportes" class="doc-section">
@@ -1499,6 +1633,12 @@
             <td>Por Período (Mes/Día)</td>
             <td>Informe ejecutivo para junta directiva con rentabilidad bruta, rotación y efectividad de recaudo.</td>
           </tr>
+          <tr>
+            <td><strong>Catálogos Comerciales (6 Líneas)</strong></td>
+            <td>PDF Vectorial & HTML</td>
+            <td>Tiempo Real (Vigente)</td>
+            <td>Publicación comercial de alta definición para ventas (Aseo, Bolsas, Desechables, Papelería, Repostería y Salsamentaria) con fotos optimizadas, precios con IVA y tablas de 30 ítems/pág.</td>
+          </tr>
         </tbody>
       </table>
     </section>
@@ -1506,6 +1646,11 @@
     <!-- ─── PREGUNTAS FRECUENTES ─── -->
     <section id="faq" class="doc-section">
       <div class="section-title"><i class="fa-solid fa-circle-question"></i> Preguntas Frecuentes (FAQ)</div>
+      
+      <div class="faq-item">
+        <div class="faq-question">¿Cómo se actualizan los precios y fotos en los Catálogos Comerciales? <i class="fa-solid fa-chevron-down"></i></div>
+        <div class="faq-answer">Los precios se actualizan de forma instantánea al consultar la base de datos de Supabase. Al modificar el precio de venta de un insumo en el Catálogo de Inventario o en la vista del editor visual, el cambio se refleja automáticamente en la vista previa HTML y en la exportación PDF sin necesidad de reconfigurar las páginas. Las fotografías se sincronizan directamente desde el bucket seguro de Supabase Storage (<code>catalogo_fotos</code>).</div>
+      </div>
       
       <div class="faq-item">
         <div class="faq-question">¿Por qué el informe de Excel contiene todos los meses y el PDF solo el período seleccionado? <i class="fa-solid fa-chevron-down"></i></div>
